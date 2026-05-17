@@ -1,0 +1,22 @@
+{
+  "name": "bestbudget",
+  "private": true,
+  "packageManager": "pnpm@10.27.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @bestbudget/frontend --filter @bestbudget/backend dev",
+    "dev:frontend": "pnpm --filter @bestbudget/frontend dev",
+    "dev:backend": "pnpm --filter @bestbudget/backend dev",
+    "build": "pnpm -r --if-present build",
+    "lint": "pnpm -r --if-present lint",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "db:generate": "pnpm --filter @bestbudget/backend db:generate",
+    "db:migrate": "pnpm --filter @bestbudget/backend db:migrate",
+    "db:studio": "pnpm --filter @bestbudget/backend db:studio",
+    "mcp:dev": "pnpm --filter @bestbudget/backend mcp:dev",
+    "mcp:build": "pnpm --filter @bestbudget/backend build"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

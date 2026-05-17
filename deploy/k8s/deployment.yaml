@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bestbudget-api
+  namespace: bestbudget
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bestbudget-api
+  template:
+    metadata:
+      labels:
+        app: bestbudget-api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/your-org/bestbudget:latest
+          ports:
+            - containerPort: 8089
+          envFrom:
+            - secretRef:
+                name: bestbudget-env
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8089
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8089

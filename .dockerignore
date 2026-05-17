@@ -1,0 +1,12 @@
+.git
+.github
+.vscode
+node_modules
+**/node_modules
+**/dist
+**/.DS_Store
+.env
+.env.*
+!.env.example
+docs/screenshots
+project-task.md

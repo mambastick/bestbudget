@@ -1,0 +1,79 @@
+openapi: 3.1.0
+info:
+  title: BestBudget API
+  version: 0.1.0
+servers:
+  - url: http://localhost:8089
+paths:
+  /health/live:
+    get:
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Service is alive
+  /health/ready:
+    get:
+      summary: Readiness probe
+      responses:
+        "200":
+          description: Service readiness state
+  /api/calendar:
+    get:
+      summary: Month calendar projection
+      parameters:
+        - name: householdId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: month
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^\\d{4}-\\d{2}$"
+      responses:
+        "200":
+          description: Month calendar items
+  /api/calendar/day:
+    get:
+      summary: Selected day panel data
+      parameters:
+        - name: householdId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Day summary and items
+  /auth/oidc/{provider}/start:
+    post:
+      summary: Start OIDC sign-in
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "501":
+          description: Provider is not configured yet
+  /auth/saml/{provider}/metadata:
+    get:
+      summary: SAML service provider metadata
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SAML metadata XML
