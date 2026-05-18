@@ -1,5 +1,6 @@
 # dependencies
 node_modules/
+.pnpm-store/
 .pnp
 .pnp.*
 
@@ -11,6 +12,7 @@ build/
 coverage/
 *.tsbuildinfo
 next-env.d.ts
+.playwright-cli/
 
 # env and local state
 .env

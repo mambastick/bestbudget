@@ -1,0 +1,25 @@
+name: bestbudget-dev
+
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: deploy/dev/Dockerfile
+    container_name: bestbudget-dev
+    working_dir: /app
+    environment:
+      CI: "true"
+      NODE_ENV: development
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "${APP_PORT:-5173}:5173"
+    volumes:
+      - ../..:/app
+      - node-modules:/app/node_modules
+      - pnpm-store:/pnpm/store
+    command: sh -lc "pnpm install --frozen-lockfile && pnpm dev --host 0.0.0.0 --port 5173"
+
+volumes:
+  node-modules:
+  pnpm-store:

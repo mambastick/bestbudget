@@ -1,25 +1,11 @@
 {
   "servers": {
-    "bestbudget-project": {
-      "type": "stdio",
-      "command": "pnpm",
-      "args": [
-        "--dir",
-        "/home/golodniy/Документы/Projects/bestbudget",
-        "--filter",
-        "@bestbudget/backend",
-        "mcp:dev"
-      ],
-      "env": {
-        "BESTBUDGET_ROOT": "/home/golodniy/Документы/Projects/bestbudget"
-      }
-    },
     "shadcn": {
       "type": "stdio",
       "command": "pnpm",
       "args": [
         "--dir",
-        "/home/golodniy/Документы/Projects/bestbudget/frontend",
+        "/home/golodniy/Документы/Projects/bestbudget",
         "dlx",
         "shadcn@latest",
         "mcp"

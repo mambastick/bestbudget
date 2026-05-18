@@ -3,8 +3,13 @@
 .vscode
 node_modules
 **/node_modules
+.pnpm-store
 **/dist
 **/.DS_Store
+.playwright-cli
+.data
+coverage
+*.tsbuildinfo
 .env
 .env.*
 !.env.example
