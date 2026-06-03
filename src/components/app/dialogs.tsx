@@ -93,9 +93,9 @@ export function WorkspaceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Новое пространство</DialogTitle>
+          <DialogTitle>Новый бюджет</DialogTitle>
           <DialogDescription>
-            Создайте индивидуальный или совместный бюджет.
+            Выберите название, валюту и формат доступа.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
@@ -111,21 +111,21 @@ export function WorkspaceDialog({
               />
             </Field>
             <Field>
-              <FieldLabel>Модель доступа</FieldLabel>
+              <FieldLabel>Кто будет пользоваться</FieldLabel>
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   type="button"
                   variant={accessMode === "shared" ? "default" : "outline"}
                   onClick={() => setAccessMode("shared")}
                 >
-                  Совместное
+                  Вместе
                 </Button>
                 <Button
                   type="button"
                   variant={accessMode === "individual" ? "default" : "outline"}
                   onClick={() => setAccessMode("individual")}
                 >
-                  Индивидуальное
+                  Только я
                 </Button>
               </div>
             </Field>
@@ -519,7 +519,7 @@ export function InviteDialog({
         <DialogHeader>
           <DialogTitle>Пригласить участника</DialogTitle>
           <DialogDescription>
-            Пользователь появится в карточке пространства со статусом invited.
+            Участник появится в списке семьи со статусом приглашения.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
@@ -722,7 +722,7 @@ export function DocumentDialog({
         <DialogHeader>
           <DialogTitle>Загрузить документ</DialogTitle>
           <DialogDescription>
-            Документ сохраняется как запись активного пространства.
+            Документ будет привязан к выбранному бюджету.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>

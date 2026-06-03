@@ -147,15 +147,11 @@ body {
   .auth-shell {
     display: grid;
     place-items: center;
-    background:
-      radial-gradient(circle at 12% 8%, oklch(0.78 0.12 255 / 24%), transparent 28rem),
-      linear-gradient(180deg, oklch(0.99 0 0), oklch(0.965 0.004 255));
+    background: linear-gradient(180deg, oklch(0.99 0 0), oklch(0.955 0.006 255));
   }
 
   .app-main {
-    background:
-      radial-gradient(circle at 100% 0%, oklch(0.8 0.1 255 / 16%), transparent 28rem),
-      linear-gradient(180deg, oklch(1 0 0), oklch(0.985 0 0));
+    background: linear-gradient(180deg, oklch(1 0 0), oklch(0.985 0 0));
     min-height: calc(100svh - 3.5rem);
   }
 

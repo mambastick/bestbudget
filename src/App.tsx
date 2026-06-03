@@ -57,19 +57,19 @@ import type { AppDatabase, Category, View } from "@/domain/types"
 const viewMeta: Record<View, { title: string; description: string }> = {
   overview: {
     title: "Обзор",
-    description: "Сводка операций, бюджетов, документов и платежей.",
+    description: "Главные цифры, последние операции и ближайшие платежи.",
   },
   transactions: {
     title: "Операции",
-    description: "Доходы и расходы активного пространства.",
+    description: "Доходы и расходы выбранного бюджета.",
   },
   budgets: {
     title: "Бюджеты",
-    description: "Лимиты по шаблонным и пользовательским категориям.",
+    description: "Лимиты по категориям и прогресс расходов.",
   },
   calendar: {
     title: "Календарь",
-    description: "Месячный план операций, платежей и обязательств.",
+    description: "Платежи, расходы и доходы по дням.",
   },
   liabilities: {
     title: "Кредиты",
@@ -77,15 +77,15 @@ const viewMeta: Record<View, { title: string; description: string }> = {
   },
   documents: {
     title: "Документы",
-    description: "PDF, чеки и файлы активного пространства.",
+    description: "PDF, чеки и файлы по выбранному бюджету.",
   },
   family: {
     title: "Семья",
-    description: "Участники, роли и приглашения пространства.",
+    description: "Доступ семьи или команды к общему бюджету.",
   },
   settings: {
     title: "Настройки",
-    description: "Аккаунт и управление рабочими пространствами.",
+    description: "Аккаунт и бюджеты, с которыми вы работаете.",
   },
 }
 
@@ -178,7 +178,7 @@ export default function App() {
 
   function openWorkspaceRequiredDialog(dialog: Exclude<DialogName, null>) {
     if (!activeWorkspace && dialog !== "workspace") {
-      toast.warning("Сначала создайте пространство")
+      toast.warning("Сначала создайте бюджет")
       setOpenDialog("workspace")
       return
     }
@@ -192,7 +192,7 @@ export default function App() {
     }
 
     const nextDb = createWorkspaceForUser(db, user, input)
-    persist(nextDb, "Пространство создано")
+    persist(nextDb, "Бюджет создан")
     setOpenDialog(null)
     setActiveView("overview")
   }
@@ -392,7 +392,7 @@ export default function App() {
         onOpenNotifications={() => setNotificationsOpen(true)}
         onLogout={handleLogout}
       >
-        <main className="app-main flex min-w-0 flex-col gap-4 p-4">
+        <main className="app-main flex min-w-0 flex-col gap-5 p-4 lg:p-5">
           <PageHeader title={meta.title} description={meta.description} />
           {activeView === "overview" ? (
             <OverviewScreen
@@ -522,7 +522,7 @@ function NotificationsSheet({
       <SheetContent>
         <SheetHeader>
           <SheetTitle>Уведомления</SheetTitle>
-          <SheetDescription>Последние действия пространства.</SheetDescription>
+          <SheetDescription>Последние действия по бюджету.</SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-2 px-4 pb-4">
           {items.length ? (

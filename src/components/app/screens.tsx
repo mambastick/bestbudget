@@ -44,6 +44,7 @@ import {
 import { formatDateKey, formatHumanDate, formatMoney, getInitials } from "@/domain/format"
 import { getCurrency } from "@/domain/presets"
 import { getCategory, matchesSearch, summarizeWorkspace } from "@/domain/selectors"
+import { cn } from "@/lib/utils"
 import type {
   Budget,
   Category,
@@ -73,6 +74,54 @@ const chartConfig = {
   },
 } satisfies ChartConfig
 
+const roleLabels: Record<Workspace["members"][number]["role"], string> = {
+  owner: "Владелец",
+  admin: "Админ",
+  member: "Участник",
+  observer: "Просмотр",
+}
+
+const memberStatusLabels: Record<Workspace["members"][number]["status"], string> = {
+  active: "Доступ открыт",
+  invited: "Приглашение отправлено",
+}
+
+const documentStatusLabels: Record<DocumentRecord["status"], string> = {
+  uploaded: "Загружен",
+  checked: "Проверен",
+}
+
+const monthFormatter = new Intl.DateTimeFormat("ru-RU", {
+  month: "long",
+  year: "numeric",
+})
+const weekdayFormatter = new Intl.DateTimeFormat("ru-RU", {
+  weekday: "short",
+})
+const dayLabelFormatter = new Intl.DateTimeFormat("ru-RU", {
+  day: "numeric",
+  month: "long",
+  weekday: "long",
+  year: "numeric",
+})
+
+function formatCalendarMonth(date: Date) {
+  return monthFormatter.format(date)
+}
+
+function formatCalendarWeekday(date: Date) {
+  return weekdayFormatter.format(date).replace(".", "")
+}
+
+function labelCalendarDay(date: Date, modifiers: Record<string, boolean>) {
+  const states = [
+    modifiers.today ? "сегодня" : "",
+    modifiers.selected ? "выбрано" : "",
+  ].filter(Boolean)
+
+  return [dayLabelFormatter.format(date), ...states].join(", ")
+}
+
 export function PageHeader({
   title,
   description,
@@ -92,16 +141,16 @@ function EmptyWorkspace({ onCreate }: { onCreate: () => void }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Пространство не создано</CardTitle>
+        <CardTitle>Бюджет еще не создан</CardTitle>
         <CardDescription>
-          Создайте индивидуальное или совместное пространство, чтобы вести
-          операции, бюджеты, календарь и приглашения.
+          Создайте личный или совместный бюджет, чтобы добавлять операции,
+          лимиты и платежи в календарь.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <Button onClick={onCreate}>
           <PlusIcon data-icon="inline-start" />
-          Создать пространство
+          Создать бюджет
         </Button>
       </CardContent>
     </Card>
@@ -113,25 +162,46 @@ function MetricCard({
   value,
   description,
   icon: Icon,
+  emphasis = false,
 }: {
   title: string
   value: string
   description: string
   icon: typeof WalletIcon
+  emphasis?: boolean
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardDescription>{title}</CardDescription>
-        <CardTitle>{value}</CardTitle>
-        <CardAction>
-          <Icon className="text-muted-foreground" />
-        </CardAction>
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </CardContent>
-    </Card>
+    <div
+      className={cn(
+        "rounded-xl border bg-background p-4",
+        emphasis && "border-zinc-900 bg-zinc-950 text-white"
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div
+            className={cn(
+              "text-sm text-muted-foreground",
+              emphasis && "text-white/60"
+            )}
+          >
+            {title}
+          </div>
+          <div className="mt-2 text-2xl font-semibold tracking-normal">
+            {value}
+          </div>
+        </div>
+        <Icon className={cn("text-muted-foreground", emphasis && "text-white/50")} />
+      </div>
+      <p
+        className={cn(
+          "mt-4 text-sm text-muted-foreground",
+          emphasis && "text-white/60"
+        )}
+      >
+        {description}
+      </p>
+    </div>
   )
 }
 
@@ -161,40 +231,43 @@ export function OverviewScreen({
   const cashflow = buildCashflow(transactions)
 
   return (
-    <FadeContent className="flex flex-col gap-4">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <FadeContent className="flex flex-col gap-5">
+      <section className="grid gap-3 xl:grid-cols-[1.1fr_1.4fr]">
         <MetricCard
           title="Свободный остаток"
           value={formatMoney(summary.balance, currency)}
-          description="Доходы минус расходы."
+          description="Сумма после всех записанных доходов и расходов."
           icon={WalletIcon}
+          emphasis
         />
-        <MetricCard
-          title="Расходы"
-          value={formatMoney(summary.expense, currency)}
-          description={`${transactions.length} операций.`}
-          icon={ArrowDownRightIcon}
-        />
-        <MetricCard
-          title="Бюджеты"
-          value={`${summary.budgetCount}`}
-          description="Активные лимиты по категориям."
-          icon={PiggyBankIcon}
-        />
-        <MetricCard
-          title="Документы"
-          value={`${documents.length}`}
-          description="Загруженные файлы пространства."
-          icon={FileTextIcon}
-        />
-      </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <MetricCard
+            title="Расходы"
+            value={formatMoney(summary.expense, currency)}
+            description={`${transactions.length} операций в списке.`}
+            icon={ArrowDownRightIcon}
+          />
+          <MetricCard
+            title="Лимиты"
+            value={`${summary.budgetCount}`}
+            description="Категории с заданным бюджетом."
+            icon={PiggyBankIcon}
+          />
+          <MetricCard
+            title="Документы"
+            value={`${documents.length}`}
+            description="Чеки, договоры и файлы."
+            icon={FileTextIcon}
+          />
+        </div>
+      </section>
 
       <div className="grid gap-4 xl:grid-cols-[1.4fr_0.8fr]">
         <Card>
           <CardHeader>
             <CardTitle>Доходы и расходы</CardTitle>
             <CardDescription>
-              Последние 6 месяцев по активному пространству.
+              Последние 6 месяцев по выбранному бюджету.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -230,7 +303,7 @@ export function OverviewScreen({
         <Card>
           <CardHeader>
             <CardTitle>Категории</CardTitle>
-            <CardDescription>Шаблоны активного пространства.</CardDescription>
+            <CardDescription>Готовые и добавленные вручную.</CardDescription>
           </CardHeader>
           <CardContent>
             <AnimatedList className="grid gap-2">
@@ -244,7 +317,7 @@ export function OverviewScreen({
                     <span className="font-medium">{category.name}</span>
                   </span>
                   <Badge variant={category.custom ? "secondary" : "outline"}>
-                    {category.custom ? "custom" : "preset"}
+                    {category.custom ? "Своя" : "Шаблон"}
                   </Badge>
                 </div>
               ))}
@@ -299,20 +372,24 @@ export function TransactionsScreen({
   })
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{compact ? "Последние операции" : "Операции"}</CardTitle>
-        <CardDescription>
-          {searchQuery ? `Фильтр: ${searchQuery}` : "Доходы и расходы."}
-        </CardDescription>
-        <CardAction>
+    <section className="rounded-xl border bg-background">
+      <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="font-medium">
+            {compact ? "Последние операции" : "Операции"}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {searchQuery ? `Фильтр: ${searchQuery}` : "Доходы и расходы."}
+          </p>
+        </div>
+        <div>
           <Button variant="outline" onClick={() => onOpenDialog("transaction")}>
             <PlusIcon data-icon="inline-start" />
             Операция
           </Button>
-        </CardAction>
-      </CardHeader>
-      <CardContent>
+        </div>
+      </div>
+      <div className="p-4">
         <div className="overflow-x-auto rounded-lg border">
           <Table>
             <TableHeader>
@@ -374,8 +451,8 @@ export function TransactionsScreen({
             </TableBody>
           </Table>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   )
 }
 
@@ -397,18 +474,22 @@ export function BudgetsScreen({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Бюджеты</CardTitle>
-        <CardDescription>Лимиты по категориям.</CardDescription>
-        <CardAction>
+    <section className="rounded-xl border bg-background">
+      <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="font-medium">Бюджеты</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Лимиты по категориям.
+          </p>
+        </div>
+        <div>
           <Button onClick={() => onOpenDialog("budget")}>
             <PlusIcon data-icon="inline-start" />
             Бюджет
           </Button>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="grid gap-3">
+        </div>
+      </div>
+      <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
         {budgets.length ? (
           budgets.map((budget) => {
             const category = getCategory(categories, budget.categoryId)
@@ -449,8 +530,8 @@ export function BudgetsScreen({
             onAction={() => onOpenDialog("budget")}
           />
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   )
 }
 
@@ -482,92 +563,181 @@ export function CalendarScreen({
   const dayLiabilities = liabilities.filter(
     (liability) => liability.nextPayment === selectedKey
   )
+  const dayIncome = dayTransactions
+    .filter((transaction) => transaction.type === "income")
+    .reduce((total, transaction) => total + transaction.amount, 0)
+  const dayExpense = dayTransactions
+    .filter((transaction) => transaction.type === "expense")
+    .reduce((total, transaction) => total + transaction.amount, 0)
+  const dayPayments = dayLiabilities.reduce(
+    (total, liability) => total + liability.monthlyPayment,
+    0
+  )
+  const selectedLabel = selectedDate.toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  })
+  const upcomingPayments = [...liabilities]
+    .sort((left, right) => left.nextPayment.localeCompare(right.nextPayment))
+    .slice(0, 4)
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
-      <Card>
-        <CardHeader>
-          <CardTitle>Календарь</CardTitle>
-          <CardDescription>
-            {selectedDate.toLocaleDateString("ru-RU", {
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-            })}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="rounded-lg border p-2">
-            <Calendar
-              mode="single"
-              selected={selectedDate}
-              onSelect={(date) => date && onDateChange(date)}
-              defaultMonth={selectedDate}
-              modifiers={{
-                event: [
-                  ...transactions.map(
-                    (transaction) => new Date(`${transaction.date}T12:00:00`)
-                  ),
-                  ...liabilities.map(
-                    (liability) => new Date(`${liability.nextPayment}T12:00:00`)
-                  ),
-                ],
-              }}
-              modifiersClassNames={{
-                event:
-                  "after:absolute after:bottom-1 after:left-1/2 after:size-1 after:-translate-x-1/2 after:rounded-full after:bg-primary",
-              }}
-            />
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,700px)_360px]">
+      <section className="flex min-w-0 flex-col rounded-xl border bg-background p-4">
+        <div className="mb-4 flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold tracking-normal">
+              План на месяц
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Отмечены дни с операциями и обязательными платежами.
+            </p>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <Button variant="outline" onClick={() => onOpenDialog("transaction")}>
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <Button
+              variant="outline"
+              onClick={() => onOpenDialog("transaction")}
+            >
               <CalendarPlusIcon data-icon="inline-start" />
               Операция
             </Button>
-            <Button variant="outline" onClick={() => onOpenDialog("liability")}>
+            <Button onClick={() => onOpenDialog("liability")}>
               <LandmarkIcon data-icon="inline-start" />
               Платеж
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+        <Calendar
+          mode="single"
+          ISOWeek
+          selected={selectedDate}
+          onSelect={(date) => date && onDateChange(date)}
+          defaultMonth={selectedDate}
+          className="mx-auto w-full max-w-[560px] p-0 [--cell-size:2.5rem]"
+          formatters={{
+            formatCaption: formatCalendarMonth,
+            formatWeekdayName: formatCalendarWeekday,
+          }}
+          labels={{
+            labelDayButton: labelCalendarDay,
+            labelGrid: formatCalendarMonth,
+            labelNext: () => "Следующий месяц",
+            labelPrevious: () => "Предыдущий месяц",
+          }}
+          classNames={{
+            root: "w-full",
+            months: "w-full",
+            month: "w-full",
+            month_grid: "w-full border-separate border-spacing-1",
+            weekdays: "grid grid-cols-7 gap-1",
+            weekday:
+              "flex h-8 items-center justify-center rounded-md text-xs font-medium uppercase text-muted-foreground",
+            week: "mt-1 grid grid-cols-7 gap-1",
+            day: "rounded-lg border bg-muted/20 transition-colors hover:bg-accent/70",
+            day_button:
+              "h-11 rounded-lg text-sm sm:h-12 data-[selected-single=true]:shadow-sm",
+          }}
+          modifiers={{
+            event: [
+              ...transactions.map(
+                (transaction) => new Date(`${transaction.date}T12:00:00`)
+              ),
+              ...liabilities.map(
+                (liability) => new Date(`${liability.nextPayment}T12:00:00`)
+              ),
+            ],
+          }}
+          modifiersClassNames={{
+            event:
+              "after:absolute after:bottom-2 after:left-1/2 after:size-1.5 after:-translate-x-1/2 after:rounded-full after:bg-primary",
+          }}
+        />
+      </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>События даты</CardTitle>
-          <CardDescription>
-            Операции, платежи и обязательства на выбранный день.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {[...dayTransactions, ...dayLiabilities].length ? (
+      <aside className="flex flex-col gap-4">
+        <section className="rounded-xl border bg-background p-4">
+          <p className="text-sm text-muted-foreground">Выбранная дата</p>
+          <h2 className="mt-1 text-xl font-semibold tracking-normal">
+            {selectedLabel}
+          </h2>
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <div className="rounded-lg bg-muted p-3">
+              <div className="text-xs text-muted-foreground">Доход</div>
+              <div className="mt-1 text-sm font-medium">
+                {formatMoney(dayIncome, workspace.currencyCode)}
+              </div>
+            </div>
+            <div className="rounded-lg bg-muted p-3">
+              <div className="text-xs text-muted-foreground">Расход</div>
+              <div className="mt-1 text-sm font-medium">
+                {formatMoney(dayExpense, workspace.currencyCode)}
+              </div>
+            </div>
+            <div className="rounded-lg bg-muted p-3">
+              <div className="text-xs text-muted-foreground">Платежи</div>
+              <div className="mt-1 text-sm font-medium">
+                {formatMoney(dayPayments, workspace.currencyCode)}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-xl border bg-background p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="font-medium">Записи за день</h3>
+              <p className="text-sm text-muted-foreground">
+                Операции и платежи на выбранную дату.
+              </p>
+            </div>
+            <Badge variant="outline">
+              {dayTransactions.length + dayLiabilities.length}
+            </Badge>
+          </div>
+          {dayTransactions.length || dayLiabilities.length ? (
             <AnimatedList className="grid gap-3">
               {dayTransactions.map((transaction) => {
                 const category = getCategory(categories, transaction.categoryId)
+                const signed =
+                  transaction.type === "expense"
+                    ? -transaction.amount
+                    : transaction.amount
                 return (
-                  <div key={transaction.id} className="rounded-lg border p-4">
+                  <div key={transaction.id} className="rounded-lg border p-3">
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-medium">{transaction.title}</div>
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">
+                          {transaction.title}
+                        </div>
                         <div className="mt-1 text-sm text-muted-foreground">
                           {category?.icon} {category?.name} ·{" "}
                           {transaction.account}
                         </div>
                       </div>
-                      <Badge variant="outline">
-                        {formatMoney(transaction.amount, workspace.currencyCode)}
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          transaction.type === "income"
+                            ? "text-emerald-700"
+                            : "text-rose-700"
+                        )}
+                      >
+                        {formatMoney(signed, workspace.currencyCode)}
                       </Badge>
                     </div>
                   </div>
                 )
               })}
               {dayLiabilities.map((liability) => (
-                <div key={liability.id} className="rounded-lg border p-4">
+                <div key={liability.id} className="rounded-lg border p-3">
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-medium">{liability.title}</div>
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">
+                        {liability.title}
+                      </div>
                       <div className="mt-1 text-sm text-muted-foreground">
-                        Плановый платеж · {liability.rate}%
+                        Плановый платеж · ставка {liability.rate}%
                       </div>
                     </div>
                     <Badge variant="outline">
@@ -581,15 +751,53 @@ export function CalendarScreen({
               ))}
             </AnimatedList>
           ) : (
-            <EmptyState
-              title="На выбранную дату записей нет"
-              description="Создайте операцию или плановый платеж прямо из календаря."
-              action="Добавить операцию"
-              onAction={() => onOpenDialog("transaction")}
-            />
+            <div className="rounded-lg border border-dashed p-4">
+              <div className="font-medium">На этот день записей нет</div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Добавьте расход, доход или плановый платеж.
+              </p>
+              <Button
+                variant="outline"
+                className="mt-4"
+                onClick={() => onOpenDialog("transaction")}
+              >
+                <PlusIcon data-icon="inline-start" />
+                Добавить операцию
+              </Button>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </section>
+
+        <section className="rounded-xl border bg-background p-4">
+          <h3 className="font-medium">Ближайшие платежи</h3>
+          <div className="mt-3 grid gap-2">
+            {upcomingPayments.length ? (
+              upcomingPayments.map((liability) => (
+                <div
+                  key={liability.id}
+                  className="flex items-center justify-between gap-3 rounded-lg bg-muted p-3"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">
+                      {liability.title}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {formatHumanDate(liability.nextPayment)}
+                    </div>
+                  </div>
+                  <div className="text-sm font-medium">
+                    {formatMoney(liability.monthlyPayment, workspace.currencyCode)}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Плановых платежей пока нет.
+              </p>
+            )}
+          </div>
+        </section>
+      </aside>
     </div>
   )
 }
@@ -615,8 +823,8 @@ export function FamilyScreen({
         <CardTitle>{workspace.name}</CardTitle>
         <CardDescription>
           {workspace.accessMode === "shared"
-            ? "Совместное пространство"
-            : "Индивидуальное пространство"}{" "}
+            ? "Совместный бюджет"
+            : "Личный бюджет"}{" "}
           · {currency.region} {currency.code}
         </CardDescription>
       </CardHeader>
@@ -636,10 +844,10 @@ export function FamilyScreen({
                     {member.email}
                   </div>
                 </div>
-                <Badge variant="outline">{member.role}</Badge>
+                <Badge variant="outline">{roleLabels[member.role]}</Badge>
               </div>
               <div className="mt-3 text-sm text-muted-foreground">
-                {member.status}
+                {memberStatusLabels[member.status]}
               </div>
             </div>
           ))}
@@ -757,7 +965,7 @@ export function DocumentsScreen({
     <Card>
       <CardHeader>
         <CardTitle>Документы</CardTitle>
-        <CardDescription>PDF и файлы пространства.</CardDescription>
+        <CardDescription>PDF, чеки и файлы по выбранному бюджету.</CardDescription>
         <CardAction>
           <Button onClick={() => onOpenDialog("document")}>
             <PlusIcon data-icon="inline-start" />
@@ -779,7 +987,9 @@ export function DocumentsScreen({
                     {document.fileName} · {document.linkedTo}
                   </div>
                 </div>
-                <Badge variant="outline">{document.status}</Badge>
+                <Badge variant="outline">
+                  {documentStatusLabels[document.status]}
+                </Badge>
               </div>
             ))}
           </div>
@@ -810,7 +1020,7 @@ export function SettingsScreen({
       <Card>
         <CardHeader>
           <CardTitle>Аккаунт</CardTitle>
-          <CardDescription>Текущий пользователь приложения.</CardDescription>
+          <CardDescription>Ваши данные для входа.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3">
           <div className="rounded-lg border p-4">
@@ -821,17 +1031,17 @@ export function SettingsScreen({
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>Активное пространство</CardTitle>
+          <CardTitle>Выбранный бюджет</CardTitle>
           <CardDescription>
             {workspace
-              ? "Настройки пространства доступны в разделе Семья."
-              : "Пространство еще не создано."}
+              ? "Участники и доступ находятся в разделе Семья."
+              : "Бюджет еще не создан."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Button onClick={() => onOpenDialog("workspace")}>
             <PlusIcon data-icon="inline-start" />
-            {workspace ? "Создать еще одно" : "Создать пространство"}
+            {workspace ? "Создать еще один" : "Создать бюджет"}
           </Button>
         </CardContent>
       </Card>

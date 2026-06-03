@@ -85,14 +85,14 @@ export function AppShell({
                   <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-semibold">BestBudget</span>
                     <span className="truncate text-xs text-muted-foreground">
-                      {activeWorkspace?.name ?? "Пространство не настроено"}
+                      {activeWorkspace?.name ?? "Бюджет не создан"}
                     </span>
                   </div>
                   <ChevronDownIcon />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-64" align="start">
                   <DropdownMenuGroup>
-                    <DropdownMenuLabel>Пространства</DropdownMenuLabel>
+                    <DropdownMenuLabel>Мои бюджеты</DropdownMenuLabel>
                     {workspaces.map((workspace) => (
                       <DropdownMenuItem
                         key={workspace.id}
@@ -102,7 +102,7 @@ export function AppShell({
                         <span className="truncate">{workspace.name}</span>
                         {workspace.id === activeWorkspace?.id ? (
                           <Badge variant="outline" className="ml-auto">
-                            active
+                            выбран
                           </Badge>
                         ) : null}
                       </DropdownMenuItem>
@@ -110,7 +110,7 @@ export function AppShell({
                     {workspaces.length ? <DropdownMenuSeparator /> : null}
                     <DropdownMenuItem onClick={onCreateWorkspace}>
                       <PlusIcon />
-                      Создать пространство
+                      Создать бюджет
                     </DropdownMenuItem>
                   </DropdownMenuGroup>
                 </DropdownMenuContent>
@@ -181,7 +181,7 @@ export function AppShell({
               className="h-9 max-w-xl pl-8"
               value={searchQuery}
               onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Поиск операций, бюджетов, документов"
+              placeholder="Найти операцию, категорию или документ"
             />
           </div>
           <Button
