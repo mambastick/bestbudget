@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from "react"
-import { MailIcon, UploadIcon } from "lucide-react"
+import { MailIcon, ShieldCheckIcon, UploadIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -26,7 +26,9 @@ import type {
   Category,
   DocumentRecord,
   Liability,
+  SsoProviderKind,
   Transaction,
+  WorkspaceRole,
 } from "@/domain/types"
 import {
   isEmailLike,
@@ -39,6 +41,7 @@ const MAX_DOCUMENT_FILE_BYTES = 1_500_000
 
 export type DialogName =
   | "workspace"
+  | "sso"
   | "transaction"
   | "budget"
   | "invite"
@@ -50,6 +53,23 @@ export type WorkspaceInput = {
   name: string
   accessMode: AccessMode
   currencyCode: string
+}
+
+export type SsoIdpConfig = {
+  enabled: boolean
+  providerKind: SsoProviderKind
+  providerName: string
+  issuerUrl: string
+  clientId: string
+  scopes: string
+  domainHint: string
+  roleClaim: string
+  defaultRole: Exclude<WorkspaceRole, "owner">
+  allowOwnerRoleMapping: boolean
+  ownerRoleValues: string
+  adminRoleValues: string
+  memberRoleValues: string
+  observerRoleValues: string
 }
 
 export type CategoryInput = {
@@ -167,6 +187,332 @@ export function WorkspaceDialog({
                 Отмена
               </Button>
               <Button type="submit">Создать</Button>
+            </DialogFooter>
+          </FieldGroup>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function SsoIdpDialog({
+  open,
+  initialConfig,
+  onOpenChange,
+  onSubmit,
+}: {
+  open: boolean
+  initialConfig: SsoIdpConfig | null
+  onOpenChange: (open: boolean) => void
+  onSubmit: (input: SsoIdpConfig) => void
+}) {
+  const [enabled, setEnabled] = useState(initialConfig?.enabled ?? false)
+  const [providerKind, setProviderKind] = useState<SsoProviderKind>(
+    initialConfig?.providerKind ?? "keycloak"
+  )
+  const [providerName, setProviderName] = useState(
+    initialConfig?.providerName ?? "Keycloak"
+  )
+  const [issuerUrl, setIssuerUrl] = useState(initialConfig?.issuerUrl ?? "")
+  const [clientId, setClientId] = useState(initialConfig?.clientId ?? "")
+  const [scopes, setScopes] = useState(
+    initialConfig?.scopes ?? "openid profile email"
+  )
+  const [domainHint, setDomainHint] = useState(initialConfig?.domainHint ?? "")
+  const [roleClaim, setRoleClaim] = useState(
+    initialConfig?.roleClaim ?? getDefaultRoleClaim(initialConfig?.providerKind ?? "keycloak")
+  )
+  const [defaultRole, setDefaultRole] =
+    useState<Exclude<WorkspaceRole, "owner">>(initialConfig?.defaultRole ?? "member")
+  const [allowOwnerRoleMapping, setAllowOwnerRoleMapping] = useState(
+    initialConfig?.allowOwnerRoleMapping ?? false
+  )
+  const [ownerRoleValues, setOwnerRoleValues] = useState(
+    initialConfig?.ownerRoleValues ?? ""
+  )
+  const [adminRoleValues, setAdminRoleValues] = useState(
+    initialConfig?.adminRoleValues ?? "bestbudget-admins"
+  )
+  const [memberRoleValues, setMemberRoleValues] = useState(
+    initialConfig?.memberRoleValues ?? "bestbudget-members"
+  )
+  const [observerRoleValues, setObserverRoleValues] = useState(
+    initialConfig?.observerRoleValues ?? "bestbudget-observers"
+  )
+  const [formError, setFormError] = useState("")
+
+  function selectProviderKind(nextKind: SsoProviderKind) {
+    setProviderKind(nextKind)
+    setProviderName((current) => current || getProviderKindLabel(nextKind))
+    setRoleClaim(getDefaultRoleClaim(nextKind))
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setFormError("")
+
+    const trimmedProviderName = providerName.trim()
+    const trimmedIssuerUrl = issuerUrl.trim()
+    const trimmedClientId = clientId.trim()
+    const trimmedScopes = scopes.trim()
+    const trimmedDomainHint = domainHint.trim()
+    const trimmedRoleClaim = roleClaim.trim()
+    const hasProviderFields = Boolean(
+      trimmedProviderName ||
+        trimmedIssuerUrl ||
+        trimmedClientId ||
+        trimmedDomainHint
+    )
+
+    if (
+      (enabled || hasProviderFields) &&
+      (!trimmedProviderName || !trimmedIssuerUrl || !trimmedClientId)
+    ) {
+      setFormError("Укажите провайдера, issuer URL и client ID.")
+      return
+    }
+
+    if ((enabled || hasProviderFields) && !isAllowedOidcIssuerUrl(trimmedIssuerUrl)) {
+      setFormError("Issuer URL должен быть https:// или локальным http://localhost.")
+      return
+    }
+
+    if (
+      (enabled || hasProviderFields) &&
+      !trimmedScopes.split(/\s+/).includes("openid")
+    ) {
+      setFormError("Для OIDC добавьте scope openid.")
+      return
+    }
+
+    onSubmit({
+      enabled,
+      providerKind,
+      providerName: trimmedProviderName,
+      issuerUrl: trimmedIssuerUrl,
+      clientId: trimmedClientId,
+      scopes: trimmedScopes || "openid profile email",
+      domainHint: trimmedDomainHint,
+      roleClaim: trimmedRoleClaim || getDefaultRoleClaim(providerKind),
+      defaultRole,
+      allowOwnerRoleMapping,
+      ownerRoleValues: ownerRoleValues.trim(),
+      adminRoleValues: adminRoleValues.trim(),
+      memberRoleValues: memberRoleValues.trim(),
+      observerRoleValues: observerRoleValues.trim(),
+    })
+    setFormError("")
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Настройка IdP</DialogTitle>
+          <DialogDescription>
+            Параметры SSO для выбранного бюджета и сопоставления ролей RBAC.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit}>
+          <FieldGroup>
+            <Field>
+              <FieldLabel>Статус SSO</FieldLabel>
+              <div
+                className="grid grid-cols-2 gap-2"
+                role="group"
+                aria-label="Статус SSO"
+              >
+                <Button
+                  type="button"
+                  variant={enabled ? "default" : "outline"}
+                  aria-pressed={enabled}
+                  onClick={() => setEnabled(true)}
+                >
+                  Включено
+                </Button>
+                <Button
+                  type="button"
+                  variant={!enabled ? "default" : "outline"}
+                  aria-pressed={!enabled}
+                  onClick={() => setEnabled(false)}
+                >
+                  Отключено
+                </Button>
+              </div>
+            </Field>
+            <Field>
+              <FieldLabel>Тип провайдера</FieldLabel>
+              <div
+                className="grid grid-cols-3 gap-2"
+                role="group"
+                aria-label="Тип SSO провайдера"
+              >
+                {(["oidc", "keycloak", "authentik"] as const).map((kind) => (
+                  <Button
+                    key={kind}
+                    type="button"
+                    variant={providerKind === kind ? "default" : "outline"}
+                    aria-pressed={providerKind === kind}
+                    onClick={() => selectProviderKind(kind)}
+                  >
+                    {getProviderKindLabel(kind)}
+                  </Button>
+                ))}
+              </div>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="ssoProviderName">Провайдер</FieldLabel>
+              <Input
+                id="ssoProviderName"
+                value={providerName}
+                onChange={(event) => setProviderName(event.target.value)}
+                placeholder="Например: Okta или Microsoft Entra ID"
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="ssoIssuerUrl">Issuer URL</FieldLabel>
+              <Input
+                id="ssoIssuerUrl"
+                type="url"
+                value={issuerUrl}
+                onChange={(event) => setIssuerUrl(event.target.value)}
+                placeholder="https://idp.example.com/oauth2/default"
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="ssoClientId">Client ID</FieldLabel>
+              <Input
+                id="ssoClientId"
+                value={clientId}
+                onChange={(event) => setClientId(event.target.value)}
+                placeholder="bestbudget-web"
+              />
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="ssoDomainHint">Домен</FieldLabel>
+                <Input
+                  id="ssoDomainHint"
+                  value={domainHint}
+                  onChange={(event) => setDomainHint(event.target.value)}
+                  placeholder="company.com"
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="ssoRoleClaim">RBAC claim</FieldLabel>
+                <Input
+                  id="ssoRoleClaim"
+                  value={roleClaim}
+                  onChange={(event) => setRoleClaim(event.target.value)}
+                  placeholder="groups"
+                />
+              </Field>
+            </div>
+            <Field>
+              <FieldLabel htmlFor="ssoScopes">Scopes</FieldLabel>
+              <Input
+                id="ssoScopes"
+                value={scopes}
+                onChange={(event) => setScopes(event.target.value)}
+                placeholder="openid email profile"
+              />
+            </Field>
+            <Field>
+              <FieldLabel>Роль по умолчанию</FieldLabel>
+              <div
+                className="grid grid-cols-3 gap-2"
+                role="group"
+                aria-label="Роль по умолчанию для SSO"
+              >
+                {(["admin", "member", "observer"] as const).map((role) => (
+                  <Button
+                    key={role}
+                    type="button"
+                    variant={defaultRole === role ? "default" : "outline"}
+                    aria-pressed={defaultRole === role}
+                    onClick={() => setDefaultRole(role)}
+                  >
+                    {role === "admin"
+                      ? "Админ"
+                      : role === "member"
+                        ? "Участник"
+                        : "Просмотр"}
+                  </Button>
+                ))}
+              </div>
+            </Field>
+            <Field orientation="horizontal">
+              <input
+                id="ssoOwnerMapping"
+                type="checkbox"
+                className="mt-0.5 size-4 rounded border border-input accent-primary"
+                checked={allowOwnerRoleMapping}
+                onChange={(event) =>
+                  setAllowOwnerRoleMapping(event.target.checked)
+                }
+              />
+              <div>
+                <FieldLabel htmlFor="ssoOwnerMapping">
+                  Разрешить mapping в роль владельца
+                </FieldLabel>
+                <FieldDescription>
+                  Используйте только для доверенного IdP и ограниченной группы.
+                </FieldDescription>
+              </div>
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {allowOwnerRoleMapping ? (
+                <Field>
+                  <FieldLabel htmlFor="ssoOwnerValues">Owner values</FieldLabel>
+                  <Input
+                    id="ssoOwnerValues"
+                    value={ownerRoleValues}
+                    onChange={(event) => setOwnerRoleValues(event.target.value)}
+                    placeholder="finance-owners"
+                  />
+                </Field>
+              ) : null}
+              <Field>
+                <FieldLabel htmlFor="ssoAdminValues">Admin values</FieldLabel>
+                <Input
+                  id="ssoAdminValues"
+                  value={adminRoleValues}
+                  onChange={(event) => setAdminRoleValues(event.target.value)}
+                  placeholder="finance-admins"
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="ssoMemberValues">Member values</FieldLabel>
+                <Input
+                  id="ssoMemberValues"
+                  value={memberRoleValues}
+                  onChange={(event) => setMemberRoleValues(event.target.value)}
+                  placeholder="finance-users"
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="ssoObserverValues">Observer values</FieldLabel>
+                <Input
+                  id="ssoObserverValues"
+                  value={observerRoleValues}
+                  onChange={(event) => setObserverRoleValues(event.target.value)}
+                  placeholder="finance-viewers"
+                />
+              </Field>
+            </div>
+            <FieldError>{formError}</FieldError>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+              >
+                Отмена
+              </Button>
+              <Button type="submit">
+                <ShieldCheckIcon data-icon="inline-start" />
+                Сохранить IdP
+              </Button>
             </DialogFooter>
           </FieldGroup>
         </form>
@@ -916,6 +1262,36 @@ export function DocumentDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+function getProviderKindLabel(kind: SsoProviderKind) {
+  if (kind === "keycloak") {
+    return "Keycloak"
+  }
+
+  if (kind === "authentik") {
+    return "Authentik"
+  }
+
+  return kind === "saml" ? "SAML" : "OIDC"
+}
+
+function getDefaultRoleClaim(kind: SsoProviderKind) {
+  return kind === "keycloak" ? "realm_access.roles" : "groups"
+}
+
+function isAllowedOidcIssuerUrl(value: string) {
+  try {
+    const url = new URL(value)
+
+    return (
+      url.protocol === "https:" ||
+      (url.protocol === "http:" &&
+        (url.hostname === "localhost" || url.hostname === "127.0.0.1"))
+    )
+  } catch {
+    return false
+  }
 }
 
 function readFileAsDataUrl(file: File) {

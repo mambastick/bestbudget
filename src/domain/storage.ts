@@ -1,4 +1,6 @@
 import { categoryPresets, getCurrency } from "./presets"
+import { resolveSsoRoleMapping } from "./rbac"
+import { workspacePermissions, workspaceRoles } from "./types"
 import type {
   AppDatabase,
   AppSession,
@@ -6,16 +8,30 @@ import type {
   Category,
   DocumentRecord,
   Liability,
+  OidcProviderConfig,
+  SamlProviderConfig,
+  SsoClaimValue,
+  SsoProviderConfig,
+  SsoRoleMapping,
+  SsoSession,
   Transaction,
   User,
   Workspace,
   WorkspaceMember,
+  WorkspacePermission,
+  WorkspaceRole,
 } from "./types"
 import {
   coerceNonNegativeNumber,
   coercePositiveNumber,
   isEmailLike,
+  normalizeEmail,
   normalizeDateKey,
+  normalizeHttpUrl,
+  normalizeIsoDateTime,
+  normalizeOptionalIsoDateTime,
+  normalizeScopeList,
+  normalizeStringList,
   trimText,
 } from "./validation"
 
@@ -25,6 +41,17 @@ const LEGACY_KEYS = ["bestbudget.session.v2", "bestbudget.session.v3"]
 export type AuthResult =
   | { ok: true; db: AppDatabase; session: AppSession }
   | { ok: false; error: string }
+
+export type SsoLoginProfile = {
+  providerId: string
+  subject: string
+  email: string
+  name: string
+  groups: string[]
+  roles: string[]
+  claims: Record<string, unknown>
+  expiresAt?: string
+}
 
 export function createId(prefix: string) {
   if (globalThis.crypto?.randomUUID) {
@@ -43,6 +70,9 @@ export function createEmptyDatabase(): AppDatabase {
     version: 1,
     users: [],
     workspaces: [],
+    ssoProviders: [],
+    ssoRoleMappings: [],
+    ssoSessions: [],
     categories: [],
     transactions: [],
     budgets: [],
@@ -94,6 +124,13 @@ export function normalizeDatabase(value: unknown): AppDatabase {
   const db = (asRecord(value) ?? {}) as Partial<AppDatabase>
   const users = normalizeUsers(db.users)
   const workspaces = normalizeWorkspaces(db.workspaces)
+  const ssoProviders = normalizeSsoProviders(db.ssoProviders, workspaces)
+  const ssoRoleMappings = normalizeSsoRoleMappings(
+    db.ssoRoleMappings,
+    ssoProviders,
+    workspaces
+  )
+  const ssoSessions = normalizeSsoSessions(db.ssoSessions, users, ssoProviders)
   const categories = normalizeCategories(db.categories)
   const transactions = normalizeTransactions(db.transactions)
   const budgets = normalizeBudgets(db.budgets)
@@ -104,12 +141,15 @@ export function normalizeDatabase(value: unknown): AppDatabase {
     version: 1,
     users,
     workspaces,
+    ssoProviders,
+    ssoRoleMappings,
+    ssoSessions,
     categories,
     transactions,
     budgets,
     liabilities,
     documents,
-    session: normalizeSession(db.session, users, workspaces),
+    session: normalizeSession(db.session, users, workspaces, ssoSessions),
   }
 }
 
@@ -123,7 +163,9 @@ function normalizeUsers(value: unknown): User[] {
     const id = trimText(record?.id)
     const name = trimText(record?.name)
     const email = trimText(record?.email).toLowerCase()
-    const passwordHash = trimText(record?.passwordHash)
+    const authProvider = record?.authProvider === "sso" ? "sso" : "local"
+    const passwordHash =
+      trimText(record?.passwordHash) || (authProvider === "sso" ? "sso" : "")
 
     if (!record || !id || !name || !email || !passwordHash) {
       return []
@@ -135,6 +177,10 @@ function normalizeUsers(value: unknown): User[] {
         name,
         email,
         passwordHash,
+        authProvider,
+        ssoProviderId: trimText(record.ssoProviderId) || undefined,
+        externalSubject: trimText(record.externalSubject) || undefined,
+        lastLoginAt: normalizeOptionalIsoDateTime(record.lastLoginAt),
         createdAt: trimText(record.createdAt) || new Date().toISOString(),
       },
     ]
@@ -195,6 +241,210 @@ function normalizeMembers(value: unknown): WorkspaceMember[] {
         email,
         role: isMemberRole(record.role) ? record.role : "member",
         status: isMemberStatus(record.status) ? record.status : "active",
+        permissions: normalizePermissions(record.permissions),
+      },
+    ]
+  })
+}
+
+function normalizeSsoProviders(
+  value: unknown,
+  workspaces: Workspace[]
+): SsoProviderConfig[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const workspaceIds = new Set(workspaces.map((workspace) => workspace.id))
+
+  return value.flatMap<SsoProviderConfig>((item) => {
+    const record = asRecord(item)
+    const id = trimText(record?.id)
+    const name = trimText(record?.name)
+    const workspaceId = trimText(record?.workspaceId)
+
+    if (!record || !id || !name || !workspaceIds.has(workspaceId)) {
+      return []
+    }
+
+    const providerKind: SsoProviderConfig["providerKind"] = isSsoProviderKind(
+      record.providerKind
+    )
+      ? record.providerKind
+      : record.type === "saml"
+        ? "saml"
+        : "oidc"
+    const status: SsoProviderConfig["status"] =
+      record.status === "disabled" ? "disabled" : "enabled"
+    const common = {
+      id,
+      workspaceId,
+      providerKind,
+      name,
+      status,
+      domainHint: normalizeDomainHint(record.domainHint),
+      createdAt: normalizeIsoDateTime(record.createdAt),
+      updatedAt: normalizeOptionalIsoDateTime(record.updatedAt),
+    }
+
+    if (record.type === "oidc") {
+      const issuer = normalizeHttpUrl(record.issuer)
+      const clientId = trimText(record.clientId)
+
+      if (!issuer || !clientId) {
+        return []
+      }
+
+      return [
+        {
+          ...common,
+          type: "oidc",
+          issuer,
+          clientId,
+          authorizationEndpoint:
+            normalizeHttpUrl(record.authorizationEndpoint) ?? undefined,
+          redirectUri: normalizeHttpUrl(record.redirectUri) ?? undefined,
+          scopes: normalizeScopeList(record.scopes),
+          responseType: "code",
+          responseMode: isOidcResponseMode(record.responseMode)
+            ? record.responseMode
+            : "query",
+          pkce: true,
+          tokenEndpoint: normalizeHttpUrl(record.tokenEndpoint) ?? undefined,
+          userInfoEndpoint: normalizeHttpUrl(record.userInfoEndpoint) ?? undefined,
+          jwksUri: normalizeHttpUrl(record.jwksUri) ?? undefined,
+          clientSecretConfigured: record.clientSecretConfigured === true,
+          roleClaim: trimText(record.roleClaim) || "realm_access.roles",
+          defaultRole:
+            isMemberRole(record.defaultRole) && record.defaultRole !== "owner"
+              ? record.defaultRole
+              : "member",
+          allowOwnerRoleMapping: record.allowOwnerRoleMapping === true,
+        } satisfies OidcProviderConfig,
+      ]
+    }
+
+    if (record.type === "saml") {
+      const ssoUrl = normalizeHttpUrl(record.ssoUrl)
+      const acsUrl = normalizeHttpUrl(record.acsUrl)
+      const entityId = trimText(record.entityId)
+
+      if (!entityId || !ssoUrl || !acsUrl) {
+        return []
+      }
+
+      return [
+        {
+          ...common,
+          type: "saml",
+          entityId,
+          ssoUrl,
+          acsUrl,
+          certificateFingerprint:
+            trimText(record.certificateFingerprint) || undefined,
+        } satisfies SamlProviderConfig,
+      ]
+    }
+
+    return []
+  })
+}
+
+function normalizeSsoRoleMappings(
+  value: unknown,
+  providers: SsoProviderConfig[],
+  workspaces: Workspace[]
+): SsoRoleMapping[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const providerIds = new Set(providers.map((provider) => provider.id))
+  const workspaceIds = new Set(workspaces.map((workspace) => workspace.id))
+
+  return value.flatMap((item) => {
+    const record = asRecord(item)
+    const id = trimText(record?.id)
+    const providerId = trimText(record?.providerId)
+    const claim = record?.claim
+    const value = trimText(record?.value)
+    const workspaceId = trimText(record?.workspaceId) || null
+    const claimName = trimText(record?.claimName) || undefined
+
+    if (
+      !record ||
+      !id ||
+      !providerIds.has(providerId) ||
+      !isSsoRoleMappingClaim(claim) ||
+      !value ||
+      (workspaceId && !workspaceIds.has(workspaceId)) ||
+      (claim === "claim" && !claimName)
+    ) {
+      return []
+    }
+
+    return [
+      {
+        id,
+        providerId,
+        workspaceId,
+        claim,
+        claimName,
+        value,
+        role: isMemberRole(record.role) ? record.role : "member",
+        permissions: normalizePermissions(record.permissions),
+        priority: normalizePriority(record.priority),
+        createdAt: normalizeIsoDateTime(record.createdAt),
+      },
+    ]
+  })
+}
+
+function normalizeSsoSessions(
+  value: unknown,
+  users: User[],
+  providers: SsoProviderConfig[]
+): SsoSession[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const userIds = new Set(users.map((user) => user.id))
+  const providerIds = new Set(providers.map((provider) => provider.id))
+
+  return value.flatMap((item) => {
+    const record = asRecord(item)
+    const id = trimText(record?.id)
+    const providerId = trimText(record?.providerId)
+    const userId = trimText(record?.userId)
+    const subject = trimText(record?.subject)
+    const email = normalizeEmail(record?.email)
+
+    if (
+      !record ||
+      !id ||
+      !providerIds.has(providerId) ||
+      !userIds.has(userId) ||
+      !subject ||
+      !email
+    ) {
+      return []
+    }
+
+    return [
+      {
+        id,
+        providerId,
+        userId,
+        subject,
+        email,
+        displayName: trimText(record.displayName) || undefined,
+        groups: normalizeStringList(record.groups),
+        roles: normalizeStringList(record.roles),
+        claims: normalizeClaims(record.claims),
+        issuedAt: normalizeIsoDateTime(record.issuedAt),
+        expiresAt: normalizeOptionalIsoDateTime(record.expiresAt),
+        lastSeenAt: normalizeIsoDateTime(record.lastSeenAt),
       },
     ]
   })
@@ -362,7 +612,8 @@ function normalizeDocuments(value: unknown): DocumentRecord[] {
 function normalizeSession(
   value: unknown,
   users: User[],
-  workspaces: Workspace[]
+  workspaces: Workspace[],
+  ssoSessions: SsoSession[]
 ): AppSession | null {
   const record = asRecord(value)
   const userId = trimText(record?.userId)
@@ -386,6 +637,7 @@ function normalizeSession(
   return {
     userId,
     activeWorkspaceId,
+    ...normalizeSessionAuth(record, userId, ssoSessions),
   }
 }
 
@@ -400,16 +652,146 @@ function isAccessMode(value: unknown): value is Workspace["accessMode"] {
 }
 
 function isMemberRole(value: unknown): value is WorkspaceMember["role"] {
-  return (
-    value === "owner" ||
-    value === "admin" ||
-    value === "member" ||
-    value === "observer"
-  )
+  return workspaceRoles.some((role) => role === value)
 }
 
 function isMemberStatus(value: unknown): value is WorkspaceMember["status"] {
   return value === "active" || value === "invited"
+}
+
+function isWorkspacePermission(value: unknown): value is WorkspacePermission {
+  return workspacePermissions.some((permission) => permission === value)
+}
+
+function normalizePermissions(value: unknown): WorkspacePermission[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const seen = new Set<WorkspacePermission>()
+  const permissions: WorkspacePermission[] = []
+
+  value.forEach((item) => {
+    if (!isWorkspacePermission(item) || seen.has(item)) {
+      return
+    }
+
+    seen.add(item)
+    permissions.push(item)
+  })
+
+  return permissions
+}
+
+function isOidcResponseMode(value: unknown): value is OidcProviderConfig["responseMode"] {
+  return value === "query" || value === "form_post"
+}
+
+function isSsoProviderKind(value: unknown): value is SsoProviderConfig["providerKind"] {
+  return (
+    value === "keycloak" ||
+    value === "authentik" ||
+    value === "oidc" ||
+    value === "saml"
+  )
+}
+
+function isSsoRoleMappingClaim(
+  value: unknown
+): value is SsoRoleMapping["claim"] {
+  return (
+    value === "email" ||
+    value === "email_domain" ||
+    value === "groups" ||
+    value === "roles" ||
+    value === "claim"
+  )
+}
+
+function normalizePriority(value: unknown) {
+  const number =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value.trim())
+        : Number.NaN
+
+  return Number.isFinite(number) ? Math.max(0, Math.round(number)) : 0
+}
+
+function normalizeDomainHint(value: unknown) {
+  const domain = trimText(value).toLowerCase().replace(/^@/, "")
+
+  return domain && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain) ? domain : undefined
+}
+
+function normalizeClaims(value: unknown) {
+  const record = asRecord(value)
+
+  if (!record) {
+    return {}
+  }
+
+  return Object.entries(record).reduce<Record<string, SsoClaimValue>>(
+    (claims, [key, claimValue]) => {
+      const claimName = trimText(key)
+      const normalizedValue = normalizeClaimValue(claimValue)
+
+      if (!claimName || normalizedValue === undefined) {
+        return claims
+      }
+
+      claims[claimName] = normalizedValue
+      return claims
+    },
+    {}
+  )
+}
+
+function normalizeClaimValue(value: unknown): SsoClaimValue | undefined {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value
+  }
+
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+
+  return normalizeStringList(value)
+}
+
+function normalizeSessionAuth(
+  record: Record<string, unknown>,
+  userId: string,
+  ssoSessions: SsoSession[]
+): Pick<AppSession, "authMethod" | "ssoSessionId" | "expiresAt"> {
+  if (record.authMethod !== "sso") {
+    return { authMethod: "local" }
+  }
+
+  const ssoSessionId = trimText(record.ssoSessionId)
+  const ssoSession = ssoSessions.find(
+    (session) => session.id === ssoSessionId && session.userId === userId
+  )
+
+  if (!ssoSession || isExpiredIsoDateTime(ssoSession.expiresAt)) {
+    return { authMethod: "local" }
+  }
+
+  return {
+    authMethod: "sso",
+    ssoSessionId: ssoSession.id,
+    expiresAt: ssoSession.expiresAt,
+  }
+}
+
+function isExpiredIsoDateTime(value: string | undefined) {
+  return Boolean(value && new Date(value).getTime() <= Date.now())
 }
 
 function isCategoryKind(value: unknown): value is Category["kind"] {
@@ -659,7 +1041,10 @@ export async function loginAccount(
   input: { email: string; password: string }
 ): Promise<AuthResult> {
   const email = input.email.trim().toLowerCase()
-  const user = db.users.find((item) => item.email.toLowerCase() === email)
+  const user = db.users.find(
+    (item) =>
+      item.email.toLowerCase() === email && (item.authProvider ?? "local") === "local"
+  )
 
   if (!user) {
     return { ok: false, error: "Аккаунт не найден." }
@@ -687,6 +1072,203 @@ export async function loginAccount(
       session,
     },
     session,
+  }
+}
+
+export function completeSsoLogin(
+  db: AppDatabase,
+  profile: SsoLoginProfile
+): AuthResult {
+  const provider = db.ssoProviders.find(
+    (item): item is OidcProviderConfig =>
+      item.id === profile.providerId &&
+      item.type === "oidc" &&
+      item.status === "enabled"
+  )
+
+  if (!provider) {
+    return { ok: false, error: "SSO-провайдер не найден или отключен." }
+  }
+
+  const workspace = db.workspaces.find((item) => item.id === provider.workspaceId)
+
+  if (!workspace) {
+    return { ok: false, error: "Бюджет для SSO-провайдера не найден." }
+  }
+
+  const email = normalizeEmail(profile.email)
+  const subject = trimText(profile.subject)
+  const name = trimText(profile.name) || email?.split("@")[0] || "SSO пользователь"
+
+  if (!email || !subject) {
+    return { ok: false, error: "IdP не вернул стабильный subject и email." }
+  }
+
+  const now = new Date().toISOString()
+  const groups = normalizeStringList(profile.groups)
+  const roles = normalizeStringList(profile.roles)
+  const claims = normalizeClaims(profile.claims)
+  const mappedRole = resolveSsoRoleMapping(db.ssoRoleMappings, {
+    providerId: provider.id,
+    workspaceId: workspace.id,
+    email,
+    groups,
+    roles,
+    claims,
+  })?.role
+  const role = resolveSsoLoginRole(mappedRole, provider.defaultRole, provider)
+  const existingUser = db.users.find(
+    (user) =>
+      user.authProvider === "sso" &&
+      user.ssoProviderId === provider.id &&
+      user.externalSubject === subject
+  )
+  const user: User = existingUser
+    ? {
+        ...existingUser,
+        name,
+        email,
+        lastLoginAt: now,
+      }
+    : {
+        id: createId("user"),
+        name,
+        email,
+        passwordHash: "sso",
+        authProvider: "sso",
+        ssoProviderId: provider.id,
+        externalSubject: subject,
+        lastLoginAt: now,
+        createdAt: now,
+      }
+  const linkedWorkspace = linkSsoMember(workspace, user, role)
+  const ssoSession: SsoSession = {
+    id: createId("sso_session"),
+    providerId: provider.id,
+    userId: user.id,
+    subject,
+    email,
+    displayName: name,
+    groups,
+    roles,
+    claims,
+    issuedAt: now,
+    expiresAt: normalizeOptionalIsoDateTime(profile.expiresAt),
+    lastSeenAt: now,
+  }
+  const session: AppSession = {
+    userId: user.id,
+    activeWorkspaceId: workspace.id,
+    authMethod: "sso",
+    ssoSessionId: ssoSession.id,
+    expiresAt: ssoSession.expiresAt,
+  }
+  const nextDb = normalizeDatabase({
+    ...db,
+    users: existingUser
+      ? db.users.map((item) => (item.id === user.id ? user : item))
+      : [...db.users, user],
+    workspaces: db.workspaces.map((item) =>
+      item.id === workspace.id ? linkedWorkspace : item
+    ),
+    ssoSessions: [
+      ssoSession,
+      ...db.ssoSessions.filter(
+        (item) =>
+          !(
+            item.providerId === provider.id &&
+            item.subject === subject &&
+            item.userId === user.id
+          )
+      ),
+    ].slice(0, 20),
+    session,
+  })
+
+  return {
+    ok: true,
+    db: nextDb,
+    session: nextDb.session ?? session,
+  }
+}
+
+function resolveSsoLoginRole(
+  mappedRole: WorkspaceRole | undefined,
+  defaultRole: Exclude<WorkspaceRole, "owner">,
+  provider: OidcProviderConfig
+): WorkspaceRole {
+  if (!mappedRole) {
+    return defaultRole
+  }
+
+  if (mappedRole === "owner" && !provider.allowOwnerRoleMapping) {
+    return defaultRole
+  }
+
+  return mappedRole
+}
+
+function linkSsoMember(
+  workspace: Workspace,
+  user: User,
+  role: WorkspaceRole
+): Workspace {
+  const existingMember = workspace.members.find((member) => member.userId === user.id)
+  const invitedMember = workspace.members.find(
+    (member) => !member.userId && member.email.toLowerCase() === user.email
+  )
+  const keepExistingOwner =
+    existingMember?.role === "owner" && workspace.ownerId === user.id
+  const nextMemberRole = keepExistingOwner ? "owner" : role
+
+  if (existingMember) {
+    return {
+      ...workspace,
+      members: workspace.members.map((member) =>
+        member.id === existingMember.id
+          ? {
+              ...member,
+              name: user.name,
+              email: user.email,
+              role: nextMemberRole,
+              status: "active",
+            }
+          : member
+      ),
+    }
+  }
+
+  if (invitedMember) {
+    return {
+      ...workspace,
+      members: workspace.members.map((member) =>
+        member.id === invitedMember.id
+          ? {
+              ...member,
+              userId: user.id,
+              name: user.name,
+              email: user.email,
+              role: nextMemberRole,
+              status: "active",
+            }
+          : member
+      ),
+    }
+  }
+
+  return {
+    ...workspace,
+    members: [
+      ...workspace.members,
+      {
+        id: createId("member"),
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        role: nextMemberRole,
+        status: "active",
+      },
+    ],
   }
 }
 

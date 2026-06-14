@@ -36,15 +36,37 @@ monorepo.
 ## Access Model
 
 - A user registers with name, email, and password.
+- A workspace owner/admin can configure an OIDC SSO provider for the active
+  workspace. The current SPA supports Keycloak, authentik, and generic OIDC
+  providers through Authorization Code + PKCE.
 - After login, the user creates one or more workspaces.
 - A workspace can be `individual` or `shared`.
 - The active workspace is selected from the sidebar brand dropdown.
 - Shared workspaces contain member records and invited users.
+- Workspace roles are enforced by a local RBAC matrix in the UI and all
+  state-changing handlers: `owner` and `admin` can manage workspace data,
+  members, and SSO; `member` can manage transactions, liabilities, and
+  documents; `observer` is read-only.
+
+## SSO Boundary
+
+SSO in the frontend MVP is a browser-only OIDC integration. The app performs
+PKCE redirect/login, exchanges the authorization code with the IdP, reads
+identity claims, creates a local SSO user/session, and maps IdP groups/roles to
+workspace roles. Access tokens and ID tokens are not persisted in
+`localStorage`.
+
+Because the data store is still browser `localStorage`, RBAC is an application
+guardrail and UX contract, not a production security boundary. A backend/BFF is
+still required for server-enforced authorization, SAML ACS/signature validation,
+token refresh/revocation, audit logs, document access control, and tenant
+isolation.
 
 ## MVP Boundary
 
 The current frontend MVP focuses on functional flows: registration/login,
 workspace creation and switching, currency selection, category templates,
 transactions, budgets, calendar events, liabilities, documents, family members,
-and invitations. Production-grade auth, encryption, role enforcement, document
-storage, and integrations are not implemented yet.
+invitations, OIDC SSO bootstrap, and local RBAC enforcement. Production-grade
+auth, encryption, document storage, audit trails, and server-side authorization
+remain backend work.

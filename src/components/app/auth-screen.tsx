@@ -2,6 +2,7 @@ import { type FormEvent, useState } from "react"
 import {
   BanknoteIcon,
   CalendarDaysIcon,
+  KeyRoundIcon,
   LogInIcon,
   PiggyBankIcon,
   ReceiptTextIcon,
@@ -29,15 +30,17 @@ export type LoginInput = {
 export function AuthScreen({
   onRegister,
   onLogin,
+  onSsoLogin,
   onDemo,
 }: {
   onRegister: (input: RegisterInput) => Promise<void>
   onLogin: (input: LoginInput) => Promise<void>
+  onSsoLogin: () => Promise<void>
   onDemo: () => Promise<void>
 }) {
   const [mode, setMode] = useState("login")
   const [pendingAction, setPendingAction] = useState<
-    "login" | "register" | "demo" | null
+    "login" | "register" | "sso" | "demo" | null
   >(null)
   const [register, setRegister] = useState<RegisterInput>({
     name: "",
@@ -70,6 +73,15 @@ export function AuthScreen({
     setPendingAction("demo")
     try {
       await onDemo()
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
+  async function handleSsoLogin() {
+    setPendingAction("sso")
+    try {
+      await onSsoLogin()
     } finally {
       setPendingAction(null)
     }
@@ -282,6 +294,16 @@ export function AuthScreen({
                 </TabsContent>
               </Tabs>
               <div className="mt-5 grid gap-3 border-t pt-5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  disabled={pendingAction !== null}
+                  onClick={handleSsoLogin}
+                >
+                  <KeyRoundIcon data-icon="inline-start" />
+                  {pendingAction === "sso" ? "Открываем SSO..." : "Войти через SSO"}
+                </Button>
                 <Button
                   type="button"
                   variant="outline"

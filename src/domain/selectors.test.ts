@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  canCurrentUser,
   getActiveWorkspace,
+  getCurrentPermissions,
   getCurrentUser,
+  getCurrentWorkspaceMember,
   getUserWorkspaces,
   getWorkspaceBudgets,
   getWorkspaceCategories,
@@ -77,6 +80,9 @@ const db = {
       ],
     },
   ],
+  ssoProviders: [],
+  ssoRoleMappings: [],
+  ssoSessions: [],
   categories: [
     {
       id: "category_income",
@@ -199,6 +205,21 @@ describe("workspace selectors", () => {
     expect(getWorkspaceTransactions(db, undefined)).toEqual([])
     expect(getWorkspaceBudgets(db, "")).toEqual([])
     expect(getWorkspaceLiabilities(db, null)).toEqual([])
+  })
+
+  it("selects the active member and derives current RBAC permissions", () => {
+    expect(getCurrentWorkspaceMember(db)).toMatchObject({
+      id: "member_1",
+      role: "owner",
+    })
+    expect(getCurrentPermissions(db)).toContain("manageSso")
+    expect(canCurrentUser(db, "createTransactions")).toBe(true)
+    expect(
+      canCurrentUser(db, "createTransactions", {
+        userId: "user_2",
+        activeWorkspaceId: "workspace_family",
+      })
+    ).toBe(false)
   })
 })
 

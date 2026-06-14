@@ -7,11 +7,21 @@ import {
   PiggyBankIcon,
   PlusIcon,
   ExternalLinkIcon,
+  ShieldCheckIcon,
   UserPlusIcon,
   WalletIcon,
 } from "lucide-react"
 import { Bar, BarChart, CartesianGrid, XAxis } from "recharts"
 
+import type { SsoIdpConfig } from "@/components/app/dialogs"
+import {
+  permissionLabels,
+  permissionOrder,
+  readonlyReason,
+  roleDescriptions,
+  roleLabels,
+  type WorkspacePermissions,
+} from "@/components/app/permissions"
 import { AnimatedList } from "@/components/reactbits/animated-list"
 import { FadeContent } from "@/components/reactbits/fade-content"
 import { Magnet } from "@/components/reactbits/magnet"
@@ -58,6 +68,7 @@ import type {
 
 type DialogName =
   | "workspace"
+  | "sso"
   | "transaction"
   | "budget"
   | "invite"
@@ -74,13 +85,6 @@ const chartConfig = {
     color: "var(--chart-2)",
   },
 } satisfies ChartConfig
-
-const roleLabels: Record<Workspace["members"][number]["role"], string> = {
-  owner: "Владелец",
-  admin: "Админ",
-  member: "Участник",
-  observer: "Просмотр",
-}
 
 const memberStatusLabels: Record<Workspace["members"][number]["status"], string> = {
   active: "Доступ открыт",
@@ -185,6 +189,18 @@ function formatFileSize(value?: number) {
   return `${Math.max(1, Math.round(value / 1_000))} КБ`
 }
 
+function formatSsoProviderKind(kind: SsoIdpConfig["providerKind"]) {
+  if (kind === "keycloak") {
+    return "Keycloak"
+  }
+
+  if (kind === "authentik") {
+    return "Authentik"
+  }
+
+  return kind === "saml" ? "SAML" : "OIDC"
+}
+
 export function PageHeader({
   title,
   description,
@@ -196,6 +212,31 @@ export function PageHeader({
     <div className="flex flex-col gap-1">
       <h1 className="text-2xl font-semibold tracking-normal">{title}</h1>
       <p className="text-sm text-muted-foreground">{description}</p>
+    </div>
+  )
+}
+
+function PermissionBadges({ permissions }: { permissions: WorkspacePermissions }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {permissionOrder.map((permission) => {
+        const allowed = permissions[permission]
+
+        return (
+          <Badge
+            key={permission}
+            variant={allowed ? "secondary" : "outline"}
+            className={cn(
+              "max-w-full",
+              !allowed && "text-muted-foreground"
+            )}
+          >
+            <span className="truncate">
+              {permissionLabels[permission]}: {allowed ? "да" : "нет"}
+            </span>
+          </Badge>
+        )
+      })}
     </div>
   )
 }
@@ -280,6 +321,7 @@ export function OverviewScreen({
   budgets,
   liabilities,
   documents,
+  permissions,
   onOpenDialog,
 }: {
   workspace: Workspace | null
@@ -288,6 +330,7 @@ export function OverviewScreen({
   budgets: Budget[]
   liabilities: Liability[]
   documents: DocumentRecord[]
+  permissions: WorkspacePermissions
   onOpenDialog: (dialog: DialogName) => void
 }) {
   if (!workspace) {
@@ -297,6 +340,8 @@ export function OverviewScreen({
   const summary = summarizeWorkspace({ transactions, budgets, liabilities })
   const currency = workspace.currencyCode
   const cashflow = buildCashflow(transactions)
+  const transactionDisabled = !permissions.createTransactions
+  const budgetDisabled = !permissions.manageBudgets
 
   return (
     <FadeContent className="flex flex-col gap-5">
@@ -363,6 +408,8 @@ export function OverviewScreen({
                 description="Добавьте доход или расход, чтобы увидеть график."
                 action="Добавить операцию"
                 onAction={() => onOpenDialog("transaction")}
+                disabled={transactionDisabled}
+                disabledReason={readonlyReason}
               />
             )}
           </CardContent>
@@ -402,6 +449,8 @@ export function OverviewScreen({
                 description="Создайте лимит или операцию с новой категорией."
                 action="Добавить бюджет"
                 onAction={() => onOpenDialog("budget")}
+                disabled={budgetDisabled}
+                disabledReason={readonlyReason}
               />
             )}
           </CardContent>
@@ -414,6 +463,7 @@ export function OverviewScreen({
         transactions={transactions.slice(0, 5)}
         searchQuery=""
         compact
+        permissions={permissions}
         onOpenDialog={onOpenDialog}
       />
     </FadeContent>
@@ -426,6 +476,7 @@ export function TransactionsScreen({
   transactions,
   searchQuery,
   compact = false,
+  permissions,
   onOpenDialog,
 }: {
   workspace: Workspace | null
@@ -433,12 +484,14 @@ export function TransactionsScreen({
   transactions: Transaction[]
   searchQuery: string
   compact?: boolean
+  permissions: WorkspacePermissions
   onOpenDialog: (dialog: DialogName) => void
 }) {
   if (!workspace) {
     return <EmptyWorkspace onCreate={() => onOpenDialog("workspace")} />
   }
 
+  const transactionDisabled = !permissions.createTransactions
   const filteredTransactions = transactions.filter((transaction) => {
     const category = getCategory(categories, transaction.categoryId)
     return matchesSearch(
@@ -465,7 +518,12 @@ export function TransactionsScreen({
           </p>
         </div>
         <div>
-          <Button variant="outline" onClick={() => onOpenDialog("transaction")}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenDialog("transaction")}
+            disabled={transactionDisabled}
+            title={transactionDisabled ? readonlyReason : undefined}
+          >
             <PlusIcon data-icon="inline-start" />
             Операция
           </Button>
@@ -534,6 +592,8 @@ export function TransactionsScreen({
                       }
                       action="Добавить"
                       onAction={() => onOpenDialog("transaction")}
+                      disabled={transactionDisabled}
+                      disabledReason={readonlyReason}
                     />
                   </TableCell>
                 </TableRow>
@@ -552,6 +612,7 @@ export function BudgetsScreen({
   transactions,
   budgets,
   searchQuery = "",
+  permissions,
   onOpenDialog,
 }: {
   workspace: Workspace | null
@@ -559,12 +620,14 @@ export function BudgetsScreen({
   transactions: Transaction[]
   budgets: Budget[]
   searchQuery?: string
+  permissions: WorkspacePermissions
   onOpenDialog: (dialog: DialogName) => void
 }) {
   if (!workspace) {
     return <EmptyWorkspace onCreate={() => onOpenDialog("workspace")} />
   }
 
+  const budgetDisabled = !permissions.manageBudgets
   const filteredBudgets = budgets.filter((budget) => {
     const category = getCategory(categories, budget.categoryId)
     return matchesSearch(
@@ -589,7 +652,11 @@ export function BudgetsScreen({
           </p>
         </div>
         <div>
-          <Button onClick={() => onOpenDialog("budget")}>
+          <Button
+            onClick={() => onOpenDialog("budget")}
+            disabled={budgetDisabled}
+            title={budgetDisabled ? readonlyReason : undefined}
+          >
             <PlusIcon data-icon="inline-start" />
             Бюджет
           </Button>
@@ -648,6 +715,8 @@ export function BudgetsScreen({
             }
             action="Добавить бюджет"
             onAction={() => onOpenDialog("budget")}
+            disabled={budgetDisabled}
+            disabledReason={readonlyReason}
           />
         )}
       </div>
@@ -663,6 +732,7 @@ export function CalendarScreen({
   searchQuery = "",
   selectedDate,
   onDateChange,
+  permissions,
   onOpenDialog,
 }: {
   workspace: Workspace | null
@@ -672,12 +742,15 @@ export function CalendarScreen({
   searchQuery?: string
   selectedDate: Date
   onDateChange: (date: Date) => void
+  permissions: WorkspacePermissions
   onOpenDialog: (dialog: DialogName) => void
 }) {
   if (!workspace) {
     return <EmptyWorkspace onCreate={() => onOpenDialog("workspace")} />
   }
 
+  const transactionDisabled = !permissions.createTransactions
+  const liabilityDisabled = !permissions.manageLiabilities
   const filteredTransactions = transactions.filter((transaction) => {
     const category = getCategory(categories, transaction.categoryId)
 
@@ -754,11 +827,17 @@ export function CalendarScreen({
             <Button
               variant="outline"
               onClick={() => onOpenDialog("transaction")}
+              disabled={transactionDisabled}
+              title={transactionDisabled ? readonlyReason : undefined}
             >
               <CalendarPlusIcon data-icon="inline-start" />
               Операция
             </Button>
-            <Button onClick={() => onOpenDialog("liability")}>
+            <Button
+              onClick={() => onOpenDialog("liability")}
+              disabled={liabilityDisabled}
+              title={liabilityDisabled ? readonlyReason : undefined}
+            >
               <LandmarkIcon data-icon="inline-start" />
               Платеж
             </Button>
@@ -927,6 +1006,8 @@ export function CalendarScreen({
                 variant="outline"
                 className="mt-4"
                 onClick={() => onOpenDialog("transaction")}
+                disabled={transactionDisabled}
+                title={transactionDisabled ? readonlyReason : undefined}
               >
                 <PlusIcon data-icon="inline-start" />
                 Добавить операцию
@@ -973,11 +1054,13 @@ export function FamilyScreen({
   user,
   workspace,
   searchQuery = "",
+  permissions,
   onOpenDialog,
 }: {
   user: User
   workspace: Workspace | null
   searchQuery?: string
+  permissions: WorkspacePermissions
   onOpenDialog: (dialog: DialogName) => void
 }) {
   if (!workspace) {
@@ -985,6 +1068,11 @@ export function FamilyScreen({
   }
 
   const currency = getCurrency(workspace.currencyCode)
+  const currentMember =
+    workspace.members.find(
+      (member) => member.userId === user.id && member.status === "active"
+    ) ?? null
+  const inviteDisabled = !permissions.manageMembers
   const filteredMembers = workspace.members.filter((member) =>
     matchesSearch(
       [
@@ -1009,6 +1097,26 @@ export function FamilyScreen({
         </CardDescription>
       </CardHeader>
       <CardContent>
+        <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
+          <div className="rounded-lg border p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <ShieldCheckIcon className="text-muted-foreground" />
+              <span className="font-medium">Ваша роль</span>
+              <Badge variant="outline">
+                {currentMember ? roleLabels[currentMember.role] : "Нет доступа"}
+              </Badge>
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {currentMember
+                ? roleDescriptions[currentMember.role]
+                : "Активный участник выбранного бюджета не найден."}
+            </p>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="mb-3 font-medium">Права RBAC</div>
+            <PermissionBadges permissions={permissions} />
+          </div>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {filteredMembers.length ? (
             filteredMembers.map((member) => (
@@ -1032,6 +1140,9 @@ export function FamilyScreen({
                 <div className="mt-3 text-sm text-muted-foreground">
                   {memberStatusLabels[member.status]}
                 </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {roleDescriptions[member.role]}
+                </div>
               </div>
             ))
           ) : (
@@ -1047,6 +1158,8 @@ export function FamilyScreen({
               type="button"
               className="flex min-h-32 w-full items-center justify-center rounded-lg border border-dashed bg-background text-left transition-colors hover:bg-accent focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
               onClick={() => onOpenDialog("invite")}
+              disabled={inviteDisabled}
+              title={inviteDisabled ? readonlyReason : undefined}
             >
               <div className="flex flex-col items-center gap-3">
                 <Avatar>
@@ -1068,17 +1181,20 @@ export function LiabilitiesScreen({
   workspace,
   liabilities,
   searchQuery = "",
+  permissions,
   onOpenDialog,
 }: {
   workspace: Workspace | null
   liabilities: Liability[]
   searchQuery?: string
+  permissions: WorkspacePermissions
   onOpenDialog: (dialog: DialogName) => void
 }) {
   if (!workspace) {
     return <EmptyWorkspace onCreate={() => onOpenDialog("workspace")} />
   }
 
+  const liabilityDisabled = !permissions.manageLiabilities
   const filteredLiabilities = liabilities.filter((liability) =>
     matchesSearch(
       [
@@ -1098,7 +1214,11 @@ export function LiabilitiesScreen({
         <CardTitle>Кредиты и обязательства</CardTitle>
         <CardDescription>Платежи попадают в календарь.</CardDescription>
         <CardAction className="col-start-1 row-start-3 justify-self-start sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:justify-self-end">
-          <Button onClick={() => onOpenDialog("liability")}>
+          <Button
+            onClick={() => onOpenDialog("liability")}
+            disabled={liabilityDisabled}
+            title={liabilityDisabled ? readonlyReason : undefined}
+          >
             <PlusIcon data-icon="inline-start" />
             Добавить
           </Button>
@@ -1151,6 +1271,8 @@ export function LiabilitiesScreen({
             }
             action="Добавить обязательство"
             onAction={() => onOpenDialog("liability")}
+            disabled={liabilityDisabled}
+            disabledReason={readonlyReason}
           />
         )}
       </CardContent>
@@ -1162,17 +1284,20 @@ export function DocumentsScreen({
   workspace,
   documents,
   searchQuery = "",
+  permissions,
   onOpenDialog,
 }: {
   workspace: Workspace | null
   documents: DocumentRecord[]
   searchQuery?: string
+  permissions: WorkspacePermissions
   onOpenDialog: (dialog: DialogName) => void
 }) {
   if (!workspace) {
     return <EmptyWorkspace onCreate={() => onOpenDialog("workspace")} />
   }
 
+  const documentDisabled = !permissions.manageDocuments
   const filteredDocuments = documents.filter((document) =>
     matchesSearch(
       [
@@ -1193,7 +1318,11 @@ export function DocumentsScreen({
         <CardTitle>Документы</CardTitle>
         <CardDescription>PDF, чеки и файлы по выбранному бюджету.</CardDescription>
         <CardAction className="col-start-1 row-start-3 justify-self-start sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:justify-self-end">
-          <Button onClick={() => onOpenDialog("document")}>
+          <Button
+            onClick={() => onOpenDialog("document")}
+            disabled={documentDisabled}
+            title={documentDisabled ? readonlyReason : undefined}
+          >
             <PlusIcon data-icon="inline-start" />
             Загрузить
           </Button>
@@ -1244,6 +1373,8 @@ export function DocumentsScreen({
             }
             action="Загрузить документ"
             onAction={() => onOpenDialog("document")}
+            disabled={documentDisabled}
+            disabledReason={readonlyReason}
           />
         )}
       </CardContent>
@@ -1254,28 +1385,104 @@ export function DocumentsScreen({
 export function SettingsScreen({
   user,
   workspace,
+  currentMember,
+  permissions,
+  ssoConfig,
   onOpenDialog,
 }: {
   user: User
   workspace: Workspace | null
+  currentMember: Workspace["members"][number] | null
+  permissions: WorkspacePermissions
+  ssoConfig: SsoIdpConfig | null
   onOpenDialog: (dialog: DialogName) => void
 }) {
+  const ssoDisabled = !workspace || !permissions.manageSso
+
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
-      <Card>
-        <CardHeader>
-          <CardTitle>Аккаунт</CardTitle>
-          <CardDescription>Ваши данные для входа.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3">
-          <div className="min-w-0 rounded-lg border p-4">
-            <div className="truncate font-medium">{user.name}</div>
-            <div className="truncate text-sm text-muted-foreground">
-              {user.email}
+      <div className="grid gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Аккаунт</CardTitle>
+            <CardDescription>Ваши данные для входа и текущая роль.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            <div className="min-w-0 rounded-lg border p-4">
+              <div className="truncate font-medium">{user.name}</div>
+              <div className="truncate text-sm text-muted-foreground">
+                {user.email}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge variant="outline">
+                  {currentMember ? roleLabels[currentMember.role] : "Без бюджета"}
+                </Badge>
+                {currentMember ? (
+                  <Badge variant="secondary">
+                    {memberStatusLabels[currentMember.status]}
+                  </Badge>
+                ) : null}
+              </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+            <div className="rounded-lg border p-4">
+              <div className="mb-3 font-medium">Права RBAC</div>
+              <PermissionBadges permissions={permissions} />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>SSO и IdP</CardTitle>
+            <CardDescription>
+              Вход через корпоративный провайдер для выбранного бюджета.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            <div className="rounded-lg border p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={ssoConfig?.enabled ? "secondary" : "outline"}>
+                  {ssoConfig?.enabled ? "SSO включен" : "SSO отключен"}
+                </Badge>
+              </div>
+              <div className="mt-3 min-w-0">
+                <div className="truncate font-medium">
+                  {ssoConfig?.providerName || "IdP не настроен"}
+                </div>
+                <div className="mt-1 truncate text-sm text-muted-foreground">
+                  {ssoConfig?.issuerUrl || "Issuer URL не задан"}
+                </div>
+                <div className="mt-1 truncate text-sm text-muted-foreground">
+                  Тип: {ssoConfig ? formatSsoProviderKind(ssoConfig.providerKind) : "не задан"}
+                </div>
+                <div className="mt-1 truncate text-sm text-muted-foreground">
+                  Scopes: {ssoConfig?.scopes || "openid profile email"}
+                </div>
+                <div className="mt-1 truncate text-sm text-muted-foreground">
+                  Домен: {ssoConfig?.domainHint || "не задан"}
+                </div>
+                <div className="mt-1 truncate text-sm text-muted-foreground">
+                  RBAC claim: {ssoConfig?.roleClaim || "groups"}
+                </div>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => onOpenDialog("sso")}
+              disabled={ssoDisabled}
+              title={
+                !workspace
+                  ? "Сначала создайте бюджет"
+                  : ssoDisabled
+                    ? readonlyReason
+                    : undefined
+              }
+            >
+              <ShieldCheckIcon data-icon="inline-start" />
+              Настроить IdP
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
       <Card>
         <CardHeader>
           <CardTitle>Выбранный бюджет</CardTitle>
@@ -1301,11 +1508,15 @@ function EmptyState({
   description,
   action,
   onAction,
+  disabled = false,
+  disabledReason,
 }: {
   title: string
   description: string
   action: string
   onAction: () => void
+  disabled?: boolean
+  disabledReason?: string
 }) {
   return (
     <div className="flex min-h-44 flex-col items-start justify-center gap-3 rounded-lg border border-dashed p-6">
@@ -1313,10 +1524,18 @@ function EmptyState({
         <div className="font-medium">{title}</div>
         <div className="mt-1 text-sm text-muted-foreground">{description}</div>
       </div>
-      <Button variant="outline" onClick={onAction}>
+      <Button
+        variant="outline"
+        onClick={onAction}
+        disabled={disabled}
+        title={disabled ? disabledReason : undefined}
+      >
         <PlusIcon data-icon="inline-start" />
         {action}
       </Button>
+      {disabled && disabledReason ? (
+        <div className="text-xs text-muted-foreground">{disabledReason}</div>
+      ) : null}
     </div>
   )
 }
@@ -1325,18 +1544,30 @@ function EmptyInline({
   label,
   action,
   onAction,
+  disabled = false,
+  disabledReason,
 }: {
   label: string
   action: string
   onAction: () => void
+  disabled?: boolean
+  disabledReason?: string
 }) {
   return (
     <div className="flex flex-col items-center gap-3">
       <span className="text-sm text-muted-foreground">{label}</span>
-      <Button variant="outline" onClick={onAction}>
+      <Button
+        variant="outline"
+        onClick={onAction}
+        disabled={disabled}
+        title={disabled ? disabledReason : undefined}
+      >
         <PlusIcon data-icon="inline-start" />
         {action}
       </Button>
+      {disabled && disabledReason ? (
+        <span className="text-xs text-muted-foreground">{disabledReason}</span>
+      ) : null}
     </div>
   )
 }

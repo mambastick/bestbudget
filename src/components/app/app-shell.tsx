@@ -12,6 +12,11 @@ import {
 import { type ReactNode } from "react"
 
 import { navItems } from "@/components/app/nav"
+import {
+  readonlyReason,
+  roleLabels,
+  type WorkspacePermissions,
+} from "@/components/app/permissions"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -42,7 +47,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { getInitials } from "@/domain/format"
-import type { User, View, Workspace } from "@/domain/types"
+import type { User, View, Workspace, WorkspaceMember } from "@/domain/types"
 
 const searchPlaceholders: Record<View, string> = {
   overview: "Найти операцию или категорию",
@@ -59,6 +64,8 @@ export function AppShell({
   user,
   workspaces,
   activeWorkspace,
+  currentMember,
+  permissions,
   activeView,
   searchQuery,
   children,
@@ -73,6 +80,8 @@ export function AppShell({
   user: User
   workspaces: Workspace[]
   activeWorkspace: Workspace | null
+  currentMember: WorkspaceMember | null
+  permissions: WorkspacePermissions
   activeView: View
   searchQuery: string
   children: ReactNode
@@ -84,6 +93,11 @@ export function AppShell({
   onOpenNotifications: () => void
   onLogout: () => void
 }) {
+  const hasWorkspace = activeWorkspace !== null
+  const inviteDisabled = hasWorkspace && !permissions.manageMembers
+  const budgetDisabled = hasWorkspace && !permissions.manageBudgets
+  const transactionDisabled = hasWorkspace && !permissions.createTransactions
+
   return (
     <SidebarProvider>
       <Sidebar collapsible="icon">
@@ -153,6 +167,11 @@ export function AppShell({
                       {user.email}
                     </span>
                   </div>
+                  {currentMember ? (
+                    <Badge variant="outline" className="shrink-0">
+                      {roleLabels[currentMember.role]}
+                    </Badge>
+                  ) : null}
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-56" side="top" align="start">
                   <DropdownMenuGroup>
@@ -200,6 +219,8 @@ export function AppShell({
             variant="outline"
             className="hidden sm:inline-flex"
             onClick={() => onOpenDialog("invite")}
+            disabled={inviteDisabled}
+            title={inviteDisabled ? readonlyReason : undefined}
           >
             <UserPlusIcon data-icon="inline-start" />
             Пригласить
@@ -208,6 +229,8 @@ export function AppShell({
             variant="outline"
             className="hidden md:inline-flex"
             onClick={() => onOpenDialog("budget")}
+            disabled={budgetDisabled}
+            title={budgetDisabled ? readonlyReason : undefined}
           >
             <PiggyBankIcon data-icon="inline-start" />
             Бюджет
@@ -216,6 +239,8 @@ export function AppShell({
             className="px-2 sm:px-2.5"
             aria-label="Добавить операцию"
             onClick={() => onOpenDialog("transaction")}
+            disabled={transactionDisabled}
+            title={transactionDisabled ? readonlyReason : undefined}
           >
             <PlusIcon data-icon="inline-start" />
             <span className="hidden sm:inline">Операция</span>

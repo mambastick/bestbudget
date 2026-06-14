@@ -7,7 +7,10 @@ import type {
   Transaction,
   User,
   Workspace,
+  WorkspaceMember,
+  WorkspacePermission,
 } from "./types"
+import { getMemberPermissions, memberHasPermission } from "./rbac"
 
 export function getCurrentUser(db: AppDatabase): User | null {
   if (!db.session) {
@@ -29,14 +32,58 @@ export function getActiveWorkspace(
   db: AppDatabase,
   session: AppSession | null
 ): Workspace | null {
-  if (!session?.activeWorkspaceId) {
+  if (!session?.activeWorkspaceId || !session.userId) {
     return null
   }
 
   return (
-    db.workspaces.find((workspace) => workspace.id === session.activeWorkspaceId) ??
+    db.workspaces.find(
+      (workspace) =>
+        workspace.id === session.activeWorkspaceId &&
+        workspace.members.some(
+          (member) =>
+            member.userId === session.userId && member.status === "active"
+        )
+    ) ??
     null
   )
+}
+
+export function getWorkspaceMember(
+  workspace: Workspace | null | undefined,
+  userId: string | null | undefined
+): WorkspaceMember | null {
+  if (!workspace || !userId) {
+    return null
+  }
+
+  return (
+    workspace.members.find(
+      (member) => member.userId === userId && member.status === "active"
+    ) ?? null
+  )
+}
+
+export function getCurrentWorkspaceMember(
+  db: AppDatabase,
+  session: AppSession | null = db.session
+) {
+  return getWorkspaceMember(getActiveWorkspace(db, session), session?.userId)
+}
+
+export function getCurrentPermissions(
+  db: AppDatabase,
+  session: AppSession | null = db.session
+) {
+  return getMemberPermissions(getCurrentWorkspaceMember(db, session))
+}
+
+export function canCurrentUser(
+  db: AppDatabase,
+  permission: WorkspacePermission,
+  session: AppSession | null = db.session
+) {
+  return memberHasPermission(getCurrentWorkspaceMember(db, session), permission)
 }
 
 export function getWorkspaceCategories(db: AppDatabase, workspaceId?: string | null) {
