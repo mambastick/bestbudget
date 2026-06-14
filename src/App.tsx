@@ -46,13 +46,23 @@ import {
 } from "@/domain/selectors"
 import {
   createId,
+  createDemoAccount,
   createWorkspaceForUser,
   loadDatabase,
   loginAccount,
+  normalizeDatabase,
   registerAccount,
   saveDatabase,
 } from "@/domain/storage"
 import type { AppDatabase, Category, View } from "@/domain/types"
+import {
+  coerceNonNegativeNumber,
+  coercePositiveNumber,
+  isEmailLike,
+  isValidDateKey,
+  normalizeDateKey,
+  trimText,
+} from "@/domain/validation"
 
 const viewMeta: Record<View, { title: string; description: string }> = {
   overview: {
@@ -122,12 +132,23 @@ export default function App() {
   )
 
   function persist(nextDb: AppDatabase, message?: string) {
-    saveDatabase(nextDb)
-    setDb(nextDb)
+    const normalizedDb = normalizeDatabase(nextDb)
+    const saved = saveDatabase(normalizedDb)
+
+    setDb(normalizedDb)
+
+    if (!saved) {
+      toast.error(
+        "Данные изменены только в текущей сессии. Проверьте доступ к хранилищу браузера."
+      )
+      return false
+    }
 
     if (message) {
       toast.success(message)
     }
+
+    return true
   }
 
   async function handleRegister(input: RegisterInput) {
@@ -154,6 +175,13 @@ export default function App() {
     setActiveView(result.session.activeWorkspaceId ? "overview" : "settings")
   }
 
+  async function handleDemo() {
+    const nextDb = await createDemoAccount(db)
+    persist(nextDb, "Демо-бюджет открыт")
+    setActiveView("overview")
+    setSearchQuery("")
+  }
+
   function handleLogout() {
     persist({ ...db, session: null })
     setActiveView("overview")
@@ -162,7 +190,7 @@ export default function App() {
   }
 
   function handleWorkspaceChange(workspaceId: string) {
-    if (!db.session) {
+    if (!db.session || !workspaces.some((workspace) => workspace.id === workspaceId)) {
       return
     }
 
@@ -191,6 +219,11 @@ export default function App() {
       return
     }
 
+    if (!trimText(input.name)) {
+      toast.error("Укажите название бюджета.")
+      return
+    }
+
     const nextDb = createWorkspaceForUser(db, user, input)
     persist(nextDb, "Бюджет создан")
     setOpenDialog(null)
@@ -202,10 +235,25 @@ export default function App() {
     workspaceId: string,
     input: { name: string; kind: Category["kind"] }
   ) {
+    const name = trimText(input.name)
+    const existingCategory = currentDb.categories.find(
+      (category) =>
+        category.workspaceId === workspaceId &&
+        category.kind === input.kind &&
+        category.name.trim().toLowerCase() === name.toLowerCase()
+    )
+
+    if (existingCategory) {
+      return {
+        db: currentDb,
+        category: existingCategory,
+      }
+    }
+
     const category: Category = {
       id: createId("category"),
       workspaceId,
-      name: input.name,
+      name,
       kind: input.kind,
       icon: input.kind === "income" ? "💼" : "✦",
       color: "blue",
@@ -226,13 +274,36 @@ export default function App() {
       return
     }
 
+    const title = trimText(input.title)
+    const amount = coercePositiveNumber(input.amount)
+    const date = isValidDateKey(input.date) ? input.date : null
+
+    if (!title || amount === null || !date) {
+      toast.error("Проверьте название, сумму и дату операции.")
+      return
+    }
+
     let nextDb = db
     let categoryId = input.categoryId
 
     if (input.newCategory) {
+      if (!trimText(input.newCategory.name)) {
+        toast.error("Укажите название новой категории.")
+        return
+      }
+
       const result = createCustomCategory(nextDb, activeWorkspace.id, input.newCategory)
       nextDb = result.db
       categoryId = result.category.id
+    }
+
+    const category = nextDb.categories.find(
+      (item) => item.workspaceId === activeWorkspace.id && item.id === categoryId
+    )
+
+    if (!category || !isTransactionCategoryCompatible(category, input.type)) {
+      toast.error("Выберите подходящую категорию для операции.")
+      return
     }
 
     persist(
@@ -240,10 +311,15 @@ export default function App() {
         ...nextDb,
         transactions: [
           {
-            ...input,
             id: createId("transaction"),
             workspaceId: activeWorkspace.id,
+            title,
+            account: trimText(input.account) || "Основной счет",
             categoryId,
+            type: input.type,
+            amount,
+            date,
+            note: trimText(input.note) || undefined,
           },
           ...nextDb.transactions,
         ],
@@ -259,30 +335,58 @@ export default function App() {
       return
     }
 
+    const limit = coercePositiveNumber(input.limit)
+
+    if (limit === null) {
+      toast.error("Укажите положительный лимит бюджета.")
+      return
+    }
+
     let nextDb = db
     let categoryId = input.categoryId
 
     if (input.newCategory) {
+      if (!trimText(input.newCategory.name)) {
+        toast.error("Укажите название новой категории.")
+        return
+      }
+
       const result = createCustomCategory(nextDb, activeWorkspace.id, input.newCategory)
       nextDb = result.db
       categoryId = result.category.id
     }
 
+    const category = nextDb.categories.find(
+      (item) => item.workspaceId === activeWorkspace.id && item.id === categoryId
+    )
+
+    if (!category || category.kind === "income") {
+      toast.error("Для бюджета выберите расходную категорию.")
+      return
+    }
+
+    const existingBudget = nextDb.budgets.find(
+      (budget) =>
+        budget.workspaceId === activeWorkspace.id &&
+        budget.categoryId === categoryId &&
+        budget.period === input.period
+    )
+    const budget = {
+      id: existingBudget?.id ?? createId("budget"),
+      workspaceId: activeWorkspace.id,
+      categoryId,
+      limit,
+      period: input.period,
+    }
+
     persist(
       {
         ...nextDb,
-        budgets: [
-          {
-            id: createId("budget"),
-            workspaceId: activeWorkspace.id,
-            categoryId,
-            limit: input.limit,
-            period: input.period,
-          },
-          ...nextDb.budgets,
-        ],
+        budgets: existingBudget
+          ? nextDb.budgets.map((item) => (item.id === existingBudget.id ? budget : item))
+          : [budget, ...nextDb.budgets],
       },
-      "Бюджет добавлен"
+      existingBudget ? "Бюджет обновлен" : "Бюджет добавлен"
     )
     setOpenDialog(null)
     setActiveView("budgets")
@@ -290,6 +394,27 @@ export default function App() {
 
   function handleInvite(input: { email: string }) {
     if (!activeWorkspace) {
+      return
+    }
+
+    const email = input.email.trim().toLowerCase()
+
+    if (!isEmailLike(email)) {
+      toast.error("Укажите корректный email участника.")
+      return
+    }
+
+    const alreadyMember = activeWorkspace.members.some(
+      (member) => member.email.toLowerCase() === email
+    )
+
+    if (email === user?.email.toLowerCase()) {
+      toast.warning("Вы уже владелец этого бюджета")
+      return
+    }
+
+    if (alreadyMember) {
+      toast.warning("Этот участник уже добавлен")
       return
     }
 
@@ -305,8 +430,8 @@ export default function App() {
                   {
                     id: createId("member"),
                     userId: null,
-                    name: input.email.split("@")[0] || "Участник",
-                    email: input.email,
+                    name: email.split("@")[0] || "Участник",
+                    email,
                     role: "member",
                     status: "invited",
                   },
@@ -326,14 +451,29 @@ export default function App() {
       return
     }
 
+    const title = trimText(input.title)
+    const balance = coercePositiveNumber(input.balance)
+    const monthlyPayment = coercePositiveNumber(input.monthlyPayment)
+    const rate = coerceNonNegativeNumber(input.rate) ?? 0
+    const nextPayment = isValidDateKey(input.nextPayment) ? input.nextPayment : null
+
+    if (!title || balance === null || monthlyPayment === null || !nextPayment) {
+      toast.error("Проверьте название, суммы и дату платежа.")
+      return
+    }
+
     persist(
       {
         ...db,
         liabilities: [
           {
-            ...input,
             id: createId("liability"),
             workspaceId: activeWorkspace.id,
+            title,
+            balance,
+            monthlyPayment,
+            rate,
+            nextPayment,
           },
           ...db.liabilities,
         ],
@@ -349,14 +489,28 @@ export default function App() {
       return
     }
 
+    const fileName = trimText(input.fileName)
+
+    if (!fileName) {
+      toast.error("Выберите файл документа.")
+      return
+    }
+
     persist(
       {
         ...db,
         documents: [
           {
-            ...input,
             id: createId("document"),
             workspaceId: activeWorkspace.id,
+            title: trimText(input.title) || fileName,
+            fileName,
+            fileData: trimText(input.fileData) || undefined,
+            fileSize: coerceNonNegativeNumber(input.fileSize) ?? undefined,
+            mimeType: trimText(input.mimeType) || undefined,
+            linkedTo: trimText(input.linkedTo) || "Не привязан",
+            status: input.status,
+            uploadedAt: normalizeDateKey(input.uploadedAt),
           },
           ...db.documents,
         ],
@@ -370,7 +524,11 @@ export default function App() {
   if (!user || !db.session) {
     return (
       <>
-        <AuthScreen onRegister={handleRegister} onLogin={handleLogin} />
+        <AuthScreen
+          onRegister={handleRegister}
+          onLogin={handleLogin}
+          onDemo={handleDemo}
+        />
         <Toaster position="bottom-right" richColors />
       </>
     )
@@ -420,6 +578,7 @@ export default function App() {
               categories={categories}
               transactions={transactions}
               budgets={budgets}
+              searchQuery={searchQuery}
               onOpenDialog={openWorkspaceRequiredDialog}
             />
           ) : null}
@@ -429,6 +588,7 @@ export default function App() {
               categories={categories}
               transactions={transactions}
               liabilities={liabilities}
+              searchQuery={searchQuery}
               selectedDate={selectedDate}
               onDateChange={setSelectedDate}
               onOpenDialog={openWorkspaceRequiredDialog}
@@ -438,6 +598,7 @@ export default function App() {
             <LiabilitiesScreen
               workspace={activeWorkspace}
               liabilities={liabilities}
+              searchQuery={searchQuery}
               onOpenDialog={openWorkspaceRequiredDialog}
             />
           ) : null}
@@ -445,6 +606,7 @@ export default function App() {
             <DocumentsScreen
               workspace={activeWorkspace}
               documents={documents}
+              searchQuery={searchQuery}
               onOpenDialog={openWorkspaceRequiredDialog}
             />
           ) : null}
@@ -452,6 +614,7 @@ export default function App() {
             <FamilyScreen
               user={user}
               workspace={activeWorkspace}
+              searchQuery={searchQuery}
               onOpenDialog={openWorkspaceRequiredDialog}
             />
           ) : null}
@@ -506,6 +669,13 @@ export default function App() {
       <Toaster position="bottom-right" richColors />
     </>
   )
+}
+
+function isTransactionCategoryCompatible(
+  category: Category,
+  type: TransactionInput["type"]
+) {
+  return category.kind === type || category.kind === "neutral"
 }
 
 function NotificationsSheet({

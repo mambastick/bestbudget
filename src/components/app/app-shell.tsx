@@ -38,9 +38,22 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
+  SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import { getInitials } from "@/domain/format"
 import type { User, View, Workspace } from "@/domain/types"
+
+const searchPlaceholders: Record<View, string> = {
+  overview: "Найти операцию или категорию",
+  transactions: "Найти операцию, счет или категорию",
+  budgets: "Найти категорию или лимит",
+  calendar: "Найти операцию или платеж",
+  liabilities: "Найти кредит или платеж",
+  documents: "Найти документ",
+  family: "Найти участника",
+  settings: "Найти",
+}
 
 export function AppShell({
   user,
@@ -122,20 +135,7 @@ export function AppShell({
           <SidebarGroup>
             <SidebarGroupLabel>Навигация</SidebarGroupLabel>
             <SidebarGroupContent>
-              <SidebarMenu>
-                {navItems.map((item) => (
-                  <SidebarMenuItem key={item.view}>
-                    <SidebarMenuButton
-                      isActive={activeView === item.view}
-                      tooltip={item.label}
-                      onClick={() => onNavigate(item.view)}
-                    >
-                      <item.icon />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
+              <ShellNavigation activeView={activeView} onNavigate={onNavigate} />
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
@@ -174,14 +174,18 @@ export function AppShell({
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>
-        <header className="sticky top-0 z-20 flex min-h-14 items-center gap-3 border-b bg-background/90 px-4 backdrop-blur">
-          <div className="relative min-w-0 flex-1">
+        <header className="sticky top-0 z-20 flex min-h-14 flex-wrap items-center gap-2 border-b bg-background/90 px-3 py-2 backdrop-blur sm:flex-nowrap sm:gap-3 sm:px-4 sm:py-0">
+          <SidebarTrigger
+            className="md:hidden"
+            aria-label="Открыть навигацию"
+          />
+          <div className="relative order-2 min-w-0 flex-[1_1_100%] sm:order-none sm:flex-1">
             <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
-              className="h-9 max-w-xl pl-8"
+              className="h-9 max-w-none pl-8 sm:max-w-xl"
               value={searchQuery}
               onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Найти операцию, категорию или документ"
+              placeholder={searchPlaceholders[activeView]}
             />
           </div>
           <Button
@@ -208,13 +212,47 @@ export function AppShell({
             <PiggyBankIcon data-icon="inline-start" />
             Бюджет
           </Button>
-          <Button onClick={() => onOpenDialog("transaction")}>
+          <Button
+            className="px-2 sm:px-2.5"
+            aria-label="Добавить операцию"
+            onClick={() => onOpenDialog("transaction")}
+          >
             <PlusIcon data-icon="inline-start" />
-            Операция
+            <span className="hidden sm:inline">Операция</span>
           </Button>
         </header>
         {children}
       </SidebarInset>
     </SidebarProvider>
+  )
+}
+
+function ShellNavigation({
+  activeView,
+  onNavigate,
+}: {
+  activeView: View
+  onNavigate: (view: View) => void
+}) {
+  const { setOpenMobile } = useSidebar()
+
+  return (
+    <SidebarMenu>
+      {navItems.map((item) => (
+        <SidebarMenuItem key={item.view}>
+          <SidebarMenuButton
+            isActive={activeView === item.view}
+            tooltip={item.label}
+            onClick={() => {
+              onNavigate(item.view)
+              setOpenMobile(false)
+            }}
+          >
+            <item.icon />
+            <span>{item.label}</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      ))}
+    </SidebarMenu>
   )
 }

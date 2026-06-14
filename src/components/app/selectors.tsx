@@ -22,15 +22,19 @@ export function CurrencySelect({
     <Select value={value} onValueChange={(next) => next && onChange(next)}>
       <SelectTrigger className="w-full">
         <SelectValue>
-          {selected.region} {selected.code} {selected.symbol} {selected.name}
+          <span className="truncate">
+            {selected.region} {selected.code} {selected.symbol} {selected.name}
+          </span>
         </SelectValue>
       </SelectTrigger>
-      <SelectContent align="start">
+      <SelectContent align="start" className="max-w-[calc(100vw-2rem)]">
         <SelectGroup>
           {currencyOptions.map((currency) => (
             <SelectItem key={currency.code} value={currency.code}>
-              {currency.region} {currency.code} {currency.symbol}{" "}
-              {currency.name}
+              <span className="truncate">
+                {currency.region} {currency.code} {currency.symbol}{" "}
+                {currency.name}
+              </span>
             </SelectItem>
           ))}
         </SelectGroup>
@@ -54,14 +58,20 @@ export function CategorySelect({
     <Select value={value} onValueChange={(next) => next && onChange(next)}>
       <SelectTrigger className="w-full">
         <SelectValue>
-          {selected ? `${selected.icon} ${selected.name}` : "Выберите категорию"}
+          <span className="truncate">
+            {selected
+              ? `${selected.icon} ${selected.name}`
+              : "Выберите категорию"}
+          </span>
         </SelectValue>
       </SelectTrigger>
-      <SelectContent align="start">
+      <SelectContent align="start" className="max-w-[calc(100vw-2rem)]">
         <SelectGroup>
           {categories.map((category) => (
             <SelectItem key={category.id} value={category.id}>
-              {category.icon} {category.name}
+              <span className="truncate">
+                {category.icon} {category.name}
+              </span>
             </SelectItem>
           ))}
           <SelectItem value="__new__">＋ Создать категорию</SelectItem>

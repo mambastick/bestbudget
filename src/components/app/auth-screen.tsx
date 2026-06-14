@@ -5,6 +5,7 @@ import {
   LogInIcon,
   PiggyBankIcon,
   ReceiptTextIcon,
+  SparklesIcon,
   UserPlusIcon,
 } from "lucide-react"
 
@@ -28,11 +29,16 @@ export type LoginInput = {
 export function AuthScreen({
   onRegister,
   onLogin,
+  onDemo,
 }: {
   onRegister: (input: RegisterInput) => Promise<void>
   onLogin: (input: LoginInput) => Promise<void>
+  onDemo: () => Promise<void>
 }) {
   const [mode, setMode] = useState("login")
+  const [pendingAction, setPendingAction] = useState<
+    "login" | "register" | "demo" | null
+  >(null)
   const [register, setRegister] = useState<RegisterInput>({
     name: "",
     email: "",
@@ -42,12 +48,31 @@ export function AuthScreen({
 
   async function handleRegister(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    await onRegister(register)
+    setPendingAction("register")
+    try {
+      await onRegister(register)
+    } finally {
+      setPendingAction(null)
+    }
   }
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    await onLogin(login)
+    setPendingAction("login")
+    try {
+      await onLogin(login)
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
+  async function handleDemo() {
+    setPendingAction("demo")
+    try {
+      await onDemo()
+    } finally {
+      setPendingAction(null)
+    }
   }
 
   return (
@@ -108,7 +133,7 @@ export function AuthScreen({
             </div>
           </section>
 
-          <section className="flex min-h-[620px] items-center justify-center p-5 sm:p-8 lg:p-12">
+          <section className="flex min-h-[calc(100svh-2rem)] items-center justify-center p-5 sm:min-h-[620px] sm:p-8 lg:min-h-0 lg:p-12">
             <div className="w-full max-w-md">
               <div className="mb-8 flex items-center gap-3 lg:hidden">
                 <div className="flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
@@ -177,9 +202,13 @@ export function AuthScreen({
                           required
                         />
                       </Field>
-                      <Button type="submit" size="lg">
+                      <Button
+                        type="submit"
+                        size="lg"
+                        disabled={pendingAction !== null}
+                      >
                         <LogInIcon data-icon="inline-start" />
-                        Войти
+                        {pendingAction === "login" ? "Входим..." : "Войти"}
                       </Button>
                     </FieldGroup>
                   </form>
@@ -238,14 +267,32 @@ export function AuthScreen({
                           required
                         />
                       </Field>
-                      <Button type="submit" size="lg">
+                      <Button
+                        type="submit"
+                        size="lg"
+                        disabled={pendingAction !== null}
+                      >
                         <UserPlusIcon data-icon="inline-start" />
-                        Создать аккаунт
+                        {pendingAction === "register"
+                          ? "Создаем..."
+                          : "Создать аккаунт"}
                       </Button>
                     </FieldGroup>
                   </form>
                 </TabsContent>
               </Tabs>
+              <div className="mt-5 grid gap-3 border-t pt-5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  disabled={pendingAction !== null}
+                  onClick={handleDemo}
+                >
+                  <SparklesIcon data-icon="inline-start" />
+                  {pendingAction === "demo" ? "Открываем..." : "Открыть демо"}
+                </Button>
+              </div>
             </div>
           </section>
         </div>

@@ -6,6 +6,7 @@ import {
   LandmarkIcon,
   PiggyBankIcon,
   PlusIcon,
+  ExternalLinkIcon,
   UserPlusIcon,
   WalletIcon,
 } from "lucide-react"
@@ -16,7 +17,7 @@ import { FadeContent } from "@/components/reactbits/fade-content"
 import { Magnet } from "@/components/reactbits/magnet"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import {
   Card,
@@ -91,9 +92,19 @@ const documentStatusLabels: Record<DocumentRecord["status"], string> = {
   checked: "Проверен",
 }
 
+const budgetPeriodLabels: Record<Budget["period"], string> = {
+  month: "Месяц",
+  quarter: "Квартал",
+  year: "Год",
+}
+
 const monthFormatter = new Intl.DateTimeFormat("ru-RU", {
   month: "long",
   year: "numeric",
+})
+const periodDateFormatter = new Intl.DateTimeFormat("ru-RU", {
+  day: "2-digit",
+  month: "short",
 })
 const weekdayFormatter = new Intl.DateTimeFormat("ru-RU", {
   weekday: "short",
@@ -120,6 +131,58 @@ function labelCalendarDay(date: Date, modifiers: Record<string, boolean>) {
   ].filter(Boolean)
 
   return [dayLabelFormatter.format(date), ...states].join(", ")
+}
+
+function getCurrentBudgetPeriod(period: Budget["period"]) {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = now.getMonth()
+
+  if (period === "year") {
+    return {
+      start: new Date(year, 0, 1),
+      end: new Date(year + 1, 0, 1),
+    }
+  }
+
+  if (period === "quarter") {
+    const quarterStartMonth = Math.floor(month / 3) * 3
+
+    return {
+      start: new Date(year, quarterStartMonth, 1),
+      end: new Date(year, quarterStartMonth + 3, 1),
+    }
+  }
+
+  return {
+    start: new Date(year, month, 1),
+    end: new Date(year, month + 1, 1),
+  }
+}
+
+function isDateInPeriod(dateKey: string, period: ReturnType<typeof getCurrentBudgetPeriod>) {
+  const date = new Date(`${dateKey}T12:00:00`)
+
+  return !Number.isNaN(date.getTime()) && date >= period.start && date < period.end
+}
+
+function formatBudgetPeriodRange(period: ReturnType<typeof getCurrentBudgetPeriod>) {
+  const inclusiveEnd = new Date(period.end)
+  inclusiveEnd.setDate(inclusiveEnd.getDate() - 1)
+
+  return `${periodDateFormatter.format(period.start)} - ${periodDateFormatter.format(inclusiveEnd)}`
+}
+
+function formatFileSize(value?: number) {
+  if (!value) {
+    return "размер не сохранен"
+  }
+
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)} МБ`
+  }
+
+  return `${Math.max(1, Math.round(value / 1_000))} КБ`
 }
 
 export function PageHeader({
@@ -173,12 +236,12 @@ function MetricCard({
   return (
     <div
       className={cn(
-        "rounded-xl border bg-background p-4",
+        "min-w-0 rounded-xl border bg-background p-4",
         emphasis && "border-zinc-900 bg-zinc-950 text-white"
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <div
             className={cn(
               "text-sm text-muted-foreground",
@@ -187,11 +250,16 @@ function MetricCard({
           >
             {title}
           </div>
-          <div className="mt-2 text-2xl font-semibold tracking-normal">
+          <div className="mt-2 break-words text-xl font-semibold tracking-normal sm:text-2xl">
             {value}
           </div>
         </div>
-        <Icon className={cn("text-muted-foreground", emphasis && "text-white/50")} />
+        <Icon
+          className={cn(
+            "shrink-0 text-muted-foreground",
+            emphasis && "text-white/50"
+          )}
+        />
       </div>
       <p
         className={cn(
@@ -306,22 +374,36 @@ export function OverviewScreen({
             <CardDescription>Готовые и добавленные вручную.</CardDescription>
           </CardHeader>
           <CardContent>
-            <AnimatedList className="grid gap-2">
-              {categories.slice(0, 8).map((category) => (
-                <div
-                  key={category.id}
-                  className="flex items-center justify-between rounded-lg border p-3"
-                >
-                  <span className="flex items-center gap-2">
-                    <span>{category.icon}</span>
-                    <span className="font-medium">{category.name}</span>
-                  </span>
-                  <Badge variant={category.custom ? "secondary" : "outline"}>
-                    {category.custom ? "Своя" : "Шаблон"}
-                  </Badge>
-                </div>
-              ))}
-            </AnimatedList>
+            {categories.length ? (
+              <AnimatedList className="grid gap-2">
+                {categories.slice(0, 8).map((category) => (
+                  <div
+                    key={category.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border p-3"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="shrink-0">{category.icon}</span>
+                      <span className="truncate font-medium">
+                        {category.name}
+                      </span>
+                    </span>
+                    <Badge
+                      variant={category.custom ? "secondary" : "outline"}
+                      className="shrink-0"
+                    >
+                      {category.custom ? "Своя" : "Шаблон"}
+                    </Badge>
+                  </div>
+                ))}
+              </AnimatedList>
+            ) : (
+              <EmptyState
+                title="Категорий пока нет"
+                description="Создайте лимит или операцию с новой категорией."
+                action="Добавить бюджет"
+                onAction={() => onOpenDialog("budget")}
+              />
+            )}
           </CardContent>
         </Card>
       </div>
@@ -391,7 +473,7 @@ export function TransactionsScreen({
       </div>
       <div className="p-4">
         <div className="overflow-x-auto rounded-lg border">
-          <Table>
+          <Table className="min-w-[680px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Операция</TableHead>
@@ -412,26 +494,30 @@ export function TransactionsScreen({
 
                   return (
                     <TableRow key={transaction.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
+                      <TableCell className="min-w-[14rem] max-w-[18rem] font-medium">
+                        <div className="flex min-w-0 items-center gap-2">
                           {transaction.type === "income" ? (
-                            <ArrowUpRightIcon className="text-muted-foreground" />
+                            <ArrowUpRightIcon className="shrink-0 text-muted-foreground" />
                           ) : (
-                            <ArrowDownRightIcon className="text-muted-foreground" />
+                            <ArrowDownRightIcon className="shrink-0 text-muted-foreground" />
                           )}
-                          {transaction.title}
+                          <span className="truncate">{transaction.title}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="hidden md:table-cell">
-                        {transaction.account}
+                      <TableCell className="hidden max-w-[10rem] md:table-cell">
+                        <span className="block truncate">
+                          {transaction.account}
+                        </span>
                       </TableCell>
-                      <TableCell>
-                        {category?.icon} {category?.name ?? "Без категории"}
+                      <TableCell className="max-w-[12rem]">
+                        <span className="block truncate">
+                          {category?.icon} {category?.name ?? "Без категории"}
+                        </span>
                       </TableCell>
                       <TableCell className="hidden sm:table-cell">
                         {formatHumanDate(transaction.date)}
                       </TableCell>
-                      <TableCell className="text-right font-medium">
+                      <TableCell className="text-right font-medium tabular-nums">
                         {formatMoney(signed, workspace.currencyCode)}
                       </TableCell>
                     </TableRow>
@@ -441,7 +527,11 @@ export function TransactionsScreen({
                 <TableRow>
                   <TableCell colSpan={5} className="h-32 text-center">
                     <EmptyInline
-                      label="Операций нет"
+                      label={
+                        searchQuery
+                          ? "По фильтру ничего не найдено"
+                          : "Операций нет"
+                      }
                       action="Добавить"
                       onAction={() => onOpenDialog("transaction")}
                     />
@@ -461,17 +551,33 @@ export function BudgetsScreen({
   categories,
   transactions,
   budgets,
+  searchQuery = "",
   onOpenDialog,
 }: {
   workspace: Workspace | null
   categories: Category[]
   transactions: Transaction[]
   budgets: Budget[]
+  searchQuery?: string
   onOpenDialog: (dialog: DialogName) => void
 }) {
   if (!workspace) {
     return <EmptyWorkspace onCreate={() => onOpenDialog("workspace")} />
   }
+
+  const filteredBudgets = budgets.filter((budget) => {
+    const category = getCategory(categories, budget.categoryId)
+    return matchesSearch(
+      [
+        category?.name ?? "",
+        budget.limit,
+        budget.period,
+        budgetPeriodLabels[budget.period],
+        workspace.currencyCode,
+      ],
+      searchQuery
+    )
+  })
 
   return (
     <section className="rounded-xl border bg-background">
@@ -490,14 +596,16 @@ export function BudgetsScreen({
         </div>
       </div>
       <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
-        {budgets.length ? (
-          budgets.map((budget) => {
+        {filteredBudgets.length ? (
+          filteredBudgets.map((budget) => {
             const category = getCategory(categories, budget.categoryId)
+            const currentPeriod = getCurrentBudgetPeriod(budget.period)
             const spent = transactions
               .filter(
                 (transaction) =>
                   transaction.type === "expense" &&
-                  transaction.categoryId === budget.categoryId
+                  transaction.categoryId === budget.categoryId &&
+                  isDateInPeriod(transaction.date, currentPeriod)
               )
               .reduce((total, transaction) => total + transaction.amount, 0)
             const progress = budget.limit ? (spent / budget.limit) * 100 : 0
@@ -505,16 +613,24 @@ export function BudgetsScreen({
             return (
               <div key={budget.id} className="rounded-lg border p-4">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-medium">
-                      {category?.icon} {category?.name ?? "Категория"}
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">
+                      <span className="mr-1 shrink-0">{category?.icon}</span>
+                      {category?.name ?? "Категория"}
                     </div>
-                    <div className="mt-1 text-sm text-muted-foreground">
+                    <div className="mt-1 break-words text-sm text-muted-foreground">
                       {formatMoney(spent, workspace.currencyCode)} из{" "}
                       {formatMoney(budget.limit, workspace.currencyCode)}
                     </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {budgetPeriodLabels[budget.period]} ·{" "}
+                      {formatBudgetPeriodRange(currentPeriod)}
+                    </div>
                   </div>
-                  <Badge variant={progress > 100 ? "destructive" : "outline"}>
+                  <Badge
+                    variant={progress > 100 ? "destructive" : "outline"}
+                    className="shrink-0"
+                  >
                     {Math.round(progress)}%
                   </Badge>
                 </div>
@@ -524,8 +640,12 @@ export function BudgetsScreen({
           })
         ) : (
           <EmptyState
-            title="Бюджеты еще не добавлены"
-            description="Выберите шаблон категории и задайте лимит."
+            title={budgets.length ? "Бюджеты не найдены" : "Бюджеты еще не добавлены"}
+            description={
+              budgets.length
+                ? "Измените строку поиска или добавьте новый лимит."
+                : "Выберите шаблон категории и задайте лимит."
+            }
             action="Добавить бюджет"
             onAction={() => onOpenDialog("budget")}
           />
@@ -540,6 +660,7 @@ export function CalendarScreen({
   categories,
   transactions,
   liabilities,
+  searchQuery = "",
   selectedDate,
   onDateChange,
   onOpenDialog,
@@ -548,6 +669,7 @@ export function CalendarScreen({
   categories: Category[]
   transactions: Transaction[]
   liabilities: Liability[]
+  searchQuery?: string
   selectedDate: Date
   onDateChange: (date: Date) => void
   onOpenDialog: (dialog: DialogName) => void
@@ -556,11 +678,43 @@ export function CalendarScreen({
     return <EmptyWorkspace onCreate={() => onOpenDialog("workspace")} />
   }
 
+  const filteredTransactions = transactions.filter((transaction) => {
+    const category = getCategory(categories, transaction.categoryId)
+
+    return matchesSearch(
+      [
+        transaction.title,
+        transaction.account,
+        category?.name ?? "",
+        transaction.amount,
+        transaction.date,
+      ],
+      searchQuery
+    )
+  })
+  const filteredLiabilities = liabilities.filter((liability) =>
+    matchesSearch(
+      [
+        liability.title,
+        liability.balance,
+        liability.monthlyPayment,
+        liability.rate,
+        liability.nextPayment,
+      ],
+      searchQuery
+    )
+  )
   const selectedKey = formatDateKey(selectedDate)
-  const dayTransactions = transactions.filter(
+  const allDayTransactions = transactions.filter(
     (transaction) => transaction.date === selectedKey
   )
-  const dayLiabilities = liabilities.filter(
+  const allDayLiabilities = liabilities.filter(
+    (liability) => liability.nextPayment === selectedKey
+  )
+  const dayTransactions = filteredTransactions.filter(
+    (transaction) => transaction.date === selectedKey
+  )
+  const dayLiabilities = filteredLiabilities.filter(
     (liability) => liability.nextPayment === selectedKey
   )
   const dayIncome = dayTransactions
@@ -578,12 +732,14 @@ export function CalendarScreen({
     month: "long",
     year: "numeric",
   })
-  const upcomingPayments = [...liabilities]
+  const todayKey = formatDateKey(new Date())
+  const upcomingPayments = [...filteredLiabilities]
+    .filter((liability) => liability.nextPayment >= todayKey)
     .sort((left, right) => left.nextPayment.localeCompare(right.nextPayment))
     .slice(0, 4)
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,700px)_360px]">
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,360px)]">
       <section className="flex min-w-0 flex-col rounded-xl border bg-background p-4">
         <div className="mb-4 flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -634,16 +790,16 @@ export function CalendarScreen({
             weekday:
               "flex h-8 items-center justify-center rounded-md text-xs font-medium uppercase text-muted-foreground",
             week: "mt-1 grid grid-cols-7 gap-1",
-            day: "rounded-lg border bg-muted/20 transition-colors hover:bg-accent/70",
+            day: "relative min-w-0 rounded-lg border bg-muted/20 transition-colors hover:bg-accent/70",
             day_button:
-              "h-11 rounded-lg text-sm sm:h-12 data-[selected-single=true]:shadow-sm",
+              "relative h-10 w-full rounded-lg text-sm sm:h-12 data-[selected-single=true]:shadow-sm",
           }}
           modifiers={{
             event: [
-              ...transactions.map(
+              ...filteredTransactions.map(
                 (transaction) => new Date(`${transaction.date}T12:00:00`)
               ),
-              ...liabilities.map(
+              ...filteredLiabilities.map(
                 (liability) => new Date(`${liability.nextPayment}T12:00:00`)
               ),
             ],
@@ -661,22 +817,22 @@ export function CalendarScreen({
           <h2 className="mt-1 text-xl font-semibold tracking-normal">
             {selectedLabel}
           </h2>
-          <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="mt-4 grid gap-2 sm:grid-cols-3 xl:grid-cols-1">
             <div className="rounded-lg bg-muted p-3">
               <div className="text-xs text-muted-foreground">Доход</div>
-              <div className="mt-1 text-sm font-medium">
+              <div className="mt-1 break-words text-sm font-medium tabular-nums">
                 {formatMoney(dayIncome, workspace.currencyCode)}
               </div>
             </div>
             <div className="rounded-lg bg-muted p-3">
               <div className="text-xs text-muted-foreground">Расход</div>
-              <div className="mt-1 text-sm font-medium">
+              <div className="mt-1 break-words text-sm font-medium tabular-nums">
                 {formatMoney(dayExpense, workspace.currencyCode)}
               </div>
             </div>
             <div className="rounded-lg bg-muted p-3">
               <div className="text-xs text-muted-foreground">Платежи</div>
-              <div className="mt-1 text-sm font-medium">
+              <div className="mt-1 break-words text-sm font-medium tabular-nums">
                 {formatMoney(dayPayments, workspace.currencyCode)}
               </div>
             </div>
@@ -710,7 +866,7 @@ export function CalendarScreen({
                         <div className="truncate font-medium">
                           {transaction.title}
                         </div>
-                        <div className="mt-1 text-sm text-muted-foreground">
+                        <div className="mt-1 truncate text-sm text-muted-foreground">
                           {category?.icon} {category?.name} ·{" "}
                           {transaction.account}
                         </div>
@@ -718,6 +874,7 @@ export function CalendarScreen({
                       <Badge
                         variant="outline"
                         className={cn(
+                          "max-w-[9rem] shrink-0 truncate tabular-nums",
                           transaction.type === "income"
                             ? "text-emerald-700"
                             : "text-rose-700"
@@ -740,7 +897,10 @@ export function CalendarScreen({
                         Плановый платеж · ставка {liability.rate}%
                       </div>
                     </div>
-                    <Badge variant="outline">
+                    <Badge
+                      variant="outline"
+                      className="max-w-[9rem] shrink-0 truncate tabular-nums"
+                    >
                       {formatMoney(
                         liability.monthlyPayment,
                         workspace.currencyCode
@@ -750,6 +910,13 @@ export function CalendarScreen({
                 </div>
               ))}
             </AnimatedList>
+          ) : allDayTransactions.length || allDayLiabilities.length ? (
+            <div className="rounded-lg border border-dashed p-4">
+              <div className="font-medium">Записи не найдены</div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                На этот день есть записи, но они не совпадают со строкой поиска.
+              </p>
+            </div>
           ) : (
             <div className="rounded-lg border border-dashed p-4">
               <div className="font-medium">На этот день записей нет</div>
@@ -785,14 +952,14 @@ export function CalendarScreen({
                       {formatHumanDate(liability.nextPayment)}
                     </div>
                   </div>
-                  <div className="text-sm font-medium">
+                  <div className="max-w-[9rem] shrink-0 truncate text-right text-sm font-medium tabular-nums">
                     {formatMoney(liability.monthlyPayment, workspace.currencyCode)}
                   </div>
                 </div>
               ))
             ) : (
               <p className="text-sm text-muted-foreground">
-                Плановых платежей пока нет.
+                Ближайших платежей пока нет.
               </p>
             )}
           </div>
@@ -805,10 +972,12 @@ export function CalendarScreen({
 export function FamilyScreen({
   user,
   workspace,
+  searchQuery = "",
   onOpenDialog,
 }: {
   user: User
   workspace: Workspace | null
+  searchQuery?: string
   onOpenDialog: (dialog: DialogName) => void
 }) {
   if (!workspace) {
@@ -816,11 +985,22 @@ export function FamilyScreen({
   }
 
   const currency = getCurrency(workspace.currencyCode)
+  const filteredMembers = workspace.members.filter((member) =>
+    matchesSearch(
+      [
+        member.userId === user.id ? user.name : member.name,
+        member.email,
+        roleLabels[member.role],
+        memberStatusLabels[member.status],
+      ],
+      searchQuery
+    )
+  )
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{workspace.name}</CardTitle>
+        <CardTitle className="truncate">{workspace.name}</CardTitle>
         <CardDescription>
           {workspace.accessMode === "shared"
             ? "Совместный бюджет"
@@ -830,31 +1010,42 @@ export function FamilyScreen({
       </CardHeader>
       <CardContent>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {workspace.members.map((member) => (
-            <div key={member.id} className="rounded-lg border p-4">
-              <div className="flex items-center gap-3">
-                <Avatar>
-                  <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">
-                    {member.userId === user.id ? user.name : member.name}
+          {filteredMembers.length ? (
+            filteredMembers.map((member) => (
+              <div key={member.id} className="rounded-lg border p-4">
+                <div className="flex items-center gap-3">
+                  <Avatar className="shrink-0">
+                    <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">
+                      {member.userId === user.id ? user.name : member.name}
+                    </div>
+                    <div className="truncate text-sm text-muted-foreground">
+                      {member.email}
+                    </div>
                   </div>
-                  <div className="truncate text-sm text-muted-foreground">
-                    {member.email}
-                  </div>
+                  <Badge variant="outline" className="shrink-0">
+                    {roleLabels[member.role]}
+                  </Badge>
                 </div>
-                <Badge variant="outline">{roleLabels[member.role]}</Badge>
+                <div className="mt-3 text-sm text-muted-foreground">
+                  {memberStatusLabels[member.status]}
+                </div>
               </div>
-              <div className="mt-3 text-sm text-muted-foreground">
-                {memberStatusLabels[member.status]}
-              </div>
+            ))
+          ) : (
+            <div className="rounded-lg border border-dashed p-4">
+              <div className="font-medium">Участники не найдены</div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Измените строку поиска или пригласите нового участника.
+              </p>
             </div>
-          ))}
+          )}
           <Magnet>
             <button
               type="button"
-              className="flex min-h-32 w-full items-center justify-center rounded-lg border border-dashed bg-background text-left transition-colors hover:bg-accent"
+              className="flex min-h-32 w-full items-center justify-center rounded-lg border border-dashed bg-background text-left transition-colors hover:bg-accent focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
               onClick={() => onOpenDialog("invite")}
             >
               <div className="flex flex-col items-center gap-3">
@@ -876,22 +1067,37 @@ export function FamilyScreen({
 export function LiabilitiesScreen({
   workspace,
   liabilities,
+  searchQuery = "",
   onOpenDialog,
 }: {
   workspace: Workspace | null
   liabilities: Liability[]
+  searchQuery?: string
   onOpenDialog: (dialog: DialogName) => void
 }) {
   if (!workspace) {
     return <EmptyWorkspace onCreate={() => onOpenDialog("workspace")} />
   }
 
+  const filteredLiabilities = liabilities.filter((liability) =>
+    matchesSearch(
+      [
+        liability.title,
+        liability.balance,
+        liability.monthlyPayment,
+        liability.rate,
+        liability.nextPayment,
+      ],
+      searchQuery
+    )
+  )
+
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="gap-3">
         <CardTitle>Кредиты и обязательства</CardTitle>
         <CardDescription>Платежи попадают в календарь.</CardDescription>
-        <CardAction>
+        <CardAction className="col-start-1 row-start-3 justify-self-start sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:justify-self-end">
           <Button onClick={() => onOpenDialog("liability")}>
             <PlusIcon data-icon="inline-start" />
             Добавить
@@ -899,9 +1105,9 @@ export function LiabilitiesScreen({
         </CardAction>
       </CardHeader>
       <CardContent>
-        {liabilities.length ? (
+        {filteredLiabilities.length ? (
           <div className="overflow-x-auto rounded-lg border">
-            <Table>
+            <Table className="min-w-[720px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Название</TableHead>
@@ -912,22 +1118,22 @@ export function LiabilitiesScreen({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {liabilities.map((liability) => (
+                {filteredLiabilities.map((liability) => (
                   <TableRow key={liability.id}>
-                    <TableCell className="font-medium">
-                      {liability.title}
+                    <TableCell className="min-w-[14rem] max-w-[18rem] font-medium">
+                      <span className="block truncate">{liability.title}</span>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="tabular-nums">
                       {formatMoney(liability.balance, workspace.currencyCode)}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="tabular-nums">
                       {formatMoney(
                         liability.monthlyPayment,
                         workspace.currencyCode
                       )}
                     </TableCell>
                     <TableCell>{liability.rate}%</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right tabular-nums">
                       {formatHumanDate(liability.nextPayment)}
                     </TableCell>
                   </TableRow>
@@ -937,8 +1143,12 @@ export function LiabilitiesScreen({
           </div>
         ) : (
           <EmptyState
-            title="Обязательств нет"
-            description="Добавьте кредит, ипотеку или рассрочку."
+            title={liabilities.length ? "Обязательства не найдены" : "Обязательств нет"}
+            description={
+              liabilities.length
+                ? "Измените строку поиска или добавьте новый платеж."
+                : "Добавьте кредит, ипотеку или рассрочку."
+            }
             action="Добавить обязательство"
             onAction={() => onOpenDialog("liability")}
           />
@@ -951,22 +1161,38 @@ export function LiabilitiesScreen({
 export function DocumentsScreen({
   workspace,
   documents,
+  searchQuery = "",
   onOpenDialog,
 }: {
   workspace: Workspace | null
   documents: DocumentRecord[]
+  searchQuery?: string
   onOpenDialog: (dialog: DialogName) => void
 }) {
   if (!workspace) {
     return <EmptyWorkspace onCreate={() => onOpenDialog("workspace")} />
   }
 
+  const filteredDocuments = documents.filter((document) =>
+    matchesSearch(
+      [
+        document.title,
+        document.fileName,
+        document.linkedTo,
+        document.fileSize ?? "",
+        document.mimeType ?? "",
+        documentStatusLabels[document.status],
+      ],
+      searchQuery
+    )
+  )
+
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="gap-3">
         <CardTitle>Документы</CardTitle>
         <CardDescription>PDF, чеки и файлы по выбранному бюджету.</CardDescription>
-        <CardAction>
+        <CardAction className="col-start-1 row-start-3 justify-self-start sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:justify-self-end">
           <Button onClick={() => onOpenDialog("document")}>
             <PlusIcon data-icon="inline-start" />
             Загрузить
@@ -974,29 +1200,48 @@ export function DocumentsScreen({
         </CardAction>
       </CardHeader>
       <CardContent>
-        {documents.length ? (
+        {filteredDocuments.length ? (
           <div className="grid gap-3">
-            {documents.map((document) => (
+            {filteredDocuments.map((document) => (
               <div
                 key={document.id}
-                className="flex items-center justify-between gap-3 rounded-lg border p-4"
+                className="flex flex-col items-start gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"
               >
-                <div>
-                  <div className="font-medium">{document.title}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {document.fileName} · {document.linkedTo}
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{document.title}</div>
+                  <div className="truncate text-sm text-muted-foreground">
+                    {document.fileName} · {document.linkedTo} ·{" "}
+                    {formatFileSize(document.fileSize)}
                   </div>
                 </div>
-                <Badge variant="outline">
-                  {documentStatusLabels[document.status]}
-                </Badge>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge variant="outline">
+                    {documentStatusLabels[document.status]}
+                  </Badge>
+                  {document.fileData ? (
+                    <a
+                      className={cn(buttonVariants({ variant: "outline" }))}
+                      href={document.fileData}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`Открыть документ ${document.title}`}
+                    >
+                      <ExternalLinkIcon data-icon="inline-start" />
+                      Открыть
+                    </a>
+                  ) : null}
+                </div>
               </div>
             ))}
           </div>
         ) : (
           <EmptyState
-            title="Документов нет"
-            description="Загрузите PDF, чек или договор."
+            title={documents.length ? "Документы не найдены" : "Документов нет"}
+            description={
+              documents.length
+                ? "Измените строку поиска или загрузите новый файл."
+                : "Загрузите PDF, чек или договор."
+            }
             action="Загрузить документ"
             onAction={() => onOpenDialog("document")}
           />
@@ -1023,9 +1268,11 @@ export function SettingsScreen({
           <CardDescription>Ваши данные для входа.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3">
-          <div className="rounded-lg border p-4">
-            <div className="font-medium">{user.name}</div>
-            <div className="text-sm text-muted-foreground">{user.email}</div>
+          <div className="min-w-0 rounded-lg border p-4">
+            <div className="truncate font-medium">{user.name}</div>
+            <div className="truncate text-sm text-muted-foreground">
+              {user.email}
+            </div>
           </div>
         </CardContent>
       </Card>

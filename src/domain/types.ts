@@ -82,6 +82,9 @@ export type DocumentRecord = {
   workspaceId: string
   title: string
   fileName: string
+  fileData?: string
+  fileSize?: number
+  mimeType?: string
   linkedTo: string
   status: "uploaded" | "checked"
   uploadedAt: string

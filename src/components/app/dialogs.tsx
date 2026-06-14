@@ -10,7 +10,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { CategorySelect, CurrencySelect } from "./selectors"
 import { formatDateKey } from "@/domain/format"
@@ -22,6 +28,14 @@ import type {
   Liability,
   Transaction,
 } from "@/domain/types"
+import {
+  isEmailLike,
+  isValidDateKey,
+  parseNonNegativeDecimalInput,
+  parsePositiveMoneyInput,
+} from "@/domain/validation"
+
+const MAX_DOCUMENT_FILE_BYTES = 1_500_000
 
 export type DialogName =
   | "workspace"
@@ -71,11 +85,14 @@ export function WorkspaceDialog({
   const [name, setName] = useState("")
   const [accessMode, setAccessMode] = useState<AccessMode>("shared")
   const [currencyCode, setCurrencyCode] = useState("RUB")
+  const [formError, setFormError] = useState("")
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    setFormError("")
 
     if (!name.trim()) {
+      setFormError("Введите название бюджета.")
       return
     }
 
@@ -87,6 +104,7 @@ export function WorkspaceDialog({
     setName("")
     setAccessMode("shared")
     setCurrencyCode("RUB")
+    setFormError("")
   }
 
   return (
@@ -112,10 +130,15 @@ export function WorkspaceDialog({
             </Field>
             <Field>
               <FieldLabel>Кто будет пользоваться</FieldLabel>
-              <div className="grid grid-cols-2 gap-2">
+              <div
+                className="grid grid-cols-2 gap-2"
+                role="group"
+                aria-label="Кто будет пользоваться бюджетом"
+              >
                 <Button
                   type="button"
                   variant={accessMode === "shared" ? "default" : "outline"}
+                  aria-pressed={accessMode === "shared"}
                   onClick={() => setAccessMode("shared")}
                 >
                   Вместе
@@ -123,6 +146,7 @@ export function WorkspaceDialog({
                 <Button
                   type="button"
                   variant={accessMode === "individual" ? "default" : "outline"}
+                  aria-pressed={accessMode === "individual"}
                   onClick={() => setAccessMode("individual")}
                 >
                   Только я
@@ -133,6 +157,7 @@ export function WorkspaceDialog({
               <FieldLabel>Валюта</FieldLabel>
               <CurrencySelect value={currencyCode} onChange={setCurrencyCode} />
             </Field>
+            <FieldError>{formError}</FieldError>
             <DialogFooter>
               <Button
                 type="button"
@@ -172,24 +197,38 @@ export function TransactionDialog({
   )
   const [newCategory, setNewCategory] = useState("")
   const [date, setDate] = useState(formatDateKey(new Date()))
+  const [formError, setFormError] = useState("")
+  const categoryOptions = getTransactionCategoryOptions(categories, type)
   const resolvedCategoryId = resolveTransactionCategoryId(
-    categories,
+    categoryOptions,
     categoryId,
     type
   )
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    setFormError("")
 
-    const parsedAmount = Number(amount)
+    const parsedAmount = parsePositiveMoneyInput(amount)
     const shouldCreateCategory = resolvedCategoryId === "__new__"
 
-    if (
-      !title.trim() ||
-      Number.isNaN(parsedAmount) ||
-      parsedAmount <= 0 ||
-      (shouldCreateCategory && !newCategory.trim())
-    ) {
+    if (!title.trim()) {
+      setFormError("Введите название операции.")
+      return
+    }
+
+    if (parsedAmount === null) {
+      setFormError("Введите сумму больше нуля, максимум с двумя знаками.")
+      return
+    }
+
+    if (!isValidDateKey(date)) {
+      setFormError("Выберите корректную дату операции.")
+      return
+    }
+
+    if (shouldCreateCategory && !newCategory.trim()) {
+      setFormError("Введите название новой категории.")
       return
     }
 
@@ -209,6 +248,7 @@ export function TransactionDialog({
     setAccount("Основной счет")
     setNewCategory("")
     setDate(formatDateKey(new Date()))
+    setFormError("")
   }
 
   return (
@@ -224,10 +264,15 @@ export function TransactionDialog({
           <FieldGroup>
             <Field>
               <FieldLabel>Тип</FieldLabel>
-              <div className="grid grid-cols-2 gap-2">
+              <div
+                className="grid grid-cols-2 gap-2"
+                role="group"
+                aria-label="Тип операции"
+              >
                 <Button
                   type="button"
                   variant={type === "expense" ? "default" : "outline"}
+                  aria-pressed={type === "expense"}
                   onClick={() => setType("expense")}
                 >
                   Расход
@@ -235,6 +280,7 @@ export function TransactionDialog({
                 <Button
                   type="button"
                   variant={type === "income" ? "default" : "outline"}
+                  aria-pressed={type === "income"}
                   onClick={() => setType("income")}
                 >
                   Доход
@@ -258,7 +304,9 @@ export function TransactionDialog({
                 <Input
                   id="transactionAmount"
                   type="number"
-                  min="1"
+                  min="0.01"
+                  step="0.01"
+                  inputMode="decimal"
                   value={amount}
                   onChange={(event) => setAmount(event.target.value)}
                   required
@@ -278,7 +326,7 @@ export function TransactionDialog({
             <Field>
               <FieldLabel>Категория</FieldLabel>
               <CategorySelect
-                categories={categories}
+                categories={categoryOptions}
                 value={resolvedCategoryId}
                 onChange={setCategoryId}
               />
@@ -304,6 +352,7 @@ export function TransactionDialog({
                 onChange={(event) => setAccount(event.target.value)}
               />
             </Field>
+            <FieldError>{formError}</FieldError>
             <DialogFooter>
               <Button
                 type="button"
@@ -338,19 +387,24 @@ export function BudgetDialog({
   const [newCategory, setNewCategory] = useState("")
   const [limit, setLimit] = useState("")
   const [period, setPeriod] = useState<Budget["period"]>("month")
-  const resolvedCategoryId = resolveBudgetCategoryId(categories, categoryId)
+  const [formError, setFormError] = useState("")
+  const categoryOptions = getBudgetCategoryOptions(categories)
+  const resolvedCategoryId = resolveBudgetCategoryId(categoryOptions, categoryId)
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    setFormError("")
 
-    const parsedLimit = Number(limit)
+    const parsedLimit = parsePositiveMoneyInput(limit)
     const shouldCreateCategory = resolvedCategoryId === "__new__"
 
-    if (
-      Number.isNaN(parsedLimit) ||
-      parsedLimit <= 0 ||
-      (shouldCreateCategory && !newCategory.trim())
-    ) {
+    if (parsedLimit === null) {
+      setFormError("Введите лимит больше нуля, максимум с двумя знаками.")
+      return
+    }
+
+    if (shouldCreateCategory && !newCategory.trim()) {
+      setFormError("Введите название новой категории.")
       return
     }
 
@@ -364,6 +418,7 @@ export function BudgetDialog({
     })
     setLimit("")
     setNewCategory("")
+    setFormError("")
   }
 
   return (
@@ -380,7 +435,7 @@ export function BudgetDialog({
             <Field>
               <FieldLabel>Категория</FieldLabel>
               <CategorySelect
-                categories={categories}
+                categories={categoryOptions}
                 value={resolvedCategoryId}
                 onChange={setCategoryId}
               />
@@ -403,7 +458,9 @@ export function BudgetDialog({
               <Input
                 id="budgetLimit"
                 type="number"
-                min="1"
+                min="0.01"
+                step="0.01"
+                inputMode="decimal"
                 value={limit}
                 onChange={(event) => setLimit(event.target.value)}
                 required
@@ -411,12 +468,17 @@ export function BudgetDialog({
             </Field>
             <Field>
               <FieldLabel>Период</FieldLabel>
-              <div className="grid grid-cols-3 gap-2">
+              <div
+                className="grid grid-cols-3 gap-2"
+                role="group"
+                aria-label="Период бюджета"
+              >
                 {(["month", "quarter", "year"] as const).map((item) => (
                   <Button
                     key={item}
                     type="button"
                     variant={period === item ? "default" : "outline"}
+                    aria-pressed={period === item}
                     onClick={() => setPeriod(item)}
                   >
                     {item === "month"
@@ -428,6 +490,7 @@ export function BudgetDialog({
                 ))}
               </div>
             </Field>
+            <FieldError>{formError}</FieldError>
             <DialogFooter>
               <Button
                 type="button"
@@ -450,8 +513,23 @@ function getDefaultCategoryId(categories: Category[], kind: Category["kind"]) {
     categories.find((category) => category.kind === kind)?.id ??
     categories.find((category) => category.kind === "expense")?.id ??
     categories[0]?.id ??
-    ""
+    "__new__"
   )
+}
+
+function getTransactionCategoryOptions(
+  categories: Category[],
+  type: Transaction["type"]
+) {
+  return categories.filter((category) =>
+    type === "income"
+      ? category.kind === "income" || category.kind === "neutral"
+      : category.kind === "expense" || category.kind === "neutral"
+  )
+}
+
+function getBudgetCategoryOptions(categories: Category[]) {
+  return categories.filter((category) => category.kind !== "income")
 }
 
 function resolveTransactionCategoryId(
@@ -501,16 +579,20 @@ export function InviteDialog({
   onSubmit: (input: InviteInput) => void
 }) {
   const [email, setEmail] = useState("")
+  const [formError, setFormError] = useState("")
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    setFormError("")
 
-    if (!email.trim()) {
+    if (!isEmailLike(email)) {
+      setFormError("Введите корректный email участника.")
       return
     }
 
     onSubmit({ email: email.trim() })
     setEmail("")
+    setFormError("")
   }
 
   return (
@@ -534,6 +616,7 @@ export function InviteDialog({
                 required
               />
             </Field>
+            <FieldError>{formError}</FieldError>
             <DialogFooter>
               <Button
                 type="button"
@@ -568,21 +651,38 @@ export function LiabilityDialog({
   const [monthlyPayment, setMonthlyPayment] = useState("")
   const [rate, setRate] = useState("")
   const [nextPayment, setNextPayment] = useState(formatDateKey(new Date()))
+  const [formError, setFormError] = useState("")
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    setFormError("")
 
-    const parsedBalance = Number(balance)
-    const parsedPayment = Number(monthlyPayment)
-    const parsedRate = Number(rate)
+    const parsedBalance = parsePositiveMoneyInput(balance)
+    const parsedPayment = parsePositiveMoneyInput(monthlyPayment)
+    const parsedRate = rate.trim() ? parseNonNegativeDecimalInput(rate) : 0
 
-    if (
-      !title.trim() ||
-      Number.isNaN(parsedBalance) ||
-      Number.isNaN(parsedPayment) ||
-      parsedBalance <= 0 ||
-      parsedPayment <= 0
-    ) {
+    if (!title.trim()) {
+      setFormError("Введите название обязательства.")
+      return
+    }
+
+    if (parsedBalance === null) {
+      setFormError("Введите остаток больше нуля, максимум с двумя знаками.")
+      return
+    }
+
+    if (parsedPayment === null) {
+      setFormError("Введите платеж больше нуля, максимум с двумя знаками.")
+      return
+    }
+
+    if (parsedRate === null) {
+      setFormError("Введите ставку числом не меньше нуля.")
+      return
+    }
+
+    if (!isValidDateKey(nextPayment)) {
+      setFormError("Выберите корректную дату платежа.")
       return
     }
 
@@ -590,7 +690,7 @@ export function LiabilityDialog({
       title: title.trim(),
       balance: parsedBalance,
       monthlyPayment: parsedPayment,
-      rate: Number.isNaN(parsedRate) ? 0 : parsedRate,
+      rate: parsedRate,
       nextPayment,
     })
     setTitle("")
@@ -598,6 +698,7 @@ export function LiabilityDialog({
     setMonthlyPayment("")
     setRate("")
     setNextPayment(formatDateKey(new Date()))
+    setFormError("")
   }
 
   return (
@@ -626,7 +727,9 @@ export function LiabilityDialog({
                 <Input
                   id="liabilityBalance"
                   type="number"
-                  min="1"
+                  min="0.01"
+                  step="0.01"
+                  inputMode="decimal"
                   value={balance}
                   onChange={(event) => setBalance(event.target.value)}
                   required
@@ -637,7 +740,9 @@ export function LiabilityDialog({
                 <Input
                   id="liabilityPayment"
                   type="number"
-                  min="1"
+                  min="0.01"
+                  step="0.01"
+                  inputMode="decimal"
                   value={monthlyPayment}
                   onChange={(event) => setMonthlyPayment(event.target.value)}
                   required
@@ -652,6 +757,7 @@ export function LiabilityDialog({
                   type="number"
                   min="0"
                   step="0.1"
+                  inputMode="decimal"
                   value={rate}
                   onChange={(event) => setRate(event.target.value)}
                 />
@@ -667,6 +773,7 @@ export function LiabilityDialog({
                 />
               </Field>
             </div>
+            <FieldError>{formError}</FieldError>
             <DialogFooter>
               <Button
                 type="button"
@@ -695,25 +802,51 @@ export function DocumentDialog({
 }) {
   const [title, setTitle] = useState("")
   const [fileName, setFileName] = useState("")
+  const [file, setFile] = useState<File | null>(null)
   const [linkedTo, setLinkedTo] = useState("")
+  const [formError, setFormError] = useState("")
+  const [pending, setPending] = useState(false)
+  const [fileInputKey, setFileInputKey] = useState(0)
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    setFormError("")
 
-    if (!fileName) {
+    if (!file || !fileName) {
+      setFormError("Выберите файл.")
       return
     }
 
-    onSubmit({
-      title: title.trim() || fileName,
-      fileName,
-      linkedTo: linkedTo.trim() || "Не привязан",
-      status: "uploaded",
-      uploadedAt: formatDateKey(new Date()),
-    })
-    setTitle("")
-    setFileName("")
-    setLinkedTo("")
+    if (file.size > MAX_DOCUMENT_FILE_BYTES) {
+      setFormError("Файл должен быть не больше 1.5 МБ для локального хранения.")
+      return
+    }
+
+    setPending(true)
+    try {
+      const fileData = await readFileAsDataUrl(file)
+
+      onSubmit({
+        title: title.trim() || fileName,
+        fileName,
+        fileData,
+        fileSize: file.size,
+        mimeType: file.type || "application/octet-stream",
+        linkedTo: linkedTo.trim() || "Не привязан",
+        status: "uploaded",
+        uploadedAt: formatDateKey(new Date()),
+      })
+      setTitle("")
+      setFileName("")
+      setFile(null)
+      setLinkedTo("")
+      setFileInputKey((current) => current + 1)
+      setFormError("")
+    } catch {
+      setFormError("Не удалось прочитать файл.")
+    } finally {
+      setPending(false)
+    }
   }
 
   return (
@@ -730,15 +863,21 @@ export function DocumentDialog({
             <Field>
               <FieldLabel htmlFor="documentFile">Файл</FieldLabel>
               <Input
+                key={fileInputKey}
                 id="documentFile"
                 type="file"
                 accept="application/pdf,image/*"
-                onChange={(event) =>
-                  setFileName(event.currentTarget.files?.[0]?.name ?? "")
-                }
+                onChange={(event) => {
+                  const selectedFile = event.currentTarget.files?.[0] ?? null
+                  setFile(selectedFile)
+                  setFileName(selectedFile?.name ?? "")
+                  setFormError("")
+                }}
                 required
               />
-              <FieldDescription>PDF или изображение.</FieldDescription>
+              <FieldDescription>
+                PDF или изображение до 1.5 МБ хранится локально в браузере.
+              </FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="documentTitle">Название</FieldLabel>
@@ -757,17 +896,19 @@ export function DocumentDialog({
                 placeholder="Например: ипотека или чек"
               />
             </Field>
+            <FieldError>{formError}</FieldError>
             <DialogFooter>
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => onOpenChange(false)}
+                disabled={pending}
               >
                 Отмена
               </Button>
-              <Button type="submit">
+              <Button type="submit" disabled={pending}>
                 <UploadIcon data-icon="inline-start" />
-                Загрузить
+                {pending ? "Загружаем..." : "Загрузить"}
               </Button>
             </DialogFooter>
           </FieldGroup>
@@ -775,4 +916,21 @@ export function DocumentDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.addEventListener("load", () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result)
+        return
+      }
+
+      reject(new Error("Unexpected file reader result"))
+    })
+    reader.addEventListener("error", () => reject(reader.error))
+    reader.readAsDataURL(file)
+  })
 }
