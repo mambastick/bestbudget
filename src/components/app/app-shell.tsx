@@ -49,6 +49,7 @@ import {
 import { ROLE_LABELS, type HouseholdRole } from "@/domain/permissions"
 import { useAction } from "@/hooks/use-action"
 import { authClient } from "@/lib/auth-client"
+import { APP_VERSION, IS_PRERELEASE } from "@/lib/version"
 
 const NAV = [
   { href: "/dashboard", label: "Обзор", icon: LayoutDashboard },
@@ -171,6 +172,10 @@ function AppSidebar({ user, households, activeHouseholdId }: Omit<ShellProps, "c
       </SidebarContent>
       <SidebarFooter>
         <UserMenu user={user} />
+        <div className="px-2 text-[11px] text-muted-foreground group-data-[collapsible=icon]:hidden">
+          BestBudget v{APP_VERSION}
+          {IS_PRERELEASE ? <span className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">бета</span> : null}
+        </div>
       </SidebarFooter>
     </Sidebar>
   )
@@ -227,6 +232,22 @@ function UserMenu({ user }: { user: ShellProps["user"] }) {
 
 function Header({ title }: { title: string }) {
   const ops = useOperations()
+
+  // "N" (or "Т" on the Russian layout) opens a new operation from anywhere, except while typing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return
+      if (document.querySelector("[role=dialog]")) return
+      if (e.code === "KeyN") {
+        e.preventDefault()
+        ops.openCreate()
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [ops])
   return (
     <>
       <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:rounded-t-xl">
@@ -236,6 +257,7 @@ function Header({ title }: { title: string }) {
         <AnimateIcon animateOnHover asChild>
           <Button onClick={() => ops.openCreate()} className="hidden sm:inline-flex">
             <AnimatedPlus /> Операция
+            <kbd className="ml-1 hidden rounded border border-primary-foreground/30 px-1 text-[10px] font-normal opacity-80 lg:inline">N</kbd>
           </Button>
         </AnimateIcon>
       </header>

@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: { default: "BestBudget", template: "%s · BestBudget" },
   description: "Семейный бюджет: доходы, расходы, регулярные платежи и прогноз остатка",
   robots: { index: false, follow: false },
+  appleWebApp: { capable: true, title: "BestBudget", statusBarStyle: "default" },
 }
 
 export const viewport: Viewport = {

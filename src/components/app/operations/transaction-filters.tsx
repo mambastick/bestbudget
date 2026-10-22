@@ -1,10 +1,11 @@
 "use client"
 
-import { Search, X } from "lucide-react"
+import { Download, Search, X } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import { DateField } from "@/components/app/date-field"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useCatalog } from "./catalog-context"
@@ -86,6 +87,13 @@ export function TransactionFilters() {
         )}
         <DateField value={params.get("from")} onChange={(v) => update({ from: v })} today={today} placeholder="С даты" clearable className="sm:w-44" />
         <DateField value={params.get("to")} onChange={(v) => update({ to: v })} today={today} placeholder="По дату" clearable className="sm:w-44" />
+        <a
+          href={`/api/export/transactions?${params.toString()}`}
+          download
+          className={cn(buttonVariants({ variant: "outline" }), "col-span-2 sm:col-span-1 sm:ml-auto")}
+        >
+          <Download /> Экспорт CSV
+        </a>
         {active ? (
           <Button
             variant="ghost"

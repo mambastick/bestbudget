@@ -284,9 +284,7 @@ export function transactionListQuery(where: SQL | undefined) {
     .where(where)
 }
 
-export async function listTransactions(ctx: HouseholdCtx, raw: TransactionFilters) {
-  assertCan(ctx, "finance.read")
-  const f = transactionFilters.parse(raw)
+function filterConditions(ctx: HouseholdCtx, f: z.output<typeof transactionFilters>) {
   const conditions: (SQL | undefined)[] = [
     eq(transactions.householdId, ctx.householdId),
     f.type ? eq(transactions.type, f.type) : undefined,
@@ -300,12 +298,27 @@ export async function listTransactions(ctx: HouseholdCtx, raw: TransactionFilter
     const pattern = `%${f.q.replace(/[\\%_]/g, (c) => "\\" + c)}%`
     conditions.push(or(ilike(transactions.title, pattern), ilike(transactions.description, pattern), ilike(categories.name, pattern)))
   }
-  const where = and(...conditions)
-  const rows = await transactionListQuery(where)
+  return and(...conditions)
+}
+
+export async function listTransactions(ctx: HouseholdCtx, raw: TransactionFilters) {
+  assertCan(ctx, "finance.read")
+  const f = transactionFilters.parse(raw)
+  const rows = await transactionListQuery(filterConditions(ctx, f))
     .orderBy(desc(transactions.date), desc(transactions.createdAt))
     .limit(PAGE_SIZE + 1)
     .offset((f.page - 1) * PAGE_SIZE)
   return { rows: rows.slice(0, PAGE_SIZE), hasMore: rows.length > PAGE_SIZE, page: f.page }
+}
+
+/** Upper bound for a single export; a family accumulates far fewer operations. */
+const EXPORT_LIMIT = 50_000
+
+/** All operations matching the filters (no paging), oldest first — for CSV export. */
+export async function exportTransactions(ctx: HouseholdCtx, raw: TransactionFilters) {
+  assertCan(ctx, "finance.read")
+  const f = transactionFilters.parse(raw)
+  return transactionListQuery(filterConditions(ctx, f)).orderBy(transactions.date, transactions.createdAt).limit(EXPORT_LIMIT)
 }
 
 export async function getTransaction(ctx: HouseholdCtx, id: string) {
