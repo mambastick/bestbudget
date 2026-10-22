@@ -44,16 +44,18 @@ jobs:
     needs: checks
     steps:
       - uses: actions/checkout@v5
-      - name: Docker Compose smoke test (build, start, persistence)
+      - name: Docker Compose smoke test (build, persistence, backup and restore)
         run: ./scripts/compose-smoke.sh
-      - name: Logs on failure
-        if: failure()
-        run: docker compose logs --no-color --tail=200
 
   helm:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: azure/setup-helm@v4
-      - run: helm lint deploy/helm/bestbudget --strict --set appUrl=https://budget.example.com
-      - run: helm template bb deploy/helm/bestbudget --set appUrl=https://budget.example.com --set ingress.enabled=true > /dev/null
+      - name: Validate shell scripts
+        run: |
+          sh -n docker-entrypoint.sh scripts/check-helm.sh
+          bash -n scripts/compose-smoke.sh
+          shellcheck docker-entrypoint.sh scripts/check-helm.sh scripts/compose-smoke.sh
+      - name: Lint and render Helm deployment variants
+        run: ./scripts/check-helm.sh

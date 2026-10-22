@@ -14,7 +14,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm build
 
-FROM node:22-alpine AS runner
+FROM node:22-alpine AS app-runtime
 ARG VERSION=dev
 ARG REVISION=unknown
 LABEL org.opencontainers.image.title="BestBudget" \
@@ -25,14 +25,22 @@ LABEL org.opencontainers.image.title="BestBudget" \
       org.opencontainers.image.revision="${REVISION}"
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
+ENV BESTBUDGET_VERSION=${VERSION}
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/public ./public
 COPY --from=build --chown=node:node /app/drizzle ./drizzle
-COPY --from=build --chown=node:node /app/dist-scripts ./dist-scripts
+COPY --from=build --chown=node:node /app/dist-scripts/admin.mjs /app/dist-scripts/migrate.mjs ./dist-scripts/
 COPY --chown=node:node docker-entrypoint.sh ./
 USER node
 EXPOSE 3000
 # busybox wget is part of the Alpine base image.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 CMD wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1
 ENTRYPOINT ["./docker-entrypoint.sh"]
+
+# The preceding target also measures the runtime size without backup support in CI.
+FROM app-runtime AS runner
+USER root
+RUN apk add --no-cache postgresql17-client tzdata
+COPY --from=build --chown=node:node /app/dist-scripts/backup.mjs ./dist-scripts/
+USER node

@@ -82,3 +82,11 @@ Resolve it once per render and remember it, so a generated password is identical
 {{- define "bestbudget.ingressHost" -}}
 {{- default (urlParse .Values.appUrl).host .Values.ingress.host -}}
 {{- end -}}
+
+{{- define "bestbudget.backup.fullname" -}}
+{{- printf "%s-backup" (include "bestbudget.fullname" . | trunc 56 | trimSuffix "-") -}}
+{{- end -}}
+
+{{- define "bestbudget.backup.claim" -}}
+{{- default (include "bestbudget.backup.fullname" .) .Values.backup.persistence.existingClaim -}}
+{{- end -}}
