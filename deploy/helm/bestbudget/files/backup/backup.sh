@@ -6,7 +6,7 @@ case "${1:-now}" in
   list) backup_names ;;
   verify) [ "$#" -eq 2 ] || fail 'Usage: verify <filename>'; verify "$2"; echo "Verified: $2" ;;
   restore)
-    [ "$#" -eq 3 ] && [ "$3" = '--yes' ] || fail 'Stop the app first. Usage: restore <filename> --yes'
+    if [ "$#" -ne 3 ] || [ "$3" != '--yes' ]; then fail 'Stop the app first. Usage: restore <filename> --yes'; fi
     connection
     lock
     verify "$2"

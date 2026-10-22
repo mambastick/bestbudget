@@ -15,10 +15,10 @@ valid_name() {
 # The checksum rename is the commit marker. Ignore partial files and symlinks.
 backup_names() {
   for path in "$BACKUP_DIR"/bestbudget-*.dump; do
-    [ -f "$path" ] && [ ! -L "$path" ] || continue
+    if [ ! -f "$path" ] || [ -L "$path" ]; then continue; fi
     name=${path##*/}
     valid_name "$name" || continue
-    [ -f "$path.sha256" ] && [ ! -L "$path.sha256" ] || continue
+    if [ ! -f "$path.sha256" ] || [ -L "$path.sha256" ]; then continue; fi
     printf '%s\n' "$name"
   done | sort -r
 }
@@ -44,8 +44,8 @@ connection() {
 
 verify() {
   valid_name "$1" || fail 'Expected a BestBudget dump filename, without a directory.'
-  [ -f "$BACKUP_DIR/$1" ] && [ ! -L "$BACKUP_DIR/$1" ] || fail 'Dump is missing or is a symlink.'
-  [ -f "$BACKUP_DIR/$1.sha256" ] && [ ! -L "$BACKUP_DIR/$1.sha256" ] || fail 'Checksum is missing or is a symlink.'
+  if [ ! -f "$BACKUP_DIR/$1" ] || [ -L "$BACKUP_DIR/$1" ]; then fail 'Dump is missing or is a symlink.'; fi
+  if [ ! -f "$BACKUP_DIR/$1.sha256" ] || [ -L "$BACKUP_DIR/$1.sha256" ]; then fail 'Checksum is missing or is a symlink.'; fi
   expected=$(cat "$BACKUP_DIR/$1.sha256")
   actual=$(cd "$BACKUP_DIR" && sha256sum "$1")
   [ "$actual" = "$expected" ] || fail 'Checksum mismatch.'
