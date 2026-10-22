@@ -35,3 +35,6 @@ yarn-error.log*
 /dist-scripts/
 /test-results/
 /playwright-report/
+
+# local tooling
+.claude/

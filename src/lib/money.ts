@@ -47,9 +47,17 @@ export function minorToInput(minor: number): string {
  * Returns null for anything that is not a valid non-negative amount with at most two decimals.
  */
 export function parseMoney(input: string): number | null {
-  const normalized = input.replace(/[\s  ₽]/g, "").replace(",", ".")
+  const normalized = input.replace(/[\s\u00a0\u202f₽]/g, "").replace(",", ".")
   if (!/^\d+(\.\d{0,2})?$/.test(normalized)) return null
   const [whole = "0", frac = ""] = normalized.split(".")
   const minor = Number(whole) * 100 + Number(frac.padEnd(2, "0"))
   return Number.isSafeInteger(minor) ? minor : null
+}
+
+/** Short label for dense layouts (calendar cells): small amounts in full, larger ones compact — "238 тыс.". */
+export function formatMoneyShort(minor: number): string {
+  const rub = minor / 100
+  const abs = Math.abs(rub)
+  const opts: Intl.NumberFormatOptions = abs < 10_000 ? { maximumFractionDigits: 0 } : { notation: "compact", maximumFractionDigits: 1 }
+  return `${rub < 0 ? "−" : ""}${new Intl.NumberFormat("ru-RU", opts).format(abs)}`
 }

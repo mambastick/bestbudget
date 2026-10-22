@@ -9,7 +9,7 @@ export default async function setup(project: TestProject) {
   const db = new PGlite()
   await db.waitReady
   const port = 55000 + Math.floor(Math.random() * 5000)
-  const server = new PGLiteSocketServer({ db, port, host: "127.0.0.1" })
+  const server = new PGLiteSocketServer({ db, port, host: "127.0.0.1", maxConnections: 20 })
   await server.start()
   const url = `postgres://postgres@127.0.0.1:${port}/postgres`
   await runMigrations(url, path.resolve(import.meta.dirname, "../drizzle"))
