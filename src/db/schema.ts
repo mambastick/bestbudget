@@ -8,6 +8,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -26,7 +27,7 @@ const updatedAt = () =>
     .notNull()
     .defaultNow()
     .$onUpdate(() => new Date())
-/** Money in minor units (kopecks). */
+/** Money in currency-specific minor units. */
 const money = (name: string) => bigint(name, { mode: "number" })
 
 // ---------------------------------------------------------------------------
@@ -120,9 +121,10 @@ export type HouseholdRole = (typeof householdRole.enumValues)[number]
 export const households = pgTable("households", {
   id: id(),
   name: text("name").notNull(),
-  /** ISO 4217 base currency. Multi-currency conversion is out of scope for v1. */
+  /** ISO 4217 base currency for budgets and reports. */
   currency: text("currency").notNull().default("RUB"),
   timezone: text("timezone").notNull().default("Europe/Moscow"),
+  version: integer("version").notNull().default(1),
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
@@ -183,6 +185,7 @@ export const financialAccounts = pgTable(
     currency: text("currency").notNull().default("RUB"),
     /** Balance at the moment tracking started; negative for credit card debt. */
     openingBalance: money("opening_balance").notNull().default(0),
+    version: integer("version").notNull().default(1),
     sortOrder: integer("sort_order").notNull().default(0),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: createdAt(),
@@ -241,6 +244,7 @@ export const recurringRules = pgTable(
     title: text("title").notNull(),
     description: text("description"),
     amount: money("amount").notNull(),
+    toAmount: money("to_amount"),
     categoryId: uuid("category_id"),
     accountId: uuid("account_id").notNull(),
     toAccountId: uuid("to_account_id"),
@@ -281,6 +285,7 @@ export const recurringRules = pgTable(
       columns: [t.householdId, t.toAccountId],
       foreignColumns: [financialAccounts.householdId, financialAccounts.id],
     }),
+    check("recurring_rules_to_amount_ck", sql`${t.toAmount} is null or (${t.type} = 'transfer' and ${t.toAmount} > 0)`),
     check("recurring_rules_amount_ck", sql`${t.amount} > 0`),
     check("recurring_rules_interval_ck", sql`${t.interval} between 1 and 366`),
     check("recurring_rules_day_ck", sql`${t.dayOfMonth} is null or ${t.dayOfMonth} between 1 and 31`),
@@ -303,6 +308,7 @@ export const transactions = pgTable(
     type: transactionType("type").notNull(),
     status: transactionStatus("status").notNull(),
     amount: money("amount").notNull(),
+    toAmount: money("to_amount"),
     title: text("title").notNull(),
     description: text("description"),
     /** Effective date (actual or rescheduled). */
@@ -347,6 +353,7 @@ export const transactions = pgTable(
       columns: [t.recurringRuleId],
       foreignColumns: [recurringRules.id],
     }).onDelete("set null"),
+    check("transactions_to_amount_ck", sql`${t.toAmount} is null or (${t.type} = 'transfer' and ${t.toAmount} > 0)`),
     check("transactions_amount_ck", sql`${t.amount} > 0`),
     check(
       "transactions_transfer_ck",
@@ -356,6 +363,18 @@ export const transactions = pgTable(
     check("transactions_occurrence_ck", sql`(${t.recurringRuleId} is null) or (${t.occurrenceDate} is not null)`),
   ],
 )
+
+/** Global public exchange rates: RUB per one major currency unit. */
+export const exchangeRateSource = pgEnum("exchange_rate_source", ["cbr", "manual"])
+export const exchangeRates = pgTable("exchange_rates", {
+  currency: text("currency").notNull(),
+  date: date("date", { mode: "string" }).notNull(),
+  rateToRub: numeric("rate_to_rub", { precision: 20, scale: 10 }).notNull(),
+  source: exchangeRateSource("source").notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.currency, t.date, t.source] }),
+  check("exchange_rates_positive_ck", sql`${t.rateToRub} > 0`),
+])
 
 export const categoryBudgets = pgTable(
   "category_budgets",

@@ -19,6 +19,7 @@ const schema = z.object({
   SETUP_TOKEN: optionalString,
   AUTH_FORCE_LOCAL_LOGIN: bool,
   TRUST_PROXY: bool,
+  FX_PROVIDER: z.enum(["cbr", "none"]).default("cbr"),
   DB_POOL_MAX: z.coerce.number().int().positive().default(10),
   RATE_LIMIT_ENABLED: z.enum(["true", "false"]).optional(),
 

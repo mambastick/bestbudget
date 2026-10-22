@@ -2,21 +2,23 @@
 
 import { useLayoutEffect, useRef } from "react"
 import { Input } from "@/components/ui/input"
+import { currencyExponent, currencySymbol } from "@/lib/currencies"
 import { cn } from "@/lib/utils"
 
 const GROUP = "\u2009" // thin space: groups stay readable without looking like separate numbers
 
 /**
  * Normalizes typed text to `12 345 678,50`: digits grouped by thousands, one decimal comma,
- * at most two decimals. Accepts "." as decimal separator and pasted values with spaces.
+ * at most the currency exponent decimals. Accepts "." as decimal separator and pasted values with spaces.
  */
-export function formatMoneyInput(raw: string): string {
+export function formatMoneyInput(raw: string, currency = "RUB"): string {
   const cleaned = raw.replace(/[^\d.,]/g, "").replace(".", ",")
   const [intRaw = "", ...rest] = cleaned.split(",")
   const intDigits = intRaw.replace(/^0+(?=\d)/, "")
   const grouped = intDigits.replace(/\B(?=(\d{3})+(?!\d))/g, GROUP)
-  if (rest.length === 0) return grouped
-  return `${grouped || "0"},${rest.join("").slice(0, 2)}`
+  const exponent = currencyExponent(currency)
+  if (rest.length === 0 || exponent === 0) return grouped
+  return `${grouped || "0"},${rest.join("").slice(0, exponent)}`
 }
 
 /** Number of digits (and the decimal comma) before position `pos`: a caret anchor that survives regrouping. */
@@ -38,7 +40,7 @@ function positionFor(value: string, anchor: number) {
 export function MoneyInput({
   value,
   onChange,
-  currency = "₽",
+  currency = "RUB",
   className,
   ...props
 }: Omit<React.ComponentProps<typeof Input>, "value" | "onChange" | "type"> & {
@@ -48,7 +50,7 @@ export function MoneyInput({
 }) {
   const ref = useRef<HTMLInputElement>(null)
   const caret = useRef<number | null>(null)
-  const display = formatMoneyInput(value)
+  const display = formatMoneyInput(value, currency)
 
   useLayoutEffect(() => {
     const el = ref.current
@@ -69,12 +71,12 @@ export function MoneyInput({
         value={display}
         onChange={(e) => {
           caret.current = anchorAt(e.target.value, e.target.selectionStart ?? e.target.value.length)
-          onChange(formatMoneyInput(e.target.value))
+          onChange(formatMoneyInput(e.target.value, currency))
         }}
-        className="tabular pr-8"
+        className="tabular pr-14"
         {...props}
       />
-      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">{currency}</span>
+      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">{currencySymbol(currency)}</span>
     </div>
   )
 }

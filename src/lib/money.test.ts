@@ -53,3 +53,20 @@ describe("dates", () => {
     expect(todayIn("UTC", new Date("2026-11-04T22:30:00Z"))).toBe("2026-11-04")
   })
 })
+
+describe("currency exponents", () => {
+  it("parses and formats JPY without fractional minor units", () => {
+    expect(parseMoney("1 234", "JPY")).toBe(1234)
+    expect(parseMoney("1234,5", "JPY")).toBeNull()
+    expect(minorToInput(1234, "JPY")).toBe("1234")
+    expect(formatMoney(1234, "JPY")).toContain("1\u00a0234")
+    expect(formatMoney(1234, "JPY")).not.toContain(",")
+  })
+  it("keeps cents and ISO three-digit fractions", () => {
+    expect(parseMoney("1234,56", "USD")).toBe(123456)
+    expect(minorToInput(123456, "USD")).toBe("1234,56")
+    expect(formatMoney(123456, "USD")).toContain("234,56")
+    expect(parseMoney("1,234", "BHD")).toBe(1234)
+    expect(minorToInput(1234, "BHD")).toBe("1,234")
+  })
+})

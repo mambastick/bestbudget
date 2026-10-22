@@ -25,3 +25,9 @@ describe("formatMoneyInput", () => {
     expect(parseMoney(formatMoneyInput("1234,56"))).toBe(123_456)
   })
 })
+
+it("respects zero and three-digit currency exponents", () => {
+  expect(formatMoneyInput("1234,56", "JPY")).toBe("1\u2009234")
+  expect(formatMoneyInput("1,2345", "BHD")).toBe("1,234")
+  expect(parseMoney(formatMoneyInput("1234,56", "JPY"), "JPY")).toBe(1234)
+})
