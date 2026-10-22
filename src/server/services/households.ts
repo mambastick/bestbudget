@@ -12,6 +12,7 @@ import { assertCan, type HouseholdCtx } from "../context"
 import { AppError, notFound } from "../errors"
 
 const timezone = z.string().refine(isValidTimeZone, "Неизвестный часовой пояс")
+const memberIdSchema = z.uuid("Некорректный идентификатор")
 
 export const householdInput = z.object({
   name: z.string().trim().min(1, "Укажите название").max(80),
@@ -104,39 +105,43 @@ export async function listMembers(ctx: HouseholdCtx) {
     .orderBy(asc(householdMembers.joinedAt))
 }
 
-export async function changeMemberRole(ctx: HouseholdCtx, userId: string, role: HouseholdRole) {
+export async function changeMemberRole(ctx: HouseholdCtx, rawUserId: string, rawRole: HouseholdRole) {
   assertCan(ctx, "members.manage")
+  const targetId = memberIdSchema.parse(rawUserId)
+  const role = z.enum(["owner", "admin", "member"]).parse(rawRole)
   if (role === "owner") throw new AppError("Для смены владельца используйте передачу владения")
-  if (userId === ctx.userId) throw new AppError("Нельзя изменить собственную роль")
+  if (targetId === ctx.userId) throw new AppError("Нельзя изменить собственную роль")
   const res = await getDb()
     .update(householdMembers)
     .set({ role })
-    .where(and(eq(householdMembers.householdId, ctx.householdId), eq(householdMembers.userId, userId)))
+    .where(and(eq(householdMembers.householdId, ctx.householdId), eq(householdMembers.userId, targetId)))
     .returning()
   if (res.length === 0) throw notFound("Участник не найден")
-  await audit({ action: "member.role", entityType: "user", entityId: userId, householdId: ctx.householdId, actorId: ctx.userId, meta: { role } })
+  await audit({ action: "member.role", entityType: "user", entityId: targetId, householdId: ctx.householdId, actorId: ctx.userId, meta: { role } })
 }
 
-export async function transferOwnership(ctx: HouseholdCtx, userId: string) {
+export async function transferOwnership(ctx: HouseholdCtx, rawUserId: string) {
   assertCan(ctx, "members.manage")
-  if (userId === ctx.userId) return
+  const targetId = memberIdSchema.parse(rawUserId)
+  if (targetId === ctx.userId) return
   await getDb().transaction(async (tx) => {
     const res = await tx
       .update(householdMembers)
       .set({ role: "owner" })
-      .where(and(eq(householdMembers.householdId, ctx.householdId), eq(householdMembers.userId, userId)))
+      .where(and(eq(householdMembers.householdId, ctx.householdId), eq(householdMembers.userId, targetId)))
       .returning()
     if (res.length === 0) throw notFound("Участник не найден")
     await tx
       .update(householdMembers)
       .set({ role: "admin" })
       .where(and(eq(householdMembers.householdId, ctx.householdId), eq(householdMembers.userId, ctx.userId)))
-    await audit({ action: "member.transfer_ownership", entityType: "user", entityId: userId, householdId: ctx.householdId, actorId: ctx.userId }, tx)
+    await audit({ action: "member.transfer_ownership", entityType: "user", entityId: targetId, householdId: ctx.householdId, actorId: ctx.userId }, tx)
   })
 }
 
-export async function removeMember(ctx: HouseholdCtx, userId: string) {
-  const self = userId === ctx.userId
+export async function removeMember(ctx: HouseholdCtx, rawUserId: string) {
+  const targetId = memberIdSchema.parse(rawUserId)
+  const self = targetId === ctx.userId
   if (!self) assertCan(ctx, "members.manage")
   if (self && ctx.role === "owner") throw new AppError("Владелец не может покинуть пространство. Сначала передайте владение.")
   const res = await getDb()
@@ -144,14 +149,14 @@ export async function removeMember(ctx: HouseholdCtx, userId: string) {
     .where(
       and(
         eq(householdMembers.householdId, ctx.householdId),
-        eq(householdMembers.userId, userId),
+        eq(householdMembers.userId, targetId),
         // The owner can never be removed by anyone.
         sql`${householdMembers.role} <> 'owner'`,
       ),
     )
     .returning()
   if (res.length === 0) throw notFound("Участник не найден")
-  await audit({ action: self ? "member.leave" : "member.remove", entityType: "user", entityId: userId, householdId: ctx.householdId, actorId: ctx.userId })
+  await audit({ action: self ? "member.leave" : "member.remove", entityType: "user", entityId: targetId, householdId: ctx.householdId, actorId: ctx.userId })
 }
 
 // ---------------------------------------------------------------------------
@@ -200,8 +205,9 @@ export async function listInvitations(ctx: HouseholdCtx) {
     .orderBy(desc(invitations.createdAt))
 }
 
-export async function revokeInvitation(ctx: HouseholdCtx, id: string) {
+export async function revokeInvitation(ctx: HouseholdCtx, rawId: string) {
   assertCan(ctx, "invitations.manage")
+  const id = z.uuid().parse(rawId)
   const res = await getDb()
     .update(invitations)
     .set({ revokedAt: new Date() })

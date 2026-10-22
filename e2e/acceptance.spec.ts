@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test"
+import { OAuth2Server } from "oauth2-mock-server"
 import { SETUP_TOKEN } from "../playwright.config"
 
 /**
@@ -155,6 +156,73 @@ test.describe.serial("acceptance scenario", () => {
     await expect(row).toContainText(SPOUSE.name)
     await owner.goto("/dashboard")
     await expect(balanceCard(owner)).toContainText("230 500")
+  })
+})
+
+test.describe.serial("single sign-on (OIDC)", () => {
+  const idp = new OAuth2Server()
+  let identity: Record<string, unknown> = {}
+
+  test.beforeAll(async () => {
+    await idp.issuer.keys.generate("RS256")
+    await idp.start(3299, "localhost")
+    idp.service.on("beforeTokenSigning", (token) => Object.assign(token.payload, identity))
+    idp.service.on("beforeUserinfo", (res) => {
+      res.body = { ...identity }
+      res.statusCode = 200
+    })
+  })
+  test.afterAll(async () => {
+    await idp.stop()
+  })
+
+  test("admin configures the provider in the UI and links it to the account", async ({ page }) => {
+    identity = { sub: "owner-sub", email: ADMIN.email, email_verified: true, name: ADMIN.name }
+    await login(page, ADMIN)
+    await page.goto("/admin?tab=auth")
+    await page.getByLabel("Issuer URL").fill(idp.issuer.url!)
+    await page.getByRole("button", { name: "Проверить" }).click()
+    await expect(page.getByText(/Провайдер доступен/)).toBeVisible()
+    await page.getByLabel("Отображаемое название").fill("Keycloak")
+    await page.getByLabel("Client ID").fill("bestbudget")
+    await page.getByLabel("Client Secret").fill("e2e-client-secret")
+    await page.getByText("Включить вход через SSO").click()
+    await page.getByRole("button", { name: "Сохранить" }).last().click()
+    await expect(page.getByText("Настройки SSO сохранены")).toBeVisible()
+
+    // Local login cannot be disabled before SSO is linked to the admin — lock-out protection.
+    await page.getByText("Вход по e-mail и паролю").click()
+    await page.getByRole("button", { name: "Сохранить" }).first().click()
+    await expect(page.getByText(/привяжите SSO к своему аккаунту/)).toBeVisible()
+
+    await page.goto("/settings?tab=profile")
+    await page.getByRole("button", { name: "Привязать Keycloak" }).click()
+    await expect(page).toHaveURL(/\/settings\?tab=profile/)
+    await expect(page.getByText("привязан", { exact: true })).toBeVisible()
+  })
+
+  test("linked user signs in with SSO; unknown SSO users need an invitation", async ({ browser }) => {
+    identity = { sub: "owner-sub", email: ADMIN.email, email_verified: true, name: ADMIN.name }
+    const page = await (await browser.newContext()).newPage()
+    await page.goto("/login")
+    await page.getByRole("button", { name: "Войти через Keycloak" }).click()
+    await expect(page).toHaveURL(/\/dashboard/)
+    await expect(page.getByText(ADMIN.email)).toBeVisible()
+
+    identity = { sub: "stranger-sub", email: "stranger@e2e.test", email_verified: true, name: "Stranger" }
+    const stranger = await (await browser.newContext()).newPage()
+    await stranger.goto("/login")
+    await stranger.getByRole("button", { name: "Войти через Keycloak" }).click()
+    await expect(stranger).toHaveURL(/\/login\?error=/)
+    await expect(stranger.getByText(/Регистрация закрыта/)).toBeVisible()
+  })
+
+  test("an SSO identity with the same e-mail as a local account is not merged silently", async ({ browser }) => {
+    identity = { sub: "impostor-sub", email: SPOUSE.email, email_verified: true, name: "Impostor" }
+    const page = await (await browser.newContext()).newPage()
+    await page.goto("/login")
+    await page.getByRole("button", { name: "Войти через Keycloak" }).click()
+    await expect(page).toHaveURL(/\/login\?error=/)
   })
 })
 

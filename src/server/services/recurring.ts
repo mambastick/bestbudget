@@ -196,8 +196,9 @@ export async function virtualOccurrences(ctx: HouseholdCtx, from: IsoDate, to: I
 }
 
 /** Creates the planned row for a single future occurrence so it can be edited, confirmed or skipped. */
-export async function materializeOccurrence(ctx: HouseholdCtx, ruleId: string, date: IsoDate) {
+export async function materializeOccurrence(ctx: HouseholdCtx, ruleId: string, rawDate: IsoDate) {
   assertCan(ctx, "finance.write")
+  const date = isoDate.parse(rawDate)
   const rule = await getRule(ctx, ruleId)
   if (!occurrencesBetween(rule, date, date).includes(date) || date < rule.generateFrom) throw notFound("Операция не найдена")
   const db = getDb()

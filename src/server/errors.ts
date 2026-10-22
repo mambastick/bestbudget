@@ -52,7 +52,8 @@ export async function runAction<T>(fn: () => Promise<T>): Promise<ActionResult<T
     if (code === "23505") return { ok: false, error: "Такая запись уже существует" }
     if (code === "23503") return { ok: false, error: "Запись используется или ссылается на несуществующие данные" }
     if (code === "40001") return { ok: false, error: "Конфликт параллельного изменения, повторите попытку" }
-    console.error("[action] unexpected error:", err instanceof Error ? `${err.name}: ${err.message.slice(0, 200)}` : "unknown")
+    // Only the error type and SQLSTATE: messages of query errors contain parameters (amounts, e-mails).
+    console.error(`[action] unexpected error: ${err instanceof Error ? err.name : "unknown"}${code ? ` (SQLSTATE ${code})` : ""}`)
     return { ok: false, error: "Что-то пошло не так. Попробуйте ещё раз." }
   }
 }
