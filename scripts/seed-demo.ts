@@ -28,6 +28,8 @@ const cat = (name: string) => cats.find((c) => c.name === name)!.id
 const [main] = await listAccounts(ctx)
 const card = await createAccount(ctx, { name: "Кредитная карта", kind: "credit_card", openingBalance: -1_850_000 })
 await createAccount(ctx, { name: "Накопительный", kind: "savings", openingBalance: 25_000_000 })
+const usd = await createAccount(ctx, { name: "USD-накопления", kind: "savings", currency: "USD", openingBalance: 100_00 })
+await createAccount(ctx, { name: "EUR в поездке", kind: "cash", currency: "EUR", openingBalance: 50_00 })
 const rub = (n: number) => n * 100
 const start = today.slice(0, 8) + "01"
 
@@ -54,6 +56,7 @@ for (const [days, amount, category, title] of [
   await createTransaction(ctx, { type: "expense", amount: rub(amount), categoryId: cat(category), accountId: card.id, date: addDays(today, days), status: "posted", title })
 }
 await createTransaction(ctx, { type: "expense", amount: rub(45_000), categoryId: cat("Путешествия"), accountId: main!.id, date: addDays(today, 24), status: "planned", title: "Билеты в отпуск" })
+await createTransaction(ctx, { type: "transfer", amount: rub(9_500), toAmount: 100_00, accountId: main!.id, toAccountId: usd.id, date: today, status: "posted", title: "Обмен RUB → USD" })
 await setBudget(ctx, { categoryId: cat("Продукты"), amount: rub(35_000) })
 await setBudget(ctx, { categoryId: cat("Рестораны и доставка"), amount: rub(8_000) })
 await setBudget(ctx, { categoryId: cat("Развлечения"), amount: rub(5_000) })

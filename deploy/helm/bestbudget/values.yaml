@@ -52,6 +52,9 @@ smtp:
   url: ""
   from: ""
 
+# Exchange rates: cbr (Bank of Russia + DB cache) or none (manual rates only).
+fxProvider: cbr
+
 # Extra environment variables for the app container.
 extraEnv: []
 
