@@ -1,7 +1,6 @@
 import type { Metadata } from "next"
-import Link from "next/link"
+import { LinkButton } from "@/components/app/link-button"
 import { InviteAccept, InviteSignup } from "@/components/auth/invite"
-import { Button } from "@/components/ui/button"
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ROLE_LABELS } from "@/domain/permissions"
 import { getSession } from "@/server/session"
@@ -23,9 +22,9 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
           <CardDescription>Ссылка устарела, уже была использована или отозвана. Попросите прислать новое приглашение.</CardDescription>
         </CardHeader>
         <div className="px-4">
-          <Button variant="outline" className="w-full" render={<Link href="/login" />}>
+          <LinkButton variant="outline" className="w-full" href="/login">
             Ко входу
-          </Button>
+          </LinkButton>
         </div>
       </Card>
     )

@@ -54,10 +54,12 @@ export function parseMoney(input: string): number | null {
   return Number.isSafeInteger(minor) ? minor : null
 }
 
-/** Short label for dense layouts (calendar cells): small amounts in full, larger ones compact — "238 тыс.". */
+/** Very short label for dense layouts (calendar cells): 950 → "950", 12 500 → "12,5к", 238 000 → "238к", 1 200 000 → "1,2М". */
 export function formatMoneyShort(minor: number): string {
-  const rub = minor / 100
-  const abs = Math.abs(rub)
-  const opts: Intl.NumberFormatOptions = abs < 10_000 ? { maximumFractionDigits: 0 } : { notation: "compact", maximumFractionDigits: 1 }
-  return `${rub < 0 ? "−" : ""}${new Intl.NumberFormat("ru-RU", opts).format(abs)}`
+  const rub = Math.round(Math.abs(minor) / 100)
+  const sign = minor < 0 ? "−" : ""
+  const fmt = (n: number, digits: number) => n.toFixed(digits).replace(/\.0$/, "").replace(".", ",")
+  if (rub < 1000) return `${sign}${rub}`
+  if (rub < 1_000_000) return `${sign}${fmt(rub / 1000, rub < 100_000 ? 1 : 0)}к`
+  return `${sign}${fmt(rub / 1_000_000, 1)}М`
 }

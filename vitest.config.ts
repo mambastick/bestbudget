@@ -10,6 +10,7 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.ts", "tests/integration/**/*.test.ts"],
+    exclude: ["e2e/**", "node_modules/**"],
     globalSetup: ["tests/global-setup.ts"],
     setupFiles: ["tests/setup-env.ts"],
     fileParallelism: false,

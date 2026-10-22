@@ -48,6 +48,16 @@ const axisProps = {
   tick: { fill: "var(--muted-foreground)", fontSize: 11 },
 } as const
 
+/** Y axis for money: rubles-rounded ticks, no duplicates when all values are equal. */
+const yAxisProps = {
+  ...axisProps,
+  width: 56,
+  allowDecimals: false,
+  tickCount: 5,
+  domain: [(min: number) => Math.min(0, min), (max: number) => (max <= 0 ? 100_00 : max)] as [(v: number) => number, (v: number) => number],
+  tickFormatter: (v: number) => formatMoneyCompact(v),
+}
+
 // ---------------------------------------------------------------------------
 
 const incomeExpenseConfig = {
@@ -61,7 +71,7 @@ export function IncomeExpenseChart({ data, className }: { data: { label: string;
       <BarChart data={data} barGap={2} margin={{ left: 4, right: 4, top: 8 }}>
         <CartesianGrid vertical={false} strokeOpacity={0.5} />
         <XAxis dataKey="label" {...axisProps} tickMargin={8} />
-        <YAxis {...axisProps} width={56} tickFormatter={(v: number) => formatMoneyCompact(v)} />
+        <YAxis {...yAxisProps} />
         <ChartTooltip
           cursor={{ fill: "var(--muted)", opacity: 0.5 }}
           content={(p: RechartsTooltipProps) => <MoneyTooltip active={p.active} label={p.label} rows={rowsFrom(p, incomeExpenseConfig)} />}
@@ -98,7 +108,7 @@ export function BalanceChart({
       <LineChart data={data} margin={{ left: 4, right: 8, top: 8 }}>
         <CartesianGrid vertical={false} strokeOpacity={0.5} />
         <XAxis dataKey="label" {...axisProps} tickMargin={8} minTickGap={24} />
-        <YAxis {...axisProps} width={56} tickFormatter={(v: number) => formatMoneyCompact(v)} />
+        <YAxis {...yAxisProps} />
         {hasNegative ? <ReferenceLine y={0} stroke="var(--destructive)" strokeDasharray="4 4" /> : null}
         <ChartTooltip
           cursor={{ stroke: "var(--border)" }}
@@ -141,7 +151,7 @@ export function ForecastChart({ data, className }: { data: { label: string; bala
         </defs>
         <CartesianGrid vertical={false} strokeOpacity={0.5} />
         <XAxis dataKey="label" {...axisProps} tickMargin={8} minTickGap={32} />
-        <YAxis {...axisProps} width={56} tickFormatter={(v: number) => formatMoneyCompact(v)} />
+        <YAxis {...yAxisProps} />
         {hasNegative ? <ReferenceLine y={0} stroke="var(--destructive)" strokeDasharray="4 4" /> : null}
         <ChartTooltip
           cursor={{ stroke: "var(--border)" }}

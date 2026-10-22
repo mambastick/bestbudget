@@ -7,6 +7,9 @@ import { listMemberships } from "@/server/services/households"
 
 export const metadata: Metadata = { title: "Семейное пространство" }
 
+// Always rendered per request: depends on the session and database.
+export const dynamic = "force-dynamic"
+
 export default async function OnboardingPage({ searchParams }: { searchParams: Promise<{ new?: string }> }) {
   const user = await requireUser()
   const memberships = await listMemberships(user.id)

@@ -1,13 +1,13 @@
 import { ListOrdered, Repeat } from "lucide-react"
 import type { Metadata } from "next"
 import Link from "next/link"
+import { LinkButton } from "@/components/app/link-button"
 import { EmptyState } from "@/components/app/empty-state"
 import { QuickAddButton } from "@/components/app/operations/quick-add-button"
 import { RulesList } from "@/components/app/operations/rules-list"
 import { TransactionFilters } from "@/components/app/operations/transaction-filters"
 import { TransactionList } from "@/components/app/operations/transaction-list"
 import { PageHeader } from "@/components/app/page-header"
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { requireHousehold } from "@/server/session"
 import { ensureMaterialized, listRules } from "@/server/services/recurring"
@@ -115,14 +115,14 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
       {page > 1 || hasMore ? (
         <div className="flex justify-center gap-2">
           {page > 1 ? (
-            <Button variant="outline" render={<Link href={pageHref(page - 1)} />}>
+            <LinkButton variant="outline" href={pageHref(page - 1)}>
               Назад
-            </Button>
+            </LinkButton>
           ) : null}
           {hasMore ? (
-            <Button variant="outline" render={<Link href={pageHref(page + 1)} />}>
+            <LinkButton variant="outline" href={pageHref(page + 1)}>
               Дальше
-            </Button>
+            </LinkButton>
           ) : null}
         </div>
       ) : null}

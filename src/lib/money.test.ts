@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatMoney, minorToInput, parseMoney } from "./money"
+import { formatMoney, formatMoneyShort, minorToInput, parseMoney } from "./money"
 import { addMonths, todayIn } from "./dates"
 
 describe("parseMoney", () => {
@@ -29,6 +29,15 @@ describe("formatMoney", () => {
     expect(formatMoney(23_800_000).replace(/\s/g, " ")).toBe("238 000 ₽")
     expect(formatMoney(-4_300_050).replace(/\s/g, " ")).toBe("−43 000,50 ₽")
     expect(formatMoney(500, "RUB", { sign: true }).replace(/\s/g, " ")).toBe("+5 ₽")
+  })
+})
+
+describe("formatMoneyShort", () => {
+  it("fits calendar cells", () => {
+    expect(formatMoneyShort(95_000)).toBe("950")
+    expect(formatMoneyShort(1_250_000)).toBe("12,5к")
+    expect(formatMoneyShort(23_800_000)).toBe("238к")
+    expect(formatMoneyShort(-120_000_000)).toBe("−1,2М")
   })
 })
 

@@ -1,6 +1,5 @@
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
+import { LinkButton } from "@/components/app/link-button"
 import { addMonths, formatMonth, monthKey, type IsoDate } from "@/lib/dates"
 
 /** Month navigation via the `?month=YYYY-MM` search param, so views are linkable and server-rendered. */
@@ -9,17 +8,17 @@ export function MonthSwitcher({ month, today, basePath }: { month: IsoDate; toda
   const isCurrent = monthKey(month) === monthKey(today)
   return (
     <div className="flex items-center gap-1">
-      <Button variant="outline" size="icon" render={<Link href={href(addMonths(month, -1))} aria-label="Предыдущий месяц" />}>
+      <LinkButton variant="outline" size="icon" href={href(addMonths(month, -1))} aria-label="Предыдущий месяц">
         <ChevronLeft />
-      </Button>
+      </LinkButton>
       <div className="min-w-36 text-center text-sm font-medium">{formatMonth(month)}</div>
-      <Button variant="outline" size="icon" render={<Link href={href(addMonths(month, 1))} aria-label="Следующий месяц" />}>
+      <LinkButton variant="outline" size="icon" href={href(addMonths(month, 1))} aria-label="Следующий месяц">
         <ChevronRight />
-      </Button>
+      </LinkButton>
       {!isCurrent ? (
-        <Button variant="ghost" size="sm" render={<Link href={basePath} />}>
+        <LinkButton variant="ghost" size="sm" href={basePath}>
           Сегодня
-        </Button>
+        </LinkButton>
       ) : null}
     </div>
   )

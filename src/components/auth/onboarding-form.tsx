@@ -1,6 +1,6 @@
 "use client"
 
-import Link from "next/link"
+import { LinkButton } from "@/components/app/link-button"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { createHouseholdAction } from "@/app/actions/household"
@@ -47,9 +47,9 @@ export function OnboardingForm({ userName, canCancel }: { userName: string; canC
             {pending ? "Создание…" : "Создать"}
           </Button>
           {canCancel ? (
-            <Button variant="ghost" render={<Link href="/dashboard" />}>
+            <LinkButton variant="ghost" href="/dashboard">
               Отмена
-            </Button>
+            </LinkButton>
           ) : null}
         </form>
       </CardContent>

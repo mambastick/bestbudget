@@ -1,5 +1,8 @@
 import { PiggyBank } from "lucide-react"
 
+// Always rendered per request: depends on the session and database.
+export const dynamic = "force-dynamic"
+
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-svh flex-col items-center justify-center bg-[radial-gradient(ellipse_at_top,var(--accent),transparent_60%)] px-4 py-10">

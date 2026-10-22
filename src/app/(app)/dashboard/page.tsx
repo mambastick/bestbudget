@@ -1,6 +1,7 @@
 import { CalendarClock, Info, PieChart, Plus } from "lucide-react"
 import type { Metadata } from "next"
 import Link from "next/link"
+import { LinkButton } from "@/components/app/link-button"
 import { BalanceChart, CategoryDonut, ForecastChart, IncomeExpenseChart } from "@/components/app/charts"
 import { EmptyState } from "@/components/app/empty-state"
 import { Money } from "@/components/app/money"
@@ -8,7 +9,6 @@ import { MonthSwitcher } from "@/components/app/month-switcher"
 import { UpcomingList } from "@/components/app/operations/upcoming-list"
 import { PageHeader } from "@/components/app/page-header"
 import { QuickAddButton } from "@/components/app/operations/quick-add-button"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatDay, formatDayShort, formatMonth, monthKey, parseMonthKey, todayIn } from "@/lib/dates"
@@ -52,7 +52,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-1">
+        <Card className="lg:col-span-1" data-testid="actual-balance">
           <CardHeader>
             <CardDescription>Фактический баланс</CardDescription>
             <CardTitle className="text-4xl font-semibold tracking-tight">
@@ -77,6 +77,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <StatCard label="Доходы за месяц" sub="факт" value={d.monthIncome} kind="income" currency={cur} />
           <StatCard label="Расходы за месяц" sub="факт" value={d.monthExpense} kind="expense" currency={cur} />
           <StatCard
+            testId="planned-income"
             label={isPast ? "Не подтверждено доходов" : "Ожидаемые доходы"}
             sub={isCurrent ? "до конца месяца" : "план"}
             value={d.plannedIncome}
@@ -110,8 +111,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
+      <div className="grid gap-4 xl:grid-cols-5">
+        <Card className="xl:col-span-3">
           <CardHeader>
             <CardTitle>Баланс по дням</CardTitle>
             <CardDescription>Сплошная линия — факт, пунктир — прогноз по плановым операциям</CardDescription>
@@ -120,7 +121,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <BalanceChart data={balanceData} />
           </CardContent>
         </Card>
-        <Card className="lg:col-span-2">
+        <Card className="xl:col-span-2">
           <CardHeader className="flex-row items-center justify-between">
             <div>
               <CardTitle>Ближайшие операции</CardTitle>
@@ -168,9 +169,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <CardTitle>Прогноз движения денег</CardTitle>
             <CardDescription>Баланс на 90 дней вперёд с учётом регулярных и плановых операций</CardDescription>
           </div>
-          <Button variant="outline" size="sm" render={<Link href="/calendar" />}>
+          <LinkButton variant="outline" size="sm" href="/calendar">
             Календарь
-          </Button>
+          </LinkButton>
         </CardHeader>
         <CardContent>
           <ForecastChart data={d.forecast.map((f) => ({ label: formatDayShort(f.date), balance: f.balance }))} />
@@ -198,6 +199,7 @@ function Metric({ label, hint, children }: { label: string; hint: string; childr
 }
 
 function StatCard({
+  testId,
   label,
   sub,
   value,
@@ -205,6 +207,7 @@ function StatCard({
   currency,
   planned,
 }: {
+  testId?: string
   label: string
   sub: string
   value: number
@@ -213,7 +216,7 @@ function StatCard({
   planned?: boolean
 }) {
   return (
-    <Card size="sm" className={cn(planned && "border-dashed bg-transparent shadow-none ring-0 outline outline-1 -outline-offset-1 outline-border")}>
+    <Card size="sm" data-testid={testId} className={cn(planned && "border-dashed bg-transparent shadow-none ring-0 outline outline-1 -outline-offset-1 outline-border")}>
       <CardHeader>
         <CardDescription className="flex items-center justify-between gap-2">
           <span>{label}</span>

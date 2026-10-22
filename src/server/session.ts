@@ -10,8 +10,10 @@ import { listMemberships, resolveHouseholdCtx } from "./services/households"
 export const HOUSEHOLD_COOKIE = "bb_household"
 
 export const getSession = cache(async () => {
+  // Read request headers first: this marks the route dynamic before any database access.
+  const h = await headers()
   const auth = await getAuth()
-  return auth.api.getSession({ headers: await headers() })
+  return auth.api.getSession({ headers: h })
 })
 
 export type SessionUser = NonNullable<Awaited<ReturnType<typeof getSession>>>["user"]

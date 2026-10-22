@@ -144,6 +144,11 @@ export async function getDashboard(ctx: HouseholdCtx, month: IsoDate) {
     .filter((p) => p.type === "expense" && p.date <= obligationsUntil)
     .reduce((s, p) => s + p.amount, 0)
 
+  const categoryLook = new Map(
+    (await db.select({ id: categories.id, icon: categories.icon, color: categories.color }).from(categories).where(eq(categories.householdId, ctx.householdId))).map(
+      (c) => [c.id, c],
+    ),
+  )
   const trendMap = new Map(trend.map((t) => [t.month, t]))
   const trendSeries = Array.from({ length: 6 }, (_, i) => {
     const key = monthKey(addMonths(sixStart, i))
@@ -166,18 +171,21 @@ export async function getDashboard(ctx: HouseholdCtx, month: IsoDate) {
         categoryColor: r.categoryColor,
         overdue: r.date < today,
       })),
-    ...upcomingVirtual.map((v) => ({
-      key: `${v.ruleId}:${v.date}`,
-      id: null,
-      ruleId: v.ruleId,
-      date: v.date,
-      type: v.type,
-      amount: v.amount,
-      title: v.title,
-      categoryIcon: null,
-      categoryColor: null,
-      overdue: false,
-    })),
+    ...upcomingVirtual.map((v) => {
+      const c = v.categoryId ? categoryLook.get(v.categoryId) : undefined
+      return {
+        key: `${v.ruleId}:${v.date}`,
+        id: null,
+        ruleId: v.ruleId,
+        date: v.date,
+        type: v.type,
+        amount: v.amount,
+        title: v.title,
+        categoryIcon: c?.icon ?? null,
+        categoryColor: c?.color ?? null,
+        overdue: false,
+      }
+    }),
   ]
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(0, 10)

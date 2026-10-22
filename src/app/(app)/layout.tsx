@@ -6,6 +6,9 @@ import { requireHousehold } from "@/server/session"
 import { listAccounts, listCategories } from "@/server/services/catalog"
 import { listMemberships } from "@/server/services/households"
 
+// Always rendered per request: depends on the session and database.
+export const dynamic = "force-dynamic"
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireHousehold()
   const [memberships, categories, accounts] = await Promise.all([

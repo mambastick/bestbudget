@@ -19,6 +19,8 @@ const csp = [
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  // Do not write AGENTS.md into the repository when `next dev` runs under a coding agent.
+  agentRules: false,
   reactStrictMode: true,
   async headers() {
     return [
