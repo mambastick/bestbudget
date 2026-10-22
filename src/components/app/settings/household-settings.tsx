@@ -69,10 +69,10 @@ export function HouseholdSettings({
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Section title="Семейное пространство" description={`Валюта: ${household.currency}`}>
         <form
-          className="grid gap-4"
+          className="grid grid-cols-1 gap-4"
           onSubmit={(e) => {
             e.preventDefault()
             run(() => updateHouseholdAction({ name, timezone }), { success: "Настройки сохранены" })
@@ -244,7 +244,7 @@ function InviteDialog({ open, onOpenChange, canInviteAdmin }: { open: boolean; o
           <DialogDescription>Одноразовая ссылка действует 7 дней. Отправьте её супругу или супруге любым удобным способом.</DialogDescription>
         </DialogHeader>
         {link ? (
-          <div className="grid gap-3">
+          <div className="grid grid-cols-1 gap-3">
             <div className="flex gap-2">
               <Input readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="Ссылка-приглашение" />
               <Button
@@ -270,7 +270,7 @@ function InviteDialog({ open, onOpenChange, canInviteAdmin }: { open: boolean; o
           </div>
         ) : (
           <form
-            className="grid gap-4"
+            className="grid grid-cols-1 gap-4"
             onSubmit={(e) => {
               e.preventDefault()
               run(() => createInvitationAction({ role, note: note.trim() || undefined }), { onSuccess: (d) => setLink(d.url) })

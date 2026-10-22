@@ -45,7 +45,7 @@ export function OidcSettingsForm({ source, value, defaultRedirectUri }: { source
         </p>
       ) : null}
       <form
-        className="grid gap-4"
+        className="grid grid-cols-1 gap-4"
         onSubmit={(e) => {
           e.preventDefault()
           run(
@@ -64,7 +64,7 @@ export function OidcSettingsForm({ source, value, defaultRedirectUri }: { source
           )
         }}
       >
-        <fieldset disabled={fromEnv} className="grid gap-4">
+        <fieldset disabled={fromEnv} className="grid grid-cols-1 gap-4">
           <Toggle label="Включить вход через SSO" checked={s.enabled} onChange={(v) => setS({ ...s, enabled: v })} disabled={fromEnv} />
           <Field>
             <FieldLabel htmlFor="oidc-name">Отображаемое название</FieldLabel>

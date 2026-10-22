@@ -36,7 +36,7 @@ export function RegisterForm() {
         <CardTitle className="text-xl">Регистрация</CardTitle>
       </CardHeader>
       <CardContent>
-        <form onSubmit={submit} className="grid gap-4">
+        <form onSubmit={submit} className="grid grid-cols-1 gap-4">
           <CredentialsFields value={creds} onChange={setCreds} />
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <Button type="submit" disabled={pending}>

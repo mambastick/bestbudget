@@ -27,7 +27,7 @@ export function TransactionList({ rows, today }: { rows: ListRow[]; today: IsoDa
   const { currency } = useCatalog()
 
   return (
-    <div className="grid gap-5">
+    <div className="grid grid-cols-1 gap-5">
       {[...groups.entries()].map(([date, items]) => {
         const net = items.filter((i) => i.status === "posted").reduce((s, i) => s + (i.type === "income" ? i.amount : i.type === "expense" ? -i.amount : 0), 0)
         return (

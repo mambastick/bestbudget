@@ -123,7 +123,7 @@ function ConfirmForm({ row, onClose }: { row: OperationRow; onClose: () => void 
 
   const verb = row.type === "income" ? "получение" : row.type === "expense" ? "оплату" : "перевод"
   return (
-    <form onSubmit={submit} className="grid gap-4">
+    <form onSubmit={submit} className="grid grid-cols-1 gap-4">
       <DialogHeader>
         <DialogTitle>Подтвердить {verb}</DialogTitle>
         <DialogDescription>

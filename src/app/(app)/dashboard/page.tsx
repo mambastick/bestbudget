@@ -39,7 +39,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const empty = d.balance === 0 && d.monthIncome === 0 && d.monthExpense === 0 && d.upcoming.length === 0
 
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader title="Обзор" description={`Финансы семьи · ${formatMonth(month)}`} actions={<MonthSwitcher month={month} today={today} basePath="/dashboard" />} />
 
       {empty ? (
@@ -51,7 +51,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         />
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-1" data-testid="actual-balance">
           <CardHeader>
             <CardDescription>Фактический баланс</CardDescription>
@@ -60,7 +60,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </CardTitle>
             <p className="text-xs text-muted-foreground">Все счета, только подтверждённые операции</p>
           </CardHeader>
-          <CardContent className="grid gap-3 border-t pt-4">
+          <CardContent className="grid grid-cols-1 gap-3 border-t pt-4">
             <Metric label={`Прогноз на ${formatDay(d.monthDays.at(-1)?.date ?? today)}`} hint="Фактический баланс плюс ожидаемые доходы и минус запланированные расходы до конца месяца">
               <Money value={d.forecastEndOfMonth} currency={cur} tone={d.forecastEndOfMonth < 0 ? "expense" : "neutral"} />
             </Metric>
@@ -111,7 +111,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
         <Card className="xl:col-span-3">
           <CardHeader>
             <CardTitle>Баланс по дням</CardTitle>
@@ -138,7 +138,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Доходы и расходы</CardTitle>
@@ -218,9 +218,9 @@ function StatCard({
   return (
     <Card size="sm" data-testid={testId} className={cn(planned && "border-dashed bg-transparent shadow-none ring-0 outline outline-1 -outline-offset-1 outline-border")}>
       <CardHeader>
-        <CardDescription className="flex items-center justify-between gap-2">
-          <span>{label}</span>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px]">{sub}</span>
+        <CardDescription>
+          <span className="block leading-snug">{label}</span>
+          <span className="block text-xs text-muted-foreground/80">{sub}</span>
         </CardDescription>
         <CardTitle className="text-xl font-semibold sm:text-2xl">
           <Money value={value} currency={currency} tone={planned ? "neutral" : kind} />

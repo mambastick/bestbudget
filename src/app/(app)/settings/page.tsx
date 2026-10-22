@@ -62,7 +62,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   }
 
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader title="Настройки" />
       <nav className="flex gap-1 overflow-x-auto border-b">
         {TABS.map((t) => (

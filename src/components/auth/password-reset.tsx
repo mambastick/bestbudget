@@ -36,7 +36,7 @@ export function ForgotPasswordForm() {
         {sent ? (
           <p className="text-sm">Проверьте почту. Ссылка действует 1 час.</p>
         ) : (
-          <form onSubmit={submit} className="grid gap-4">
+          <form onSubmit={submit} className="grid grid-cols-1 gap-4">
             <Field>
               <FieldLabel htmlFor="email">E-mail</FieldLabel>
               <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -78,7 +78,7 @@ export function ResetPasswordForm({ token, invalid }: { token: string | null; in
         <CardTitle className="text-xl">Новый пароль</CardTitle>
       </CardHeader>
       <CardContent>
-        <form onSubmit={submit} className="grid gap-4">
+        <form onSubmit={submit} className="grid grid-cols-1 gap-4">
           <Field>
             <FieldLabel htmlFor="password">Пароль</FieldLabel>
             <PasswordInput id="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} disabled={!token} />

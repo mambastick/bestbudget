@@ -44,7 +44,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
   if (tab === "rules") {
     const rules = await listRules(ctx)
     return (
-      <div className="grid gap-6">
+      <div className="grid grid-cols-1 gap-6">
         <PageHeader title="Операции" description="Доходы, расходы и переводы" />
         {tabs}
         {rules.length === 0 ? (
@@ -98,7 +98,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
   }
 
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader title="Операции" description="Доходы, расходы и переводы" />
       {tabs}
       <TransactionFilters />

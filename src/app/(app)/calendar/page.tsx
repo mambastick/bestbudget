@@ -17,7 +17,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   const initialDay = sp.day && isIsoDate(sp.day) && monthKey(sp.day) === monthKey(month) ? sp.day : monthKey(today) === monthKey(month) ? today : month
 
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader
         title="Календарь"
         description="Фактические и запланированные операции по дням, прогноз остатка"

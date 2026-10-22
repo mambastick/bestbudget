@@ -51,8 +51,8 @@ export function CalendarView({ days, items, today, initialDay }: { days: Calenda
   const negativeDays = days.filter((d) => d.date >= today && d.balance < 0)
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-      <div className="grid gap-3">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_340px]">
+      <div className="grid grid-cols-1 gap-3">
         {negativeDays.length > 0 ? (
           <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm">
             <AlertTriangle className="size-4 shrink-0 text-destructive" />
@@ -140,7 +140,7 @@ function DayPanel({ day, entries, today, currency }: { day: CalendarDay; entries
           <Money value={day.balance} currency={currency} tone={day.balance < 0 ? "expense" : "neutral"} className="font-semibold text-foreground" />
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-4">
+      <CardContent className="grid grid-cols-1 gap-4">
         <Section title="Ожидаемые доходы" entries={plannedIncome} currency={currency} />
         <Section title="Ожидаемые расходы" entries={plannedExpense} currency={currency} />
         <Section title="Выполненные операции" entries={posted} currency={currency} />
@@ -168,7 +168,7 @@ function Section({ title, entries, currency }: { title: string; entries: Calenda
   return (
     <div>
       <div className="mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">{title}</div>
-      <ul className="grid gap-1">
+      <ul className="grid grid-cols-1 gap-1">
         {entries.map((e) => (
           <li key={e.key} className="flex items-center gap-2 rounded-lg px-1 py-1 hover:bg-accent/50">
             <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => open(e, "edit")}>

@@ -33,7 +33,7 @@ export function BudgetList({ rows, canManage }: { rows: BudgetRow[]; canManage: 
   const unlimited = rows.filter((r) => r.limit === null)
 
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       {limited.length === 0 ? (
         <EmptyState
           icon={Target}
@@ -45,7 +45,7 @@ export function BudgetList({ rows, canManage }: { rows: BudgetRow[]; canManage: 
           }
         />
       ) : (
-        <ul className="grid gap-3 md:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {limited.map((r) => (
             <BudgetCard key={r.id} row={r} canManage={canManage} onEdit={() => setEditing(r)} />
           ))}
@@ -150,7 +150,7 @@ function LimitForm({ row, onClose }: { row: BudgetRow; onClose: () => void }) {
   const { pending, run } = useAction()
   return (
     <form
-      className="grid gap-4"
+      className="grid grid-cols-1 gap-4"
       onSubmit={(e) => {
         e.preventDefault()
         const amount = parseMoney(value)

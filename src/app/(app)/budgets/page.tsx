@@ -21,7 +21,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
   const totalSpent = limited.reduce((s, r) => s + r.spent, 0)
 
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader
         title="Бюджеты"
         description={`Месячные лимиты по категориям расходов · ${formatMonth(month)}`}

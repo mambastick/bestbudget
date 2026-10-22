@@ -30,7 +30,7 @@ type Editing = { mode: "new"; kind: "income" | "expense" } | { mode: "edit"; cat
 export function CategoriesSettings({ categories, canManage }: { categories: Category[]; canManage: boolean }) {
   const [editing, setEditing] = useState<Editing | null>(null)
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       {(["expense", "income"] as const).map((kind) => (
         <Section
           key={kind}
@@ -112,7 +112,7 @@ function CategoryForm({ editing, onClose }: { editing: Editing; onClose: () => v
 
   return (
     <form
-      className="grid gap-4"
+      className="grid grid-cols-1 gap-4"
       onSubmit={(e) => {
         e.preventDefault()
         if (initial) run(() => updateCategoryAction(initial.id, { name, icon, color }), { success: "Категория сохранена", onSuccess: onClose })

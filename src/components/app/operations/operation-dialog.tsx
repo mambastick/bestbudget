@@ -222,7 +222,7 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
   }
 
   return (
-    <form onSubmit={submit} className="grid gap-4">
+    <form onSubmit={submit} className="grid grid-cols-1 gap-4">
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
         {isRule ? (
@@ -302,7 +302,7 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
         </Field>
       ) : null}
 
-      <div className={s.type === "transfer" ? "grid gap-4 sm:grid-cols-2" : "grid gap-4"}>
+      <div className={s.type === "transfer" ? "grid grid-cols-1 gap-4 sm:grid-cols-2" : "grid grid-cols-1 gap-4"}>
         <Field>
           <FieldLabel>{s.type === "transfer" ? "Со счёта" : "Счёт"}</FieldLabel>
           <AccountSelect value={s.accountId} onChange={(v) => set("accountId", v)} accounts={selectableAccounts} invalid={Boolean(errors.accountId)} />
@@ -427,8 +427,8 @@ function ScheduleFields({
     startDate: s.date,
   })
   return (
-    <div className="grid gap-4 rounded-lg border bg-muted/30 p-3">
-      <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
+    <div className="grid grid-cols-1 gap-4 rounded-lg border bg-muted/30 p-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
         <Field>
           <FieldLabel>Периодичность</FieldLabel>
           <Select
@@ -471,7 +471,7 @@ function ScheduleFields({
       ) : null}
 
       {monthly && allowExtra ? (
-        <div className="grid gap-2">
+        <div className="grid grid-cols-1 gap-2">
           {s.extra.map((x, i) => (
             <div key={i} className="grid grid-cols-[5rem_1fr_auto] items-end gap-2">
               <Field>

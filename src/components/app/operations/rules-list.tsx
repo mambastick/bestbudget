@@ -35,7 +35,7 @@ const SECTIONS = [
 export function RulesList({ rules }: { rules: RuleListItem[] }) {
   const { currency } = useCatalog()
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       {SECTIONS.map((section) => {
         const items = rules.filter((r) => r.rule.type === section.type)
         if (items.length === 0) return null

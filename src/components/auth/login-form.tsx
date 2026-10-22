@@ -52,10 +52,10 @@ export function LoginForm({
         <CardTitle className="text-xl">Вход</CardTitle>
         <CardDescription>Семейный бюджет: доходы, расходы и прогноз</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-4">
+      <CardContent className="grid grid-cols-1 gap-4">
         {error ? <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">{error}</p> : null}
         {local ? (
-          <form onSubmit={submit} className="grid gap-4">
+          <form onSubmit={submit} className="grid grid-cols-1 gap-4">
             <Field>
               <FieldLabel htmlFor="email">E-mail</FieldLabel>
               <Input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />

@@ -83,7 +83,7 @@ export function AppShell({ user, households, activeHouseholdId, children }: Shel
     <SidebarProvider>
       <AppSidebar user={user} households={households} activeHouseholdId={activeHouseholdId} />
       <SidebarInset className="min-w-0">
-        <Header />
+        <Header title={households.find((h) => h.id === activeHouseholdId)?.name ?? "BestBudget"} />
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-4 pb-24 sm:px-6 sm:pt-6 md:pb-10">{children}</main>
       </SidebarInset>
       <RefreshOnFocus />
@@ -218,12 +218,13 @@ function UserMenu({ user }: { user: ShellProps["user"] }) {
   )
 }
 
-function Header() {
+function Header({ title }: { title: string }) {
   const ops = useOperations()
   return (
     <>
       <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:rounded-t-xl">
         <SidebarTrigger className="-ml-1" />
+        <span className="truncate text-sm font-medium md:hidden">{title}</span>
         <div className="flex-1" />
         <Button onClick={() => ops.openCreate()} className="hidden sm:inline-flex">
           <Plus /> Операция

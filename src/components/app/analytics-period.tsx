@@ -19,7 +19,7 @@ export function AnalyticsPeriod({ period, from, to, today }: { period: string; f
   const pathname = usePathname()
   const go = (p: Record<string, string>) => router.replace(`${pathname}?${new URLSearchParams(p)}`, { scroll: false })
   return (
-    <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center">
+    <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
       <Segmented
         value={period as (typeof OPTIONS)[number]["value"]}
         onChange={(v) => go(v === "custom" ? { period: v, from, to } : { period: v })}

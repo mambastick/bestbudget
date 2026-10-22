@@ -84,9 +84,9 @@ export function ProfileSettings({
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Section title="Профиль">
-        <form onSubmit={saveName} className="grid gap-4">
+        <form onSubmit={saveName} className="grid grid-cols-1 gap-4">
           <Field>
             <FieldLabel htmlFor="p-name">Имя</FieldLabel>
             <Input id="p-name" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
@@ -103,7 +103,7 @@ export function ProfileSettings({
 
       <Section title="Пароль" description={hasPassword ? "После смены пароля остальные сеансы будут завершены." : "Вы входите только через SSO."}>
         {hasPassword && localEnabled ? (
-          <form onSubmit={changePassword} className="grid gap-4">
+          <form onSubmit={changePassword} className="grid grid-cols-1 gap-4">
             <Field>
               <FieldLabel htmlFor="p-current">Текущий пароль</FieldLabel>
               <PasswordInput id="p-current" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />

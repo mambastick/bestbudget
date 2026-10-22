@@ -11,7 +11,7 @@ export default async function AccountsPage() {
   const ctx = await requireHousehold()
   const accounts = await listAccounts(ctx, { includeArchived: true })
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader title="Счета" description="Где лежат деньги: карты, наличные, накопления" />
       <AccountsView
         accounts={accounts.map((a) => ({

@@ -28,7 +28,7 @@ export function OnboardingForm({ userName, canCancel }: { userName: string; canC
       </CardHeader>
       <CardContent>
         <form
-          className="grid gap-4"
+          className="grid grid-cols-1 gap-4"
           onSubmit={(e) => {
             e.preventDefault()
             run(() => createHouseholdAction({ name, timezone }), { onSuccess: () => router.replace("/dashboard") })

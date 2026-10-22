@@ -51,7 +51,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   const topTotal = a.categories.reduce((s, c) => s + c.total, 0)
 
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader title="Аналитика" description={`Фактические операции · ${formatDateFull(a.from)} — ${formatDateFull(a.to)}`} />
       <AnalyticsPeriod period={period} from={range.from} to={range.to} today={today} />
 
@@ -69,7 +69,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
         учитываются.
       </p>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Доходы и расходы по месяцам</CardTitle>
@@ -86,9 +86,9 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
             {a.categories.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">Расходов за период нет</p>
             ) : (
-              <ul className="grid gap-3">
+              <ul className="grid grid-cols-1 gap-3">
                 {a.categories.slice(0, 8).map((c) => (
-                  <li key={c.categoryId} className="grid gap-1">
+                  <li key={c.categoryId} className="grid grid-cols-1 gap-1">
                     <div className="flex items-center gap-2 text-sm">
                       <CategoryIcon icon={c.icon} color={c.color} className="size-6 rounded-md [&_svg]:size-3.5" />
                       <span className="min-w-0 flex-1 truncate">{c.name}</span>
@@ -106,7 +106,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Динамика накоплений</CardTitle>
@@ -122,7 +122,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
             <CardDescription>Ожидаемый баланс на конец месяца по плановым и регулярным операциям</CardDescription>
           </CardHeader>
           <CardContent>
-            <ul className="grid gap-2">
+            <ul className="grid grid-cols-1 gap-2">
               {a.forecast.map((f) => (
                 <li key={f.month} className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground capitalize">{monthLabel(f.month)}</span>

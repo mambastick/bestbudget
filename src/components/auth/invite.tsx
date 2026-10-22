@@ -30,7 +30,7 @@ export function InviteAccept({ token, info, userName }: { token: string; info: I
         <CardTitle className="text-xl">Приглашение</CardTitle>
         <Intro info={info} />
       </CardHeader>
-      <CardContent className="grid gap-3">
+      <CardContent className="grid grid-cols-1 gap-3">
         <p className="text-sm text-muted-foreground">Вы вошли как {userName}.</p>
         <Button
           disabled={pending}
@@ -77,7 +77,7 @@ export function InviteSignup({ token, info, local, sso }: { token: string; info:
         <CardTitle className="text-xl">Присоединиться к семье</CardTitle>
         <Intro info={info} />
       </CardHeader>
-      <CardContent className="grid gap-4">
+      <CardContent className="grid grid-cols-1 gap-4">
         {sso ? (
           <SsoButton
             name={sso.name}
@@ -96,7 +96,7 @@ export function InviteSignup({ token, info, local, sso }: { token: string; info:
                 <div className="h-px flex-1 bg-border" /> или создайте аккаунт <div className="h-px flex-1 bg-border" />
               </div>
             ) : null}
-            <form onSubmit={submit} className="grid gap-4">
+            <form onSubmit={submit} className="grid grid-cols-1 gap-4">
               <CredentialsFields value={creds} onChange={setCreds} />
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
               <Button type="submit" disabled={pending}>

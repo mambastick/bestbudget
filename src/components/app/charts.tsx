@@ -194,7 +194,7 @@ export function CategoryDonut({ data, currency = "RUB" }: { data: { name: string
           </Pie>
         </PieChart>
       </ChartContainer>
-      <ul className="grid gap-2 text-sm">
+      <ul className="grid grid-cols-1 gap-2 text-sm">
         {slices.map((s) => (
           <li key={s.name} className="flex items-center gap-2">
             <span className="size-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: s.color }} />

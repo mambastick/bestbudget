@@ -56,7 +56,7 @@ export function SetupForm({ tokenConfigured }: { tokenConfigured: boolean }) {
         <CardDescription>Создайте учётную запись администратора приложения. Понадобится токен из переменной SETUP_TOKEN.</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={submit} className="grid gap-4">
+        <form onSubmit={submit} className="grid grid-cols-1 gap-4">
           <Field>
             <FieldLabel htmlFor="token">Токен настройки</FieldLabel>
             <PasswordInput id="token" autoComplete="off" required value={token} onChange={(e) => setToken(e.target.value)} />

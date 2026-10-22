@@ -92,7 +92,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   } else if (tab === "auth") {
     const [settings, methods, oidc] = await Promise.all([getAppSettings(), getAuthMethods(), getOidcConfig().catch(() => null)])
     content = (
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <AuthSettingsForm
           settings={settings}
           oidcActive={Boolean(methods.oidc)}
@@ -138,7 +138,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   }
 
   return (
-    <div className="grid gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <PageHeader
         title="Администрирование"
         description={

@@ -16,7 +16,7 @@ export function AuthSettingsForm({ settings, oidcActive, localForced, smtp }: { 
   return (
     <Section title="Способы входа" description="Хотя бы один способ входа всегда остаётся включённым.">
       <form
-        className="grid gap-4"
+        className="grid grid-cols-1 gap-4"
         onSubmit={(e) => {
           e.preventDefault()
           run(() => updateAuthSettingsAction(s), { success: "Настройки сохранены" })

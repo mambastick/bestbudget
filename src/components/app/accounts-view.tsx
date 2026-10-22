@@ -48,8 +48,8 @@ export function AccountsView({ accounts, canManage, currency }: { accounts: Acco
   const debt = active.filter((a) => a.balance < 0).reduce((s, a) => s + a.balance, 0)
 
   return (
-    <div className="grid gap-6">
-      <div className="grid gap-4 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card size="sm">
           <CardHeader>
             <CardDescription>Всего на счетах</CardDescription>
@@ -82,7 +82,7 @@ export function AccountsView({ accounts, canManage, currency }: { accounts: Acco
         </div>
       </div>
 
-      <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {active.map((a) => (
           <AccountCard key={a.id} account={a} canManage={canManage} currency={currency} onEdit={() => setEditing(a)} />
         ))}
@@ -91,7 +91,7 @@ export function AccountsView({ accounts, canManage, currency }: { accounts: Acco
       {archived.length > 0 ? (
         <section>
           <h2 className="mb-2 px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">Архив</h2>
-          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {archived.map((a) => (
               <AccountCard key={a.id} account={a} canManage={canManage} currency={currency} onEdit={() => setEditing(a)} />
             ))}
@@ -198,7 +198,7 @@ function AccountForm({ account, onClose }: { account: AccountItem | null; onClos
   }
 
   return (
-    <form onSubmit={submit} className="grid gap-4">
+    <form onSubmit={submit} className="grid grid-cols-1 gap-4">
       <DialogHeader>
         <DialogTitle>{account ? "Счёт" : "Новый счёт"}</DialogTitle>
         <DialogDescription>Текущий остаток рассчитывается из начального остатка и подтверждённых операций.</DialogDescription>
