@@ -127,7 +127,7 @@ export function OperationDialog({ mode, open, onOpenChange }: { mode: OperationD
 
 function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: () => void }) {
   const { categories, accounts, today } = useCatalog()
-  const activeAccounts = accounts.filter((a) => !a.archived)
+  const activeAccounts = accounts.filter((a) => !a.archived && a.kind !== "loan")
   const [s, setS] = useState<FormState>(() => initialState(mode, today, activeAccounts[0]?.id ?? null, accounts))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const { pending, run } = useAction()
@@ -164,7 +164,7 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
   const typeLocked = mode.kind !== "create"
 
   const kindCategories = categories.filter((c) => s.type !== "transfer" && c.kind === s.type && (!c.archived || c.id === s.categoryId))
-  const selectableAccounts = accounts.filter((a) => !a.archived || a.id === s.accountId || a.id === s.toAccountId)
+  const selectableAccounts = accounts.filter((a) => a.kind !== "loan" && (!a.archived || a.id === s.accountId || a.id === s.toAccountId))
   const category = categories.find((c) => c.id === s.categoryId)
 
   const title =

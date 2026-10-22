@@ -21,6 +21,7 @@ export function OperationMenu({ row }: { row: OperationRow }) {
   const ops = useOperations()
   const { run } = useAction()
   const [confirmDelete, setConfirmDelete] = useState(false)
+  if (row.loanId) return row.status === "planned" ? <Button variant="ghost" size="icon-sm" aria-label="Подтвердить платёж" onClick={() => ops.openConfirm(row)}><Check /></Button> : null
   const recurring = row.recurringRuleId !== null
 
   return (

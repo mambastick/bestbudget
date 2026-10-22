@@ -1,3 +1,4 @@
+import { DebtSummary } from "@/components/app/loans/debt-summary"
 import { FxWarnings } from "@/components/app/fx-warnings"
 import { TrendingDown, TrendingUp } from "lucide-react"
 import type { Metadata } from "next"
@@ -55,6 +56,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
     <div className="grid grid-cols-1 gap-6">
       <FxWarnings warnings={a.warnings} canManageRates={ctx.user.role === "admin"} />
       <PageHeader title="Аналитика" description={`Фактические операции · ${formatDateFull(a.from)} — ${formatDateFull(a.to)}`} />
+      <DebtSummary debt={a.debt} netAssets={a.netAssets} currency={cur} />
       <AnalyticsPeriod period={period} from={range.from} to={range.to} today={today} />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

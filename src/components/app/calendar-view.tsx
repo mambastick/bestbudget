@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { formatDateFull, formatDay, formatWeekday, weekday, type IsoDate } from "@/lib/dates"
 import { currencySymbol } from "@/lib/currencies"
-import { formatMoneyShort } from "@/lib/money"
+import { formatMoney, formatMoneyShort } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
 export interface CalendarDay {
@@ -43,6 +43,9 @@ export interface CalendarEntry {
   accountName: string
   toAccountName: string | null
   authorName: string | null
+  loanId?: string | null
+  loanPrincipal?: number
+  loanInterest?: number
   recurringRuleId: string | null
 }
 
@@ -59,6 +62,7 @@ function entryColor(e: CalendarEntry) {
 function useOpenEntry() {
   const ops = useOperations()
   return async (e: CalendarEntry, then: "edit" | "confirm") => {
+    if (e.virtual && e.loanId) return ops.openLoan(e.loanId, e.date)
     if (e.virtual && e.recurringRuleId) return ops.openVirtual(e.recurringRuleId, e.date, then)
     const res = await getTransactionAction(e.id)
     if (!res.ok) return
@@ -359,7 +363,7 @@ function EntryRow({ entry: e, today }: { entry: CalendarEntry; today?: IsoDate }
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm">{e.title}</span>
           <span className="block truncate text-xs text-muted-foreground">
-            {e.virtual
+            {e.loanId ? `тело ${formatMoney(e.loanPrincipal ?? 0, e.currency)} + проценты ${formatMoney(e.loanInterest ?? 0, e.currency)}` : e.virtual
               ? "по расписанию"
               : [e.type === "transfer" ? `${e.accountName} → ${e.toAccountName}` : e.categoryName, e.authorName].filter(Boolean).join(" · ")}
             {overdue ? " · просрочено" : ""}

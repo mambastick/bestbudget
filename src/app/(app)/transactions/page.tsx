@@ -9,6 +9,7 @@ import { TransactionFilters } from "@/components/app/operations/transaction-filt
 import { TransactionList } from "@/components/app/operations/transaction-list"
 import { PageHeader } from "@/components/app/page-header"
 import { requireHousehold } from "@/server/session"
+import { ensureLoansMaterialized } from "@/server/services/loans"
 import { ensureMaterialized, listRules } from "@/server/services/recurring"
 import { listTransactions, transactionFilters } from "@/server/services/transactions"
 import { todayIn } from "@/lib/dates"
@@ -22,6 +23,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
   const sp = await searchParams
   const tab = sp.tab === "rules" ? "rules" : "list"
   await ensureMaterialized(ctx.householdId, todayIn(ctx.timezone))
+  await ensureLoansMaterialized(ctx, todayIn(ctx.timezone))
 
   const tabs = (
     <NavTabs

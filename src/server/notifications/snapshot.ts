@@ -5,11 +5,13 @@ import { assertCan, type HouseholdCtx } from "@/server/context"
 import { getHousehold } from "@/server/services/households"
 import { getBudgets } from "@/server/services/budgets"
 import { projection } from "@/server/services/reports"
+import { ensureLoansMaterialized } from "@/server/services/loans"
 import { listInRange } from "@/server/services/transactions"
 
 export async function notificationSnapshot(ctx: HouseholdCtx, now: Date): Promise<NoticeSnapshot> {
   assertCan(ctx, "finance.read")
   const today = todayIn(ctx.timezone, now)
+  await ensureLoansMaterialized(ctx, today)
   const [payments, forecast, budgets, household] = await Promise.all([
     listInRange(ctx, today, addDays(today, 30), { overdueBefore: today }),
     projection(ctx, today, addDays(today, 30), today),

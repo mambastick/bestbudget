@@ -51,9 +51,10 @@ export async function normalizeOperation(db: DbOrTx, ctx: HouseholdCtx, input: O
 
   const accountIds = [input.accountId, ...(toAccountId ? [toAccountId] : [])]
   const accounts = await db
-    .select({ id: financialAccounts.id, name: financialAccounts.name, archivedAt: financialAccounts.archivedAt, currency: financialAccounts.currency })
+    .select({ id: financialAccounts.id, name: financialAccounts.name, archivedAt: financialAccounts.archivedAt, currency: financialAccounts.currency, kind: financialAccounts.kind })
     .from(financialAccounts)
     .where(and(eq(financialAccounts.householdId, ctx.householdId), inArray(financialAccounts.id, accountIds)))
+  if (accounts.some((a) => a.kind === "loan")) throw new AppError("Операции по кредиту доступны в разделе «Кредиты»")
   if (accounts.length !== accountIds.length) throw notFound("Счёт не найден")
   if (!opts.allowArchived && accounts.some((a) => a.archivedAt)) throw new AppError("Счёт находится в архиве")
 
@@ -155,6 +156,7 @@ export async function updateTransaction(ctx: HouseholdCtx, id: string, raw: Tran
   const version = z.number().int().parse(raw.version)
   const db = getDb()
   const before = await getOwned(db, ctx, id)
+  if (before.loanId) throw new AppError("Изменяйте платёж целиком в разделе «Кредиты»")
   if (before.recurringRuleId && input.type !== before.type) throw new AppError("Нельзя изменить тип операции из расписания")
   const values = await normalizeOperation(db, ctx, input, { allowArchived: true })
   return updateVersioned(
@@ -183,6 +185,7 @@ export async function confirmTransaction(ctx: HouseholdCtx, id: string, raw: z.i
   assertCan(ctx, "finance.write")
   const input = confirmInput.parse(raw)
   const before = await getOwned(getDb(), ctx, id)
+  if (before.loanId) throw new AppError("Изменяйте платёж целиком в разделе «Кредиты»")
   if (before.status === "posted") throw new AppError("Операция уже подтверждена")
   const values = await normalizeOperation(getDb(), ctx, operationFields.parse({
     ...before, amount: input.amount ?? before.amount, toAmount: input.toAmount ?? before.toAmount,
@@ -200,12 +203,14 @@ export async function confirmTransaction(ctx: HouseholdCtx, id: string, raw: z.i
 export async function unconfirmTransaction(ctx: HouseholdCtx, id: string, version: number) {
   assertCan(ctx, "finance.write")
   const before = await getOwned(getDb(), ctx, id)
+  if (before.loanId) throw new AppError("Изменяйте платёж целиком в разделе «Кредиты»")
   return updateVersioned(ctx, before, version, { status: "planned", postedAt: null }, "transaction.unconfirm")
 }
 
 export async function skipTransaction(ctx: HouseholdCtx, id: string, version: number) {
   assertCan(ctx, "finance.write")
   const before = await getOwned(getDb(), ctx, id)
+  if (before.loanId) throw new AppError("Изменяйте платёж целиком в разделе «Кредиты»")
   if (!before.recurringRuleId) throw new AppError("Пропустить можно только регулярную операцию")
   if (before.status === "posted") throw new AppError("Подтверждённую операцию нельзя пропустить")
   return updateVersioned(ctx, before, version, { status: "skipped", postedAt: null }, "transaction.skip")
@@ -219,6 +224,7 @@ export async function deleteTransaction(ctx: HouseholdCtx, id: string) {
   assertCan(ctx, "finance.write")
   const db = getDb()
   const before = await getOwned(db, ctx, id)
+  if (before.loanId) throw new AppError("Изменяйте платёж целиком в разделе «Кредиты»")
   if (before.recurringRuleId && before.status !== "posted") {
     await updateVersioned(ctx, before, before.version, { status: "skipped", postedAt: null }, "transaction.skip")
     return { skipped: true }
@@ -262,6 +268,12 @@ const toAccounts = alias(financialAccounts, "to_accounts")
 const authors = alias(users, "authors")
 
 export const transactionListColumns = {
+  loanId: transactions.loanId,
+  loanPart: transactions.loanPart,
+  loanPaymentKey: transactions.loanPaymentKey,
+  loanDueDate: transactions.loanDueDate,
+  loanPrincipal: sql<number>`coalesce((select sum(p.amount)::bigint from transactions p where p.household_id = ${transactions.householdId} and p.loan_payment_key = ${transactions.loanPaymentKey} and p.loan_part in ('principal', 'prepayment')), 0)`.mapWith(Number),
+  loanInterest: sql<number>`coalesce((select sum(p.amount)::bigint from transactions p where p.household_id = ${transactions.householdId} and p.loan_payment_key = ${transactions.loanPaymentKey} and p.loan_part = 'interest'), 0)`.mapWith(Number),
   id: transactions.id,
   type: transactions.type,
   status: transactions.status,
@@ -289,9 +301,15 @@ export const transactionListColumns = {
 
 export type TransactionRow = Awaited<ReturnType<typeof listTransactions>>["rows"][number]
 
-export function transactionListQuery(where: SQL | undefined) {
+/** One display row per payment; the export keeps the two original ledger entries. */
+export const loanDisplayCondition = sql`(${transactions.loanPart} is distinct from 'interest' or not exists (select 1 from transactions p where p.household_id = ${transactions.householdId} and p.loan_payment_key = ${transactions.loanPaymentKey} and p.loan_part = 'principal'))`
+
+export function transactionListQuery(where: SQL | undefined, display = true) {
   return getDb()
-    .select(transactionListColumns)
+    .select({ ...transactionListColumns,
+      amount: display ? sql<number>`case when ${transactions.loanId} is not null then (select sum(p.amount)::bigint from transactions p where p.household_id = ${transactions.householdId} and p.loan_payment_key = ${transactions.loanPaymentKey}) else ${transactions.amount} end`.mapWith(Number) : transactions.amount,
+      title: sql<string>`case when ${transactions.loanId} is not null then ${transactions.title} || ': ' || (select a.name from loans l join financial_accounts a on a.id = l.account_id and a.household_id = l.household_id where l.id = ${transactions.loanId} and l.household_id = ${transactions.householdId}) else ${transactions.title} end`,
+    })
     .from(transactions)
     .leftJoin(categories, eq(categories.id, transactions.categoryId))
     .innerJoin(financialAccounts, eq(financialAccounts.id, transactions.accountId))
@@ -300,12 +318,12 @@ export function transactionListQuery(where: SQL | undefined) {
     .where(where)
 }
 
-function filterConditions(ctx: HouseholdCtx, f: z.output<typeof transactionFilters>) {
+function filterConditions(ctx: HouseholdCtx, f: z.output<typeof transactionFilters>, grouped = true) {
   const conditions: (SQL | undefined)[] = [
     eq(transactions.householdId, ctx.householdId),
-    f.type ? eq(transactions.type, f.type) : undefined,
+    f.type ? grouped ? or(eq(transactions.type, f.type), sql`exists (select 1 from transactions p where p.household_id = ${transactions.householdId} and p.loan_payment_key = ${transactions.loanPaymentKey} and p.type = ${f.type})`) : eq(transactions.type, f.type) : undefined,
     f.status ? eq(transactions.status, f.status) : sql`${transactions.status} <> 'skipped'`,
-    f.categoryId ? eq(transactions.categoryId, f.categoryId) : undefined,
+    f.categoryId ? grouped ? or(eq(transactions.categoryId, f.categoryId), sql`exists (select 1 from transactions p where p.household_id = ${transactions.householdId} and p.loan_payment_key = ${transactions.loanPaymentKey} and p.category_id = ${f.categoryId})`) : eq(transactions.categoryId, f.categoryId) : undefined,
     f.accountId ? or(eq(transactions.accountId, f.accountId), eq(transactions.toAccountId, f.accountId)) : undefined,
     f.from ? gte(transactions.date, f.from) : undefined,
     f.to ? lte(transactions.date, f.to) : undefined,
@@ -320,7 +338,7 @@ function filterConditions(ctx: HouseholdCtx, f: z.output<typeof transactionFilte
 export async function listTransactions(ctx: HouseholdCtx, raw: TransactionFilters) {
   assertCan(ctx, "finance.read")
   const f = transactionFilters.parse(raw)
-  const rows = await transactionListQuery(filterConditions(ctx, f))
+  const rows = await transactionListQuery(and(filterConditions(ctx, f), loanDisplayCondition))
     .orderBy(desc(transactions.date), desc(transactions.createdAt))
     .limit(PAGE_SIZE + 1)
     .offset((f.page - 1) * PAGE_SIZE)
@@ -334,7 +352,7 @@ const EXPORT_LIMIT = 50_000
 export async function exportTransactions(ctx: HouseholdCtx, raw: TransactionFilters) {
   assertCan(ctx, "finance.read")
   const f = transactionFilters.parse(raw)
-  return transactionListQuery(filterConditions(ctx, f)).orderBy(transactions.date, transactions.createdAt).limit(EXPORT_LIMIT)
+  return transactionListQuery(filterConditions(ctx, f, false), false).orderBy(transactions.date, transactions.createdAt).limit(EXPORT_LIMIT)
 }
 
 export async function getTransaction(ctx: HouseholdCtx, id: string) {
@@ -353,7 +371,7 @@ export async function listInRange(ctx: HouseholdCtx, from: IsoDate, to: IsoDate,
     ? and(eq(transactions.status, "planned"), sql`${transactions.date} < ${opts.overdueBefore}`)
     : undefined
   return transactionListQuery(
-    and(eq(transactions.householdId, ctx.householdId), sql`${transactions.status} <> 'skipped'`, overdue ? or(range, overdue) : range),
+    and(eq(transactions.householdId, ctx.householdId), loanDisplayCondition, sql`${transactions.status} <> 'skipped'`, overdue ? or(range, overdue) : range),
   ).orderBy(transactions.date, transactions.createdAt)
 }
 
