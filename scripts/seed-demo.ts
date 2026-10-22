@@ -10,6 +10,7 @@ import { users } from "../src/db/schema"
 import { addDays, addMonths, startOfMonth, todayIn } from "../src/lib/dates"
 import { createAccount, listAccounts, listCategories } from "../src/server/services/catalog"
 import { listMemberships, resolveHouseholdCtx } from "../src/server/services/households"
+import { createLoan } from "../src/server/services/loans"
 import { createRules } from "../src/server/services/recurring"
 import { createTransaction } from "../src/server/services/transactions"
 import { automateGoal, contributeToGoal, createGoal } from "../src/server/services/goals"
@@ -27,7 +28,7 @@ const today = todayIn(ctx.timezone)
 const cats = await listCategories(ctx)
 const cat = (name: string) => cats.find((c) => c.name === name)!.id
 const [main] = await listAccounts(ctx)
-const card = await createAccount(ctx, { name: "Кредитная карта", kind: "credit_card", openingBalance: -1_850_000 })
+const card = await createAccount(ctx, { name: "Кредитная карта", kind: "credit_card", openingBalance: -1_850_000, creditLimit: 15_000_000 })
 const savings = await createAccount(ctx, { name: "Накопительный", kind: "savings", openingBalance: 25_000_000 })
 const usd = await createAccount(ctx, { name: "USD-накопления", kind: "savings", currency: "USD", openingBalance: 100_00 })
 await createAccount(ctx, { name: "EUR в поездке", kind: "cash", currency: "EUR", openingBalance: 50_00 })
@@ -37,8 +38,8 @@ const start = today.slice(0, 8) + "01"
 const monthly = (title: string, category: string, amount: number, day: number, type: "income" | "expense" = "expense", accountId = main!.id) =>
   createRules(ctx, { rule: { type, title, amount: rub(amount), categoryId: cat(category), accountId, frequency: "monthly", dayOfMonth: day, startDate: start } })
 
-await monthly("Ипотека", "Ипотека", 62_000, 15)
-await monthly("Автокредит", "Кредиты", 23_500, 7)
+await createLoan(ctx, { name: "Ипотека", lender: "Семейный банк", kind: "mortgage", principal: rub(6_000_000), trackingBalance: rub(4_850_000), annualRate: "9.5", startDate: addMonths(today, -36), trackingDate: today, firstPaymentDate: addDays(today, 7), termMonths: 144, paymentDay: Number(addDays(today, 7).slice(8)), scheduleType: "annuity", interestMethod: "daily_actual", paymentAccountId: main!.id })
+await createLoan(ctx, { name: "Потребительский кредит", lender: "Банк Пример", kind: "consumer", principal: rub(300_000), trackingBalance: rub(300_000), annualRate: "18", startDate: today, trackingDate: today, firstPaymentDate: addMonths(today, 1), termMonths: 24, paymentDay: Number(today.slice(8)), scheduleType: "differentiated", interestMethod: "monthly", paymentAccountId: main!.id })
 await monthly("ЖКХ", "ЖКХ", 8_900, 10)
 await monthly("Интернет и связь", "Подписки", 1_400, 3)
 await monthly("Яндекс Плюс", "Подписки", 399, 18, "expense", card.id)
