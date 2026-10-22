@@ -118,7 +118,7 @@ backup:
     # Keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, optional AWS_SESSION_TOKEN.
     existingSecret: ""
     image:
-      repository: public.ecr.aws/aws-cli/aws-cli
+      repository: amazon/aws-cli
       tag: "2.31.4"
       pullPolicy: IfNotPresent
     resources:

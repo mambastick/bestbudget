@@ -67,7 +67,7 @@ services:
 
   # Optional: COMPOSE_PROFILES=backup-s3. Local backup scheduling never depends on S3.
   backup-s3:
-    image: public.ecr.aws/aws-cli/aws-cli:2.31.4
+    image: amazon/aws-cli:2.31.4
     profiles: ["backup-s3"]
     restart: unless-stopped
     entrypoint: ["sh", "/scripts/upload.sh"]
