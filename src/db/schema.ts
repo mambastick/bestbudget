@@ -1,0 +1,446 @@
+import { relations, sql } from "drizzle-orm"
+import {
+  bigint,
+  boolean,
+  check,
+  date,
+  foreignKey,
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  primaryKey,
+  smallint,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core"
+
+const id = () => uuid("id").primaryKey().defaultRandom()
+const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+const updatedAt = () =>
+  timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date())
+/** Money in minor units (kopecks). */
+const money = (name: string) => bigint(name, { mode: "number" })
+
+// ---------------------------------------------------------------------------
+// Authentication (tables used by Better Auth through the Drizzle adapter)
+// ---------------------------------------------------------------------------
+
+export const users = pgTable("users", {
+  id: id(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  image: text("image"),
+  /** Global application role: "admin" or "user". */
+  role: text("role").notNull().default("user"),
+  banned: boolean("banned").notNull().default(false),
+  banReason: text("ban_reason"),
+  banExpires: timestamp("ban_expires", { withTimezone: true }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+})
+
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: id(),
+    token: text("token").notNull().unique(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    impersonatedBy: uuid("impersonated_by"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("sessions_user_idx").on(t.userId)],
+)
+
+export const authAccounts = pgTable(
+  "auth_accounts",
+  {
+    id: id(),
+    /** Subject at the provider (`sub` for OIDC, user id for credentials). */
+    accountId: text("account_id").notNull(),
+    /** "credential" for email+password, "oidc" for SSO. */
+    providerId: text("provider_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+    scope: text("scope"),
+    password: text("password"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [unique("auth_accounts_provider_account_uq").on(t.providerId, t.accountId), index("auth_accounts_user_idx").on(t.userId)],
+)
+
+export const verifications = pgTable(
+  "verifications",
+  {
+    id: id(),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("verifications_identifier_idx").on(t.identifier)],
+)
+
+export const rateLimits = pgTable("rate_limits", {
+  id: id(),
+  key: text("key").notNull().unique(),
+  count: integer("count").notNull(),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+})
+
+// ---------------------------------------------------------------------------
+// Households
+// ---------------------------------------------------------------------------
+
+export const householdRole = pgEnum("household_role", ["owner", "admin", "member"])
+export type HouseholdRole = (typeof householdRole.enumValues)[number]
+
+export const households = pgTable("households", {
+  id: id(),
+  name: text("name").notNull(),
+  /** ISO 4217 base currency. Multi-currency conversion is out of scope for v1. */
+  currency: text("currency").notNull().default("RUB"),
+  timezone: text("timezone").notNull().default("Europe/Moscow"),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+})
+
+export const householdMembers = pgTable(
+  "household_members",
+  {
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: householdRole("role").notNull().default("member"),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.householdId, t.userId] }), index("household_members_user_idx").on(t.userId)],
+)
+
+export const invitations = pgTable(
+  "invitations",
+  {
+    id: id(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    /** SHA-256 of the one-time token; the token itself is shown only once. */
+    tokenHash: text("token_hash").notNull().unique(),
+    role: householdRole("role").notNull().default("member"),
+    note: text("note"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    acceptedBy: uuid("accepted_by").references(() => users.id, { onDelete: "set null" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("invitations_household_idx").on(t.householdId), check("invitations_role_ck", sql`${t.role} <> 'owner'`)],
+)
+
+// ---------------------------------------------------------------------------
+// Finance
+// ---------------------------------------------------------------------------
+
+export const accountKind = pgEnum("financial_account_kind", ["cash", "debit_card", "credit_card", "savings", "shared", "other"])
+export type AccountKind = (typeof accountKind.enumValues)[number]
+
+export const financialAccounts = pgTable(
+  "financial_accounts",
+  {
+    id: id(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    kind: accountKind("kind").notNull().default("debit_card"),
+    currency: text("currency").notNull().default("RUB"),
+    /** Balance at the moment tracking started; negative for credit card debt. */
+    openingBalance: money("opening_balance").notNull().default(0),
+    sortOrder: integer("sort_order").notNull().default(0),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    // Target for composite foreign keys that guarantee same-household references.
+    unique("financial_accounts_household_id_uq").on(t.householdId, t.id),
+  ],
+)
+
+export const categoryKind = pgEnum("category_kind", ["income", "expense"])
+export type CategoryKind = (typeof categoryKind.enumValues)[number]
+
+export const categories = pgTable(
+  "categories",
+  {
+    id: id(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    kind: categoryKind("kind").notNull(),
+    name: text("name").notNull(),
+    icon: text("icon").notNull().default("circle"),
+    color: text("color").notNull().default("#64748b"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("categories_household_id_uq").on(t.householdId, t.id),
+    uniqueIndex("categories_active_name_uq")
+      .on(t.householdId, t.kind, sql`lower(${t.name})`)
+      .where(sql`${t.archivedAt} is null`),
+  ],
+)
+
+export const transactionType = pgEnum("transaction_type", ["income", "expense", "transfer"])
+export type TransactionType = (typeof transactionType.enumValues)[number]
+
+export const transactionStatus = pgEnum("transaction_status", ["planned", "posted", "skipped"])
+export type TransactionStatus = (typeof transactionStatus.enumValues)[number]
+
+export const frequency = pgEnum("recurrence_frequency", ["once", "daily", "weekly", "monthly", "yearly"])
+export type Frequency = (typeof frequency.enumValues)[number]
+
+export const recurringRules = pgTable(
+  "recurring_rules",
+  {
+    id: id(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    type: transactionType("type").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    amount: money("amount").notNull(),
+    categoryId: uuid("category_id"),
+    accountId: uuid("account_id").notNull(),
+    toAccountId: uuid("to_account_id"),
+    frequency: frequency("frequency").notNull(),
+    /** Every N days/weeks/months/years. */
+    interval: smallint("interval").notNull().default(1),
+    /** Day of month (1–31) for monthly/yearly rules; clamped to the month length. */
+    dayOfMonth: smallint("day_of_month"),
+    /** Anchor of the schedule (weekday for weekly, month for yearly). */
+    startDate: date("start_date", { mode: "string" }).notNull(),
+    /** Inclusive; null means open-ended. */
+    endDate: date("end_date", { mode: "string" }),
+    /** Occurrences before this date are never generated (rule creation / last edit point). */
+    generateFrom: date("generate_from", { mode: "string" }).notNull(),
+    /** Planned transactions exist for all occurrences up to and including this date. */
+    materializedThrough: date("materialized_through", { mode: "string" }),
+    version: integer("version").notNull().default(1),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("recurring_rules_household_id_uq").on(t.householdId, t.id),
+    index("recurring_rules_household_idx").on(t.householdId),
+    foreignKey({
+      name: "recurring_rules_category_fk",
+      columns: [t.householdId, t.categoryId],
+      foreignColumns: [categories.householdId, categories.id],
+    }),
+    foreignKey({
+      name: "recurring_rules_account_fk",
+      columns: [t.householdId, t.accountId],
+      foreignColumns: [financialAccounts.householdId, financialAccounts.id],
+    }),
+    foreignKey({
+      name: "recurring_rules_to_account_fk",
+      columns: [t.householdId, t.toAccountId],
+      foreignColumns: [financialAccounts.householdId, financialAccounts.id],
+    }),
+    check("recurring_rules_amount_ck", sql`${t.amount} > 0`),
+    check("recurring_rules_interval_ck", sql`${t.interval} between 1 and 366`),
+    check("recurring_rules_day_ck", sql`${t.dayOfMonth} is null or ${t.dayOfMonth} between 1 and 31`),
+    check("recurring_rules_dates_ck", sql`${t.endDate} is null or ${t.endDate} >= ${t.startDate}`),
+    check(
+      "recurring_rules_transfer_ck",
+      sql`(${t.type} = 'transfer') = (${t.toAccountId} is not null) and (${t.toAccountId} is null or ${t.toAccountId} <> ${t.accountId})`,
+    ),
+    check("recurring_rules_category_ck", sql`${t.type} = 'transfer' or ${t.categoryId} is not null`),
+  ],
+)
+
+export const transactions = pgTable(
+  "transactions",
+  {
+    id: id(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    type: transactionType("type").notNull(),
+    status: transactionStatus("status").notNull(),
+    amount: money("amount").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    /** Effective date (actual or rescheduled). */
+    date: date("date", { mode: "string" }).notNull(),
+    categoryId: uuid("category_id"),
+    accountId: uuid("account_id").notNull(),
+    toAccountId: uuid("to_account_id"),
+    recurringRuleId: uuid("recurring_rule_id"),
+    /** Original schedule slot; stays fixed when the occurrence is moved, which keeps generation idempotent. */
+    occurrenceDate: date("occurrence_date", { mode: "string" }),
+    postedAt: timestamp("posted_at", { withTimezone: true }),
+    version: integer("version").notNull().default(1),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("transactions_occurrence_uq").on(t.recurringRuleId, t.occurrenceDate),
+    index("transactions_household_date_idx").on(t.householdId, t.date),
+    index("transactions_household_status_date_idx").on(t.householdId, t.status, t.date),
+    index("transactions_account_idx").on(t.accountId),
+    index("transactions_to_account_idx").on(t.toAccountId),
+    index("transactions_category_idx").on(t.categoryId),
+    foreignKey({
+      name: "transactions_category_fk",
+      columns: [t.householdId, t.categoryId],
+      foreignColumns: [categories.householdId, categories.id],
+    }),
+    foreignKey({
+      name: "transactions_account_fk",
+      columns: [t.householdId, t.accountId],
+      foreignColumns: [financialAccounts.householdId, financialAccounts.id],
+    }),
+    foreignKey({
+      name: "transactions_to_account_fk",
+      columns: [t.householdId, t.toAccountId],
+      foreignColumns: [financialAccounts.householdId, financialAccounts.id],
+    }),
+    foreignKey({
+      name: "transactions_rule_fk",
+      columns: [t.recurringRuleId],
+      foreignColumns: [recurringRules.id],
+    }).onDelete("set null"),
+    check("transactions_amount_ck", sql`${t.amount} > 0`),
+    check(
+      "transactions_transfer_ck",
+      sql`(${t.type} = 'transfer') = (${t.toAccountId} is not null) and (${t.toAccountId} is null or ${t.toAccountId} <> ${t.accountId})`,
+    ),
+    check("transactions_category_ck", sql`${t.type} = 'transfer' or ${t.categoryId} is not null`),
+    check("transactions_occurrence_ck", sql`(${t.recurringRuleId} is null) or (${t.occurrenceDate} is not null)`),
+  ],
+)
+
+export const categoryBudgets = pgTable(
+  "category_budgets",
+  {
+    id: id(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id").notNull(),
+    /** Monthly limit in minor units. */
+    amount: money("amount").notNull(),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("category_budgets_category_uq").on(t.householdId, t.categoryId),
+    foreignKey({
+      name: "category_budgets_category_fk",
+      columns: [t.householdId, t.categoryId],
+      foreignColumns: [categories.householdId, categories.id],
+    }).onDelete("cascade"),
+    check("category_budgets_amount_ck", sql`${t.amount} > 0`),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// Application settings, audit
+// ---------------------------------------------------------------------------
+
+export const applicationSettings = pgTable("application_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: updatedAt(),
+})
+
+export const oidcProviderSettings = pgTable(
+  "oidc_provider_settings",
+  {
+    /** Singleton row: only one OIDC provider is supported. */
+    id: smallint("id").primaryKey().default(1),
+    enabled: boolean("enabled").notNull().default(false),
+    displayName: text("display_name").notNull().default("SSO"),
+    issuerUrl: text("issuer_url").notNull(),
+    clientId: text("client_id").notNull(),
+    clientSecretEncrypted: text("client_secret_encrypted"),
+    scopes: text("scopes").notNull().default("openid profile email"),
+    redirectUri: text("redirect_uri"),
+    allowSignup: boolean("allow_signup").notNull().default(false),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: updatedAt(),
+  },
+  (t) => [check("oidc_provider_settings_singleton_ck", sql`${t.id} = 1`)],
+)
+
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: id(),
+    householdId: uuid("household_id").references(() => households.id, { onDelete: "cascade" }),
+    actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    action: text("action").notNull(),
+    entityType: text("entity_type").notNull(),
+    entityId: uuid("entity_id"),
+    /** Changed fields etc. Never contains secrets. */
+    meta: jsonb("meta"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("audit_logs_household_idx").on(t.householdId, t.createdAt), index("audit_logs_created_idx").on(t.createdAt)],
+)
+
+// ---------------------------------------------------------------------------
+// Relations (for the relational query API)
+// ---------------------------------------------------------------------------
+
+export const householdMembersRelations = relations(householdMembers, ({ one }) => ({
+  user: one(users, { fields: [householdMembers.userId], references: [users.id] }),
+  household: one(households, { fields: [householdMembers.householdId], references: [households.id] }),
+}))
+
+export type User = typeof users.$inferSelect
+export type Household = typeof households.$inferSelect
+export type FinancialAccount = typeof financialAccounts.$inferSelect
+export type Category = typeof categories.$inferSelect
+export type Transaction = typeof transactions.$inferSelect
+export type RecurringRule = typeof recurringRules.$inferSelect
+export type Invitation = typeof invitations.$inferSelect
