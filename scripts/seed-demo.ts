@@ -7,11 +7,12 @@
 import { eq } from "drizzle-orm"
 import { closeDb, getDb } from "../src/db"
 import { users } from "../src/db/schema"
-import { addDays, todayIn } from "../src/lib/dates"
+import { addDays, addMonths, startOfMonth, todayIn } from "../src/lib/dates"
 import { createAccount, listAccounts, listCategories } from "../src/server/services/catalog"
 import { listMemberships, resolveHouseholdCtx } from "../src/server/services/households"
 import { createRules } from "../src/server/services/recurring"
 import { createTransaction } from "../src/server/services/transactions"
+import { automateGoal, contributeToGoal, createGoal } from "../src/server/services/goals"
 import { setBudget } from "../src/server/services/budgets"
 
 const email = process.argv[2]
@@ -27,7 +28,7 @@ const cats = await listCategories(ctx)
 const cat = (name: string) => cats.find((c) => c.name === name)!.id
 const [main] = await listAccounts(ctx)
 const card = await createAccount(ctx, { name: "Кредитная карта", kind: "credit_card", openingBalance: -1_850_000 })
-await createAccount(ctx, { name: "Накопительный", kind: "savings", openingBalance: 25_000_000 })
+const savings = await createAccount(ctx, { name: "Накопительный", kind: "savings", openingBalance: 25_000_000 })
 const usd = await createAccount(ctx, { name: "USD-накопления", kind: "savings", currency: "USD", openingBalance: 100_00 })
 await createAccount(ctx, { name: "EUR в поездке", kind: "cash", currency: "EUR", openingBalance: 50_00 })
 const rub = (n: number) => n * 100
@@ -60,6 +61,16 @@ await createTransaction(ctx, { type: "transfer", amount: rub(9_500), toAmount: 1
 await setBudget(ctx, { categoryId: cat("Продукты"), amount: rub(35_000) })
 await setBudget(ctx, { categoryId: cat("Рестораны и доставка"), amount: rub(8_000) })
 await setBudget(ctx, { categoryId: cat("Развлечения"), amount: rub(5_000) })
+
+for (const i of [-1, -2, -3]) {
+  await createTransaction(ctx, { type: "expense", amount: rub(50_000), categoryId: cat("Продукты"), accountId: main!.id, date: addMonths(startOfMonth(today), i), status: "posted", title: "Расходы прошлого месяца" })
+}
+await createGoal(ctx, { name: "Подушка", kind: "account", accountId: savings.id, currency: "RUB", targetAmount: 1, expenseMonths: 6, expenseWindow: 3, priority: 1, allocatedAmount: rub(150_000), icon: "piggy-bank", color: "#10b981" })
+const vacation = await createGoal(ctx, { name: "Отпуск", kind: "account", accountId: savings.id, currency: "RUB", targetAmount: rub(300_000), targetDate: addMonths(today, 8), priority: 2, icon: "plane", color: "#3b82f6" })
+await automateGoal(ctx, vacation.id, { accountId: main!.id, day: 5, version: vacation.version })
+const car = await createGoal(ctx, { name: "Машина", kind: "manual", currency: "USD", targetAmount: 15_000_00, targetDate: addMonths(today, 24), icon: "car", color: "#8b5cf6" })
+await contributeToGoal(ctx, car.id, { date: addMonths(today, -2), amount: 500_00, comment: "Начали копить" })
+await contributeToGoal(ctx, car.id, { date: addMonths(today, -1), amount: 500_00, comment: "Ежемесячный взнос" })
 
 console.log(`Demo data added to «${first.name}»`)
 await closeDb()
