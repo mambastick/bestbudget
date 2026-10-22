@@ -29,7 +29,8 @@ auth:
   trustProxy: true
 
 # Use an existing Secret instead of the generated one. Expected keys:
-# BETTER_AUTH_SECRET, SETUP_TOKEN, DATABASE_URL, and optionally ENCRYPTION_KEY, OIDC_CLIENT_SECRET, SMTP_URL.
+# BETTER_AUTH_SECRET, SETUP_TOKEN, DATABASE_URL, and optionally ENCRYPTION_KEY, OIDC_CLIENT_SECRET, SMTP_URL,
+# TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, VAPID_PRIVATE_KEY.
 # When set, auth.*, oidc.clientSecret, smtp.url and the database URL are taken from it.
 existingSecret: ""
 
@@ -54,6 +55,18 @@ smtp:
 
 # Exchange rates: cbr (Bank of Russia + DB cache) or none (manual rates only).
 fxProvider: cbr
+# Payment reminders. Empty transport credentials use encrypted database settings.
+notifications:
+  jobsEnabled: true
+  telegram:
+    botToken: ""
+    # Empty keeps the admin UI's mode (polling by default).
+    mode: ""
+    webhookSecret: ""
+  vapid:
+    publicKey: ""
+    privateKey: ""
+    subject: ""
 
 # Extra environment variables for the app container.
 extraEnv: []
