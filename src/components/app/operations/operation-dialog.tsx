@@ -392,7 +392,7 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
         </label>
       ) : null}
 
-      {showSchedule ? <ScheduleFields s={s} set={set} errors={errors} today={today} allowExtra={mode.kind === "create" && s.type !== "transfer"} currency={currency} /> : null}
+      {showSchedule ? <ScheduleFields s={s} set={set} errors={errors} today={today} allowExtra={mode.kind === "create" && !crossCurrency} currency={currency} /> : null}
 
       {!showSchedule && !editingFuture ? (
         <label className="flex items-center justify-between gap-3 rounded-lg border p-3">

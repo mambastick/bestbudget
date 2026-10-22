@@ -2,12 +2,12 @@ import "server-only"
 import { and, eq, sql } from "drizzle-orm"
 import { getDb } from "@/db"
 import { financialAccounts, transactions } from "@/db/schema"
-import { todayIn } from "@/lib/dates"
+import { addDays, todayIn } from "@/lib/dates"
 import type { HouseholdCtx } from "../context"
 import { createConverter, loadRates } from "./exchange-rates"
 
 /** SQL groups before conversion; query count is independent of the number of operations. */
-export async function loadFinance(ctx: HouseholdCtx) {
+export async function loadFinance(ctx: HouseholdCtx, valuationDates: string[] = []) {
   const db = getDb()
   const today = todayIn(ctx.timezone)
   const [accounts, grouped] = await Promise.all([
@@ -27,13 +27,15 @@ export async function loadFinance(ctx: HouseholdCtx) {
   ])
   const accountMap = new Map(accounts.map((a) => [a.id, a]))
   const rows = grouped.map((r) => ({ ...r, amount: Number(r.amount), toAmount: Number(r.toAmount), currency: accountMap.get(r.accountId)!.currency }))
+  const dates = [...new Set([today, ...valuationDates])]
   const needs = [
-    ...accounts.map((a) => ({ currency: a.currency, date: today })),
+    ...accounts.flatMap((a) => dates.map((date) => ({ currency: a.currency, date }))),
     ...rows.filter((r) => r.status === "posted").flatMap((r) => [
       { currency: r.currency, date: r.date > today ? today : r.date },
       { currency: ctx.currency, date: r.date > today ? today : r.date },
+      ...(r.toAccountId ? [{ currency: accountMap.get(r.toAccountId)!.currency, date: r.date > today ? today : r.date }] : []),
     ]),
-    { currency: ctx.currency, date: today },
+    ...dates.map((date) => ({ currency: ctx.currency, date })),
   ]
   const rates = await loadRates(accounts.some((a) => a.currency !== ctx.currency) ? needs : [])
   const fx = createConverter(rates, ctx.currency)
@@ -44,6 +46,13 @@ export async function loadFinance(ctx: HouseholdCtx) {
   for (const r of rows.filter((r) => r.status === "posted")) applyMovement(balances, r)
   const balance = accounts.reduce((sum, a) => sum + convert(balances.get(a.id)!, a.currency), 0)
   return { today, accounts, accountMap, rows, rates, fx, convert, value, balance }
+}
+
+/** Daily historical valuations also need rates on days without any operations. */
+export function pastValuationDates(from: string, to: string, today: string): string[] {
+  const dates = []
+  for (let date = from; date <= to && date < today; date = addDays(date, 1)) dates.push(date)
+  return dates
 }
 
 export type FinanceData = Awaited<ReturnType<typeof loadFinance>>

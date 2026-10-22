@@ -7,6 +7,7 @@ import { getBudgets } from "@/server/services/budgets"
 import { createAccount, listAccounts, updateAccount } from "@/server/services/catalog"
 import { createConverter, quoteConversion, refreshCbrRates, saveManualRate } from "@/server/services/exchange-rates"
 import { resolveHouseholdCtx, updateHousehold } from "@/server/services/households"
+import { loadFinance } from "@/server/services/finance-data"
 import { createRules, materializeOccurrence, virtualOccurrences } from "@/server/services/recurring"
 import { actualBalance, getAnalytics, getCalendarMonth, getDashboard } from "@/server/services/reports"
 import { confirmTransaction, createTransaction, exportTransactions } from "@/server/services/transactions"
@@ -81,6 +82,15 @@ describe("multi-currency finance", () => {
     // Effective rate differs from CBR: the balance records the actual exchange loss.
     expect(await actualBalance(ctx)).toBe(-100_00)
   })
+  it("preserves multiple monthly accruals for same-currency transfers", async () => {
+    const { ctx, mainAccount } = await setupHousehold()
+    const savings = await createAccount(ctx, { name: "RUB savings", kind: "savings", openingBalance: 0 })
+    const rules = await createRules(ctx, {
+      rule: { type: "transfer", amount: 100_00, accountId: mainAccount, toAccountId: savings.id, frequency: "monthly", dayOfMonth: 5, startDate: "2026-11-01" },
+      extra: [{ dayOfMonth: 20, amount: 200_00 }],
+    })
+    expect(rules.map((r) => [r.amount, r.toAmount])).toEqual([[100_00, null], [200_00, null]])
+  })
   it("keeps household references isolated and permits currency edits only on empty accounts", async () => {
     const a = await setupHousehold()
     const b = await setupHousehold()
@@ -129,6 +139,26 @@ describe("offline cache and manual rates", () => {
     expect(result.amount).toBe(6012)
     expect(result.warnings.join(" ")).toMatch(/2026-10-22/)
     provider.value = "none"
+  })
+  it("lazily requests historical destination and opening-balance valuation dates", async () => {
+    const { ctx, mainAccount } = await setupHousehold()
+    const usd = await createAccount(ctx, { name: "USD", currency: "USD", kind: "savings", openingBalance: 100_00 })
+    await createTransaction(ctx, { type: "transfer", amount: 100_00, toAmount: 1_00, accountId: mainAccount, toAccountId: usd.id, date: "2026-09-15", status: "posted" })
+    const xml = readFileSync(new URL("../fixtures/cbr-daily.xml", import.meta.url), "utf8").replace("22.10.2026", "15.09.2026")
+    fetchMock.mockClear().mockResolvedValueOnce(new Response(xml))
+    provider.value = "cbr"
+    try {
+      const data = await loadFinance(ctx)
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("date_req=15/09/2026"), expect.anything())
+      expect(data.convert(100_00, "USD", "2026-09-15")).toBe(951_234)
+      fetchMock.mockResolvedValueOnce(new Response(xml.replace("15.09.2026", "14.09.2026")))
+      const earlier = await loadFinance(ctx, ["2026-09-14"])
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("date_req=14/09/2026"), expect.anything())
+      expect(earlier.convert(100_00, "USD", "2026-09-14")).toBe(951_234)
+    } finally {
+      provider.value = "none"
+      fetchMock.mockRejectedValue(new Error("Network forbidden in tests"))
+    }
   })
   it("manual overrides CBR on the same date and rejects invalid rates", async () => {
     const { ctx } = await setupHousehold()

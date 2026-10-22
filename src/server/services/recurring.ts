@@ -46,11 +46,11 @@ function normalizeDay(input: z.output<typeof ruleInput>): number | null {
 export async function createRules(ctx: HouseholdCtx, raw: z.input<typeof ruleSetInput>) {
   assertCan(ctx, "finance.write")
   const { rule: input, extra } = ruleSetInput.parse(raw)
-  if (extra.length > 0 && input.type === "transfer") throw new AppError("Создайте отдельное расписание для каждого перевода")
   if (extra.length > 0 && input.frequency !== "monthly") throw new AppError("Несколько начислений поддерживаются только для ежемесячных операций")
   const today = todayIn(ctx.timezone)
   const db = getDb()
   const base = await normalizeOperation(db, ctx, input)
+  if (extra.length > 0 && base.toAmount !== null) throw new AppError("Для каждого валютного перевода создайте отдельное расписание с суммой зачисления")
 
   const variants = [{ dayOfMonth: normalizeDay(input), amount: input.amount }, ...extra]
   const created = await db.transaction(async (tx) => {

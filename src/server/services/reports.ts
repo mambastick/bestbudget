@@ -6,7 +6,7 @@ import { effectiveDate, type FlowItem } from "@/domain/forecast"
 import { addDays, addMonths, diffDays, endOfMonth, maxDate, monthKey, startOfMonth, todayIn, type IsoDate } from "@/lib/dates"
 import { selectRate } from "@/lib/exchange-rates"
 import { assertCan, type HouseholdCtx } from "../context"
-import { applyMovement, loadFinance, type FinanceData } from "./finance-data"
+import { applyMovement, loadFinance, pastValuationDates, type FinanceData } from "./finance-data"
 import { ensureMaterialized, virtualOccurrences, type VirtualOccurrence } from "./recurring"
 import { listInRange, type TransactionRow } from "./transactions"
 
@@ -45,7 +45,7 @@ async function project(ctx: HouseholdCtx, data: FinanceData, from: IsoDate, to: 
 
 export async function projection(ctx: HouseholdCtx, from: IsoDate, to: IsoDate, today: IsoDate) {
   assertCan(ctx, "finance.read")
-  return project(ctx, await loadFinance(ctx), from, to, today)
+  return project(ctx, await loadFinance(ctx, pastValuationDates(from, to, today)), from, to, today)
 }
 
 export interface UpcomingItem {
@@ -98,9 +98,9 @@ export async function getDashboard(ctx: HouseholdCtx, month: IsoDate) {
   assertCan(ctx, "finance.read")
   const today = todayIn(ctx.timezone)
   await ensureMaterialized(ctx.householdId, today)
-  const data = await loadFinance(ctx)
   const monthStart = startOfMonth(month)
   const monthEnd = endOfMonth(month)
+  const data = await loadFinance(ctx, pastValuationDates(monthStart, monthEnd, today))
   const obligationsUntil = maxDate(monthEnd, endOfMonth(today))
   const [monthProjection, forecast, byCategory, upcomingRows, upcomingVirtual, cats, obligations] = await Promise.all([
     project(ctx, data, monthStart, monthEnd, today),
@@ -157,9 +157,9 @@ export async function getCalendarMonth(ctx: HouseholdCtx, month: IsoDate) {
   assertCan(ctx, "finance.read")
   const today = todayIn(ctx.timezone)
   await ensureMaterialized(ctx.householdId, today)
-  const data = await loadFinance(ctx)
   const from = startOfMonth(month)
   const to = endOfMonth(month)
+  const data = await loadFinance(ctx, pastValuationDates(from, to, today))
   const [proj, rows, cats] = await Promise.all([
     project(ctx, data, from, to, today), listInRange(ctx, from, to, today >= from && today <= to ? { overdueBefore: from } : {}),
     getDb().select().from(categories).where(eq(categories.householdId, ctx.householdId)),
@@ -182,8 +182,8 @@ export async function getCalendarMonth(ctx: HouseholdCtx, month: IsoDate) {
 
 export async function getAnalytics(ctx: HouseholdCtx, from: IsoDate, to: IsoDate) {
   assertCan(ctx, "finance.read")
-  const data = await loadFinance(ctx)
-  const today = data.today
+  const today = todayIn(ctx.timezone)
+  const data = await loadFinance(ctx, pastValuationDates(from, to, today))
   const length = diffDays(to, from) + 1
   const prevTo = addDays(from, -1)
   const prevFrom = addDays(prevTo, -(length - 1))
