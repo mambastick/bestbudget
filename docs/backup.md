@@ -1,296 +1,149 @@
-# Резервное копирование и восстановление
+# Бэкапы BestBudget
 
-Compose и Helm по умолчанию ежедневно в **03:00 UTC** создают сжатый `pg_dump --format=custom` PostgreSQL 17.
-Пример пары файлов: `bestbudget-20261023T030000Z-v1.0.0-beta.1.dump` и такой же файл с окончанием `.dump.sha256`.
-Версия берётся из тега образа приложения, если он подходит для имени файла; время в имени всегда UTC.
+## Быстрый старт
 
-Дамп сначала записывается во временный каталог на том же диске, затем проверяется `pg_restore --list` и переименовывается.
-Checksum публикуется последним и обозначает завершённый бэкап. Список, ротация и S3 игнорируют одиночные дампы, временные файлы и symlink.
-Права новых файлов — `0600`. Дампы содержат персональные данные, хеши паролей и токены: ограничьте доступ к каталогу и бакету.
+Достаточно `compose.yaml`, заполненного `.env` и готового образа приложения. Бэкапы включены по умолчанию:
+каждую ночь в **03:00 по `TZ`** (пример `.env` — `Europe/Moscow`), файлы видны в `./backups`.
 
-Храним **объединение** последних 7 успешных копий и всех успешных копий за последние 30 суток. Удаляется только то, что старше
-30 суток **и** не входит в последние 7 копий. Для беты это проще проверять и объяснять, чем календарные daily/weekly/monthly корзины;
-частые ручные копии не вытеснят недавние ежедневные. `keepLast` должен быть не меньше 1, `keepDays=0` оставляет только последние N.
-Ротация удаляет только пары со строгим шаблоном имени BestBudget и их локальные квитанции `.uploaded`; другие файлы сохраняются.
-Это не ограничение объёма: следите за свободным местом, особенно при частых ручных копиях.
+```bash
+mkdir -p backups
+docker compose up -d --wait
+docker compose run --rm backup now
+docker compose run --rm backup list
+docker compose run --rm backup status
+```
 
-## Docker Compose
+Контейнеры работают без root, UID/GID по умолчанию `1000:1000`; если ваш обычный Linux-пользователь другой, укажите в `.env` `LOCAL_UID=$(id -u)` / `LOCAL_GID=$(id -g)` **числами** (не UID 0), и создайте `backups` от своего пользователя до первого запуска. При установке от root один раз выполните `chown 1000:1000 backups`.
 
-Сервис `backup` входит в обычный `docker compose up -d --wait`. Используется `postgres:17-alpine`, как у `db`;
-в контейнере работает BusyBox cron. Healthcheck проверяет запуск планировщика; **он не подтверждает успешность последнего дампа**.
-Проверяйте дату последней пары файлов и `docker compose logs backup` (при S3 также `docker compose logs backup-s3`).
+Копия — сжатый файл `.dump` PostgreSQL 17 и соседний `.dump.sha256`. Имена содержат UTC-время и версию приложения.
+Незавершённые копии не показываются в списке. По умолчанию сохраняются **последние 7 плюс все за последние 30 дней**.
 
-В `.env`:
+## Настройки
+
+После изменения `.env` выполните `docker compose up -d --wait`.
+
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `BACKUP_TIME` | `03:00` | Ежедневное время `HH:MM` в часовом поясе `TZ` |
+| `TZ` | `Europe/Moscow` в Compose | Часовой пояс, например `Europe/Moscow` или `Asia/Yekaterinburg` |
+| `BACKUP_PATH` | `./backups` | Каталог на хосте; можно указать отдельный диск |
+| `BACKUP_KEEP_LAST` | `7` | Минимальное число последних копий, не меньше 1 |
+| `BACKUP_KEEP_DAYS` | `30` | Дополнительно сохранять все копии за N дней; `0` — только последние N |
+| `LOCAL_UID`, `LOCAL_GID` | `1000`, `1000` | UID/GID владельца файлов на Linux |
+| `BACKUP_S3_BUCKET` | пусто | Непустое значение включает выгрузку S3 |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | пусто | Ключи S3; также поддерживаются IAM и `AWS_SESSION_TOKEN` |
+| `BACKUP_S3_ENDPOINT` | AWS S3 | Endpoint Yandex Object Storage, MinIO и других совместимых сервисов |
+| `BACKUP_S3_REGION` | `us-east-1` | Регион вашего хранилища |
+| `BACKUP_S3_PREFIX` | `bestbudget` | Каталог внутри бакета |
+
+При переходе на летнее время несуществующее локальное время пропускается; при повторе часа бэкап запускается один раз за локальный день.
+
+## Восстановление
+
+Сохраните `.env` и прежние `BETTER_AUTH_SECRET`/`ENCRYPTION_KEY`: они нужны для восстановления зашифрованных настроек SSO.
+Положите доверенный дамп **вместе с `.sha256`** в `./backups`. Подставьте его имя:
+
+```bash
+docker compose stop app && docker compose run --rm backup restore backups/bestbudget-20261023T000000Z-v1.0.0-beta.1-12345678.dump --yes && docker compose start app
+```
+
+Команда проверит SHA-256 и формат архива, откажется при открытых подключениях к БД, автоматически сохранит текущую БД
+в файл с `before-restore` в имени и только затем восстановит выбранную копию. Если страховочный дамп не удался, данные не меняются.
+При ошибке восстановления изменения откатываются, приложение остаётся остановленным. Миграции выполняются при его запуске.
+
+На новом сервере сначала запустите `docker compose up -d --wait db`, затем используйте ту же команду восстановления.
+Предпочтительна пустая целевая БД: объекты, которых нет в дампе, restore не удаляет. Используйте ту же или более новую версию приложения.
+
+## S3
+
+Для AWS S3 достаточно трёх значений в `.env`:
 
 ```dotenv
-BACKUP_PATH=./.data/backups
-BACKUP_SCHEDULE=0 3 * * *
-BACKUP_KEEP_LAST=7
-BACKUP_KEEP_DAYS=30
+BACKUP_S3_BUCKET=family-backups
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
 ```
 
-Каталог `./.data/backups` создаётся bind-mount-ом рядом с `compose.yaml`; `.data/` уже исключён из Git и Docker build context.
-Можно указать абсолютный путь на отдельный диск. Если выбираете другой каталог внутри checkout,
-исключите его из Git и Docker build context до создания копий.
-Пользователь внутри backup-контейнера — root для BusyBox cron; файлы на Linux будут принадлежать root.
-Копировать их можно через `sudo`, не делайте каталог общедоступным. При заранее созданном каталоге используйте `sudo chmod 700 .data/backups`.
-Если включён SELinux, настройте общий container volume label для каталога, доступного обоим контейнерам.
+Для Yandex Object Storage добавьте `BACKUP_S3_ENDPOINT=https://storage.yandexcloud.net` и `BACKUP_S3_REGION=ru-central1`.
+Для MinIO задайте доступный контейнеру endpoint, например `https://minio.example.com`, и регион своего сервера.
+Бакет создайте заранее. Сервисов и профилей добавлять не нужно: тот же процесс после бэкапа отправит дамп, затем checksum.
 
-Расписание — пять числовых cron-полей (`*`, списки, диапазоны, шаги), дни недели `0–6` (воскресенье — `0`).
-Часовой пояс Compose фиксирован **UTC**, поэтому `0 0 * * *` соответствует 03:00 в Москве. После изменения `.env`:
+Ошибка выгрузки видна в логах и `backup status`; локальная копия сохраняется. Следующий `backup now` или ночной запуск повторит
+отправку ожидающих копий. Локальная ротация действует и на неотправленные копии, поэтому длительный сбой S3 требует внимания.
+Срок хранения удалённых объектов задаётся lifecycle-правилами бакета; локальная ротация их не удаляет.
 
-```bash
-docker compose up -d --wait backup
-```
+Для восстановления скачайте оба файла с сохранением имён в `./backups` и используйте обычную команду restore.
+Ключи не сохраняйте в Git; для бакета включите шифрование и ограничьте доступ. Один дамп для выгрузки — до 5 ГиБ.
 
-Из корня checkout:
+## Kubernetes
 
-```bash
-./scripts/backup.sh now                    # создать копию сейчас
-./scripts/backup.sh list                   # имена завершённых копий, новые первыми
-./scripts/backup.sh verify bestbudget-20261023T030000Z-v1.0.0-beta.1.dump
-```
-
-Эквивалент без обёртки: `docker compose run --rm --no-deps backup now` (или `list`, `verify <имя>`).
-БД должна быть запущена: при необходимости `docker compose up -d --wait db`.
-Скрипты доступны в checkout в `deploy/helm/bestbudget/files/backup/`; одни и те же файлы монтируются в Compose и включаются в чарт.
-Checkout с этими файлами должен оставаться доступен контейнерам.
-
-### Восстановление в Compose
-
-1. Сохраните текущую `.env` вне сервера вместе с `BETTER_AUTH_SECRET` и `ENCRYPTION_KEY`, если он задан.
-   Без прежнего ключа шифрования OIDC-секрет из БД не расшифруется. Дамп не содержит конфигурацию контейнеров и `.env`.
-2. Выберите доверенную копию и положите **оба** файла в `BACKUP_PATH`. Для копии на другом диске сначала скопируйте её туда.
-3. Если текущая БД доступна, перед восстановлением сделайте отдельный ручной бэкап. Остановите сторонних писателей в эту БД.
-4. Выполните:
-
-```bash
-./scripts/restore.sh bestbudget-20261023T030000Z-v1.0.0-beta.1.dump --yes
-```
-
-Если включён S3 uploader, дождитесь завершения его текущей загрузки (в логах появится `Uploaded`).
-Обёртка сначала проверит SHA-256 и оглавление архива, остановит `app` и планировщик `backup`, восстановит данные,
-запустит `app` и `backup` с `--wait`. Миграции применяет штатный entrypoint приложения.
-Без `--yes` восстановление не начинается. При ошибке приложение и планировщик остаются остановленными для повторной попытки.
-
-Вручную, например при восстановлении на новом сервере с уже созданной пустой БД:
-
-```bash
-docker compose up -d --wait db
-docker compose run --rm --no-deps backup verify bestbudget-20261023T030000Z-v1.0.0-beta.1.dump
-docker compose stop app backup
-docker compose run --rm --no-deps backup restore bestbudget-20261023T030000Z-v1.0.0-beta.1.dump --yes
-docker compose up -d --wait app backup
-```
-
-`pg_restore --clean --if-exists --no-owner --no-acl --single-transaction` пересоздаёт объекты из дампа в одной транзакции:
-SQL-ошибка откатывает и очистку, и восстановление. Роль подключения должна владеть восстанавливаемыми объектами и иметь права создавать
-схемы/таблицы. Роли PostgreSQL и ACL не восстанавливаются. Объекты, отсутствующие в дампе, не удаляются: предпочтительна пустая целевая БД.
-Для восстановления более старой копии запускайте ту же или более новую версию приложения; это не процедура отката схемы приложения.
-
-После восстановления проверьте `/api/health`, вход прежнего администратора и несколько операций/счетов в интерфейсе.
-`verify` проверяет SHA-256 и оглавление, но только настоящее восстановление в отдельную БД проверяет все данные и зависимости архива.
-
-## Kubernetes / Helm
-
-Нужен Kubernetes **1.27+**: расписание использует `CronJob.spec.timeZone`.
-`backup.enabled=true` по умолчанию, как со встроенным PostgreSQL, так и с `externalDatabase.url` / `existingSecret`.
-Если внешняя БД уже обслуживается провайдером, ненужный CronJob можно отключить через `backup.enabled=false`.
+Нужен Kubernetes 1.27+. CronJob использует тот же образ приложения и тот же Secret БД. Скрипты и дополнительные образы не нужны.
 
 ```yaml
 backup:
   enabled: true
   schedule: "0 3 * * *"
-  timeZone: Etc/UTC
+  timeZone: Europe/Moscow
   retention:
     keepLast: 7
     keepDays: 30
   persistence:
     size: 5Gi
     storageClass: ""
-    accessModes: [ReadWriteOnce]
-    existingClaim: ""  # использовать существующий PVC вместо создания нового
+    existingClaim: ""
 ```
 
-`backup.timeZone` можно заменить на `Europe/Moscow`; время в именах дампов останется UTC.
-CronJob имеет `concurrencyPolicy: Forbid`, лимиты истории (1 успешный / 3 неуспешных Job), deadline 1 час и ограниченные повторы.
-Ручные Job не охватываются `Forbid`: доступ к каталогу дополнительно сериализуется блокировкой.
-Job работает без root, без service account token, с read-only rootfs и `emptyDir` `/work` для временных файлов.
-Ресурсы: `backup.resources`, для выгрузки — `backup.s3.resources`; образ клиента — `backup.image` (по умолчанию PostgreSQL 17).
-Клиент `pg_dump` должен быть той же или более новой major-версии, что и внешняя БД.
+При S3 задайте `backup.s3.enabled`, `bucket`, `endpoint`, `region`, `prefix` и `existingSecret`.
+Secret содержит `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, опционально `AWS_SESSION_TOKEN`.
+Backup-PVC сохраняется при удалении релиза; для повторного использования укажите его как `existingClaim`.
 
-Подключение берётся из **того же `DATABASE_URL` в Secret**, что использует приложение. Init-контейнер на образе приложения
-через Node.js URL создаёт service-файл libpq и `.pgpass` (0600) в приватном `emptyDir`; пароль не передаётся в аргументах процессов.
-Поддерживаются обычные односерверные `postgres://` / `postgresql://` URI, percent-encoding и query-параметры libpq, например
-`?sslmode=require`. Multihost URI, переводы строк в параметрах и переопределение `service`/`passfile` не поддерживаются.
-Для нестандартных параметров TLS, требующих файлов сертификатов, потребуется добавить их монтирование в Job.
-Новый пароль и новый DB Secret для бэкапов не генерируются.
-
-Создаваемый чартом backup-PVC имеет `helm.sh/resource-policy: keep`: `helm uninstall` или отключение backup не удаляет копии.
-PVC придётся удалить вручную, когда данные точно не нужны. Повторная установка после uninstall: передайте его через `existingClaim`.
-Для переноса между узлами используйте подходящий CSI-драйвер; локальный PVC сам по себе не защищает от потери узла.
-
-Примеры ниже предполагают namespace `bestbudget`, release `bestbudget`, CronJob/PVC `bestbudget-backup`.
-При другом имени release проверьте реальные имена через `kubectl -n bestbudget get cronjob,pvc`.
+Ручной бэкап (пример: namespace/release `bestbudget`):
 
 ```bash
-kubectl -n bestbudget create job --from=cronjob/bestbudget-backup bestbudget-backup-manual
-kubectl -n bestbudget wait --for=condition=complete job/bestbudget-backup-manual --timeout=3600s
-kubectl -n bestbudget logs job/bestbudget-backup-manual --all-containers=true
+kubectl -n bestbudget create job --from=cronjob/bestbudget-backup bestbudget-manual
+kubectl -n bestbudget logs -f job/bestbudget-manual
 ```
 
-При S3 дамп выполняется init-контейнером `backup`, а основной контейнер `upload` отправляет готовые пары; ошибка S3 делает Job неуспешным,
-но локальная копия остаётся. Смотрите логи всех контейнеров, состояние Job и дату последнего дампа; отдельного сервиса оповещений чарт не включает.
-
-### Список, проверка и восстановление из backup-PVC
-
-Можно создать одноразовый Job из шаблона CronJob, сохранив настройки Secret, PVC и безопасности.
-Нужны `kubectl` и локальный Python 3. Скрипт ниже удаляет S3-контейнер и оставляет подготовку подключения плюс одну выбранную операцию.
-
-```bash
-mkdir -p work
-kubectl -n bestbudget create job bestbudget-recovery --from=cronjob/bestbudget-backup \
-  --dry-run=client -o json > work/recovery-source.json
-# Для списка: OP=list. Для проверки: OP=verify и FILE=<имя>.
-# Для восстановления: OP=restore, FILE=<имя> и CONFIRM=--yes.
-OP=list FILE='' CONFIRM='' python3 - <<'PY' > work/recovery-job.json
-import json, os
-with open('work/recovery-source.json') as source:
-    job = json.load(source)
-job['spec']['backoffLimit'] = 0
-pod = job['spec']['template']['spec']
-containers = pod.get('initContainers', []) + pod['containers']
-backup = next(c for c in containers if c['name'] == 'backup')
-operation = os.environ['OP']
-assert operation in ('list', 'verify', 'restore')
-args = [operation]
-if operation in ('verify', 'restore'):
-    assert os.environ['FILE']
-    args.append(os.environ['FILE'])
-if operation == 'restore':
-    assert os.environ['CONFIRM'] == '--yes'
-    args.append('--yes')
-backup['command'] = ['sh', '/scripts/backup.sh', *args]
-pod['initContainers'] = [c for c in containers if c['name'] == 'connection']
-pod['containers'] = [backup]
-print(json.dumps(job))
-PY
-kubectl -n bestbudget create -f work/recovery-job.json
-kubectl -n bestbudget wait --for=condition=complete job/bestbudget-recovery --timeout=3600s
-kubectl -n bestbudget logs job/bestbudget-recovery -c backup
-# Сохраните нужные логи перед удалением. Для следующей операции создайте Job заново.
-kubectl -n bestbudget delete job bestbudget-recovery
-```
-
-**Перед `OP=restore`** сохраните Secret приложения вне кластера, сделайте свежую копию, если это возможно, и остановите всех писателей:
+Для восстановления остановите приложение и приостановите расписание; дождитесь завершения уже работающих Job.
+Сохраните исходное число реплик. Укажите имя файла из backup-PVC; команда требует `jq`:
 
 ```bash
 kubectl -n bestbudget patch cronjob bestbudget-backup --type=merge -p '{"spec":{"suspend":true}}'
-# Сохраните исходные replicas и suspend; команды выполняйте в одной shell-сессии.
-replicas=$(kubectl -n bestbudget get deployment bestbudget -o jsonpath='{.spec.replicas}')
 kubectl -n bestbudget scale deployment bestbudget --replicas=0
-kubectl -n bestbudget wait --for=delete pod -l app.kubernetes.io/instance=bestbudget,app.kubernetes.io/component=app --timeout=180s
-kubectl -n bestbudget get pods -l app.kubernetes.io/instance=bestbudget,app.kubernetes.io/component=backup
+# После остановки pod приложения и завершения backup Job:
+kubectl -n bestbudget create job bestbudget-restore --from=cronjob/bestbudget-backup --dry-run=client -o json \
+  | jq '.spec.backoffLimit=0 | .spec.template.spec.containers[0].args=["backup","restore","backups/ИМЯ-ФАЙЛА.dump","--yes"]' \
+  | kubectl -n bestbudget create -f -
+kubectl -n bestbudget wait --for=condition=complete job/bestbudget-restore --timeout=3600s
+kubectl -n bestbudget logs job/bestbudget-restore
 ```
 
-Дождитесь завершения всех уже запущенных backup/upload Job: `suspend` не останавливает существующие Job.
-Проверьте файл через `OP=verify`, затем создайте Job с `OP=restore FILE=bestbudget-...dump CONFIRM=--yes` по примеру выше.
-При ошибке оставьте приложение остановленным и разберите причину; raw stderr PostgreSQL намеренно скрыт, чтобы не вывести credentials.
-Если восстановление успешно:
+После успешного restore верните прежнее число реплик и `suspend=false` (если расписание было включено).
+Для списка или проверки файла используйте тот же Job, заменив аргументы на `["backup","list"]` или `["backup","verify","backups/ИМЯ-ФАЙЛА.dump"]`.
+На новом кластере сначала перенесите пару файлов на backup-PVC через временный pod и `kubectl cp`; приложение до restore не запускайте.
+
+## Проверка бэкапов
 
 ```bash
-kubectl -n bestbudget scale deployment bestbudget --replicas="$replicas"
-kubectl -n bestbudget rollout status deployment/bestbudget --timeout=300s
-kubectl -n bestbudget patch cronjob bestbudget-backup --type=merge -p '{"spec":{"suspend":false}}'
+docker compose run --rm backup verify backups/ИМЯ-ФАЙЛА.dump
+docker compose run --rm backup status
+docker compose logs --tail=50 backup
 ```
 
-Если CronJob изначально был приостановлен, сохраните `suspend=true`. Запуск приложения применит миграции.
-Проверьте health, вход и финансовые данные. Удалите временные Job/JSON, когда логи больше не нужны.
-Для восстановления на новом кластере сначала установите чарт с сохранённым Secret, `replicaCount=0`, `backup.suspend=true`,
-создайте БД/PVC и перенесите пару файлов на backup-PVC (через временный Pod с этим PVC и `kubectl cp`; образ `postgres:17-alpine` содержит `tar`).
-После этого используйте тот же recovery Job. Не запускайте приложение до окончания restore.
+Статус показывает время и размер последней копии, следующий запуск и состояние S3. Контейнер становится `unhealthy`, если успешная
+копия старше 26 часов. При первом запуске до первого запланированного окна отсутствие копий допустимо; перезапуск не продлевает эту отсрочку.
+S3-сбой не делает свежий локальный бэкап неуспешным: проверяйте также S3-строку статуса. В Kubernetes следите за результатами CronJob.
 
-## S3-совместимое хранилище
+Проверка SHA-256 не заменяет пробное восстановление. Периодически восстанавливайте копию в отдельную БД и проверяйте вход, счета и операции.
+CI выполняет цикл «копия → удаление схем → восстановление → данные на месте» из каталога с одним Compose и `.env`.
+Держите **3 копии на 2 независимых носителях, одну вне сервера**; RAID/PVC и копия на том же диске не защищают от потери сервера.
 
-Опциональная выгрузка использует официальный образ **AWS CLI**, без самописного HTTP-клиента.
-Подходят Yandex Object Storage, Selectel, MinIO и другие сервисы с S3 API. Бакет должен существовать.
-Задайте endpoint своего провайдера, например `https://storage.yandexcloud.net`, и его регион; для MinIO — доступный из контейнера адрес.
-Endpoint не должен содержать пароль; credentials передаются отдельными переменными/Secret. HTTPS проверяется штатно, `--no-verify-ssl` не используется.
-Для частного CA понадобится его монтирование и `AWS_CA_BUNDLE`.
+## FAQ / устранение проблем
 
-Compose, в `.env`:
-
-```dotenv
-COMPOSE_PROFILES=backup-s3
-BACKUP_S3_BUCKET=family-backups
-BACKUP_S3_PREFIX=bestbudget
-BACKUP_S3_ENDPOINT=https://storage.yandexcloud.net
-BACKUP_S3_REGION=ru-central1
-BACKUP_S3_ACCESS_KEY_ID=...
-BACKUP_S3_SECRET_ACCESS_KEY=...
-```
-
-```bash
-docker compose up -d --wait
-# Немедленная выгрузка всех ожидающих копий; локальная блокировка не даст пересечься с дампом.
-docker compose run --rm --no-deps backup-s3 once
-```
-
-Uploader раз в минуту отправляет готовые пары: сначала `.dump`, затем `.sha256`. Неуспешные загрузки повторяются;
-локальный `.uploaded` отмечает успех для конкретного endpoint/bucket/prefix, смена назначения вызывает повторную выгрузку.
-Удаление удалённого объекта вручную не сбрасывает квитанцию: для повторной отправки удалите соответствующий `.uploaded`.
-Если S3 недоступен дольше локального срока хранения, старые неотправленные копии могут быть удалены обычной ротацией.
-
-Helm:
-
-```yaml
-backup:
-  s3:
-    enabled: true
-    bucket: family-backups
-    prefix: bestbudget
-    endpoint: https://storage.yandexcloud.net
-    region: ru-central1
-    existingSecret: bestbudget-backup-s3
-```
-
-Secret `bestbudget-backup-s3` в namespace приложения должен содержать `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
-и при необходимости `AWS_SESSION_TOKEN`. Создайте его своим менеджером секретов или из защищённого файла через `kubectl create secret generic --from-env-file`;
-не передавайте ключи в командной строке и не сохраняйте их в values-файлах/Git. Разрешения uploader — запись в выделенный prefix бакета.
-При S3-сбое следующий успешный Job повторит загрузку оставшихся локальных пар.
-
-**Локальная ротация не удаляет объекты S3.** Настройте lifecycle бакета отдельно (включая незавершённые multipart uploads и noncurrent versions).
-Для получения копии используйте AWS CLI с тем же endpoint: `aws s3 cp s3://family-backups/bestbudget/<имя>.dump <каталог>/`
-и отдельно скачайте `<имя>.dump.sha256`, сохранив имена. Пароль/ключи пусть остаются в окружении или профиле CLI.
-Скачанные файлы перенесите в Compose `BACKUP_PATH` / backup-PVC и выполните обычные `verify` и `restore`.
-S3-копия не шифруется самим скриптом: включите шифрование бакета и/или используйте шифрованное внешнее хранилище.
-
-## Блокировка и прерванные операции
-
-Дамп, ротация, restore и выгрузка используют общий каталог-блокировку `/backups/.bestbudget-lock`.
-Обычное завершение и обрабатываемые сигналы снимают её; `SIGKILL`, потеря узла или питание могут оставить блокировку и `.incomplete.*`.
-Автоматически снимать её по времени небезопасно: большой дамп может ещё работать.
-Сначала убедитесь, что **все** операции завершены (остановите Compose `backup`/`backup-s3` или приостановите CronJob и дождитесь Job).
-Только после этого удалите пустой `.bestbudget-lock` через `rmdir` из контейнера с тем же volume/PVC.
-Незавершённые `.incomplete.*` и одиночный `.dump` без `.sha256` можно удалить вручную после той же проверки.
-После освобождения блокировки запустите ручной бэкап и возобновите расписание. Две ручные копии в одну секунду: вторая откажется
-перезаписывать существующее имя, повторите через секунду.
-
-## Проверки и правило 3–2–1
-
-- `./scripts/test-backup.sh`: ротация на фиктивных файлах, защита чужих файлов/symlink, незавершённый дамп, checksum,
-  подтверждение restore, повтор/ошибка S3 и подготовка libpq credentials. `TMPDIR` учитывается, по умолчанию используется `/var/tmp/codex-golodn1y/bestbudget-backups`.
-- `./scripts/test-backup-postgres.sh`: при наличии инструментов PostgreSQL поднимает изолированную БД на приватном Unix socket,
-  применяет миграции и проверяет восстановление после потери схем, SCRAM-подключение через `.pgpass` и откат restore при ошибке зависимости.
-- `./scripts/check-helm.sh`: strict lint и template встроенной/внешней БД, backup off, S3 on и существующих Secret/PVC.
-- CI job `docker` запускает `./scripts/compose-smoke.sh`: создаёт администратора и финансовые записи, делает бэкап,
-  удаляет схемы `public`/`drizzle`, восстанавливает, запускает приложение с миграциями и проверяет администратора, хеш пароля,
-  сумму/дату операции и связи со счётом/категорией. Используются отдельный Compose project, каталог и порт 3330.
-
-Держите минимум **3 копии**, на **2 независимых носителях**, **1 вне основного сервера**. RAID, реплики PVC и бэкап на том же диске
-не защищают от потери сервера. Сохраните `.env`/Secret и ключ шифрования отдельно от БД. Периодически восстанавливайте копию
-на отдельном сервере/БД, проверяйте вход и данные, записывайте дату проверки. Перед обновлением приложения создавайте ручную копию.
-
-Технические справочники: [pg_restore](https://www.postgresql.org/docs/17/app-pgrestore.html),
-[CronJob и timeZone](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/),
-[официальный контейнер AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-docker.html).
+- **Нет доступа к каталогу:** создайте `backups` от своего Linux-пользователя до запуска; UID/GID контейнеров должны совпадать с владельцем.
+  Если Docker уже создал пустой каталог от root, один раз измените владельца через `sudo chown <uid>:<gid> backups`.
+- **Restore сообщает о подключениях:** остановите `app`, сторонние клиенты и дождитесь окончания текущего бэкапа. Не завершайте чужие подключения принудительно.
+- **S3 error:** проверьте bucket, endpoint, регион и ключи; локальные копии остаются доступны. После исправления запустите `backup now`.
+- **Unhealthy:** проверьте место на диске, доступ к БД и логи, затем выполните `backup now`.
+- **Сервер аварийно выключился:** незавершённые `.incomplete-*` не учитываются; после проверки отсутствия активных операций их можно удалить.
+- **Внешняя БД:** клиент PostgreSQL 17 рассчитан на сервер версии 17 или старше; для более новой major нужен образ с соответствующим клиентом.

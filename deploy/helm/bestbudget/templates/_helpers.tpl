@@ -90,35 +90,3 @@ Resolve it once per render and remember it, so a generated password is identical
 {{- define "bestbudget.backup.claim" -}}
 {{- default (include "bestbudget.backup.fullname" .) .Values.backup.persistence.existingClaim -}}
 {{- end -}}
-
-{{- define "bestbudget.backup.container" -}}
-- name: backup
-  image: "{{ .Values.backup.image.repository }}:{{ .Values.backup.image.tag }}"
-  imagePullPolicy: {{ .Values.backup.image.pullPolicy }}
-  securityContext:
-    {{- toYaml .Values.securityContext | nindent 4 }}
-  command: ["sh", "/scripts/backup.sh", "now"]
-  env:
-    - name: PGSERVICE
-      value: bestbudget
-    - name: PGSERVICEFILE
-      value: /work/connection/pg_service.conf
-    - name: BESTBUDGET_VERSION
-      value: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
-    - name: BACKUP_KEEP_LAST
-      value: {{ .Values.backup.retention.keepLast | quote }}
-    - name: BACKUP_KEEP_DAYS
-      value: {{ .Values.backup.retention.keepDays | quote }}
-    - name: TMPDIR
-      value: /work
-  resources:
-    {{- toYaml .Values.backup.resources | nindent 4 }}
-  volumeMounts:
-    - name: backups
-      mountPath: /backups
-    - name: scripts
-      mountPath: /scripts
-      readOnly: true
-    - name: tmp
-      mountPath: /work
-{{- end -}}

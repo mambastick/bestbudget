@@ -21,16 +21,6 @@ spec:
       storage: {{ .Values.backup.persistence.size }}
 ---
 {{- end }}
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ $name }}
-  labels:
-    {{- include "bestbudget.labels" . | nindent 4 }}
-    app.kubernetes.io/component: backup
-data:
-  {{- (.Files.Glob "files/backup/*").AsConfig | nindent 2 }}
----
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -64,51 +54,36 @@ spec:
           {{- end }}
           securityContext:
             {{- toYaml .Values.podSecurityContext | nindent 12 }}
-          initContainers:
-            - name: connection
+          containers:
+            - name: backup
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
               imagePullPolicy: {{ .Values.image.pullPolicy }}
               securityContext:
                 {{- toYaml .Values.securityContext | nindent 16 }}
-              command: ["node", "/scripts/connection.mjs"]
+              args: ["backup", "now"]
               env:
                 - name: DATABASE_URL
                   valueFrom:
                     secretKeyRef:
                       name: {{ include "bestbudget.secretName" . }}
                       key: DATABASE_URL
-              resources:
-                {{- toYaml .Values.backup.resources | nindent 16 }}
-              volumeMounts:
-                - name: scripts
-                  mountPath: /scripts
-                  readOnly: true
-                - name: tmp
-                  mountPath: /work
-          {{- if .Values.backup.s3.enabled }}
-            {{- include "bestbudget.backup.container" . | nindent 12 }}
-          {{- end }}
-          containers:
-          {{- if .Values.backup.s3.enabled }}
-            - name: upload
-              image: "{{ .Values.backup.s3.image.repository }}:{{ .Values.backup.s3.image.tag }}"
-              imagePullPolicy: {{ .Values.backup.s3.image.pullPolicy }}
-              securityContext:
-                {{- toYaml .Values.securityContext | nindent 16 }}
-              command: ["sh", "/scripts/upload.sh", "once"]
-              env:
+                - name: BACKUP_KEEP_LAST
+                  value: {{ .Values.backup.retention.keepLast | quote }}
+                - name: BACKUP_KEEP_DAYS
+                  value: {{ .Values.backup.retention.keepDays | quote }}
+                - name: TZ
+                  value: {{ .Values.backup.timeZone | quote }}
+                - name: TMPDIR
+                  value: /work
+                {{- if .Values.backup.s3.enabled }}
                 - name: BACKUP_S3_BUCKET
                   value: {{ required "backup.s3.bucket is required when S3 is enabled" .Values.backup.s3.bucket | quote }}
                 - name: BACKUP_S3_PREFIX
                   value: {{ .Values.backup.s3.prefix | quote }}
-                - name: AWS_ENDPOINT_URL
+                - name: BACKUP_S3_ENDPOINT
                   value: {{ .Values.backup.s3.endpoint | quote }}
-                - name: AWS_DEFAULT_REGION
+                - name: BACKUP_S3_REGION
                   value: {{ .Values.backup.s3.region | quote }}
-                - name: HOME
-                  value: /work
-                - name: TMPDIR
-                  value: /work
                 {{- range $key := list "AWS_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY" "AWS_SESSION_TOKEN" }}
                 - name: {{ $key }}
                   valueFrom:
@@ -119,26 +94,18 @@ spec:
                       optional: true
                       {{- end }}
                 {{- end }}
+                {{- end }}
               resources:
-                {{- toYaml .Values.backup.s3.resources | nindent 16 }}
+                {{- toYaml .Values.backup.resources | nindent 16 }}
               volumeMounts:
                 - name: backups
-                  mountPath: /backups
-                - name: scripts
-                  mountPath: /scripts
-                  readOnly: true
+                  mountPath: /app/backups
                 - name: tmp
                   mountPath: /work
-          {{- else }}
-            {{- include "bestbudget.backup.container" . | nindent 12 }}
-          {{- end }}
           volumes:
             - name: backups
               persistentVolumeClaim:
                 claimName: {{ include "bestbudget.backup.claim" . }}
-            - name: scripts
-              configMap:
-                name: {{ $name }}
             - name: tmp
               emptyDir: {}
           {{- with .Values.nodeSelector }}

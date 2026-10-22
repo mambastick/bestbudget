@@ -85,15 +85,11 @@ externalDatabase:
 backup:
   enabled: true
   schedule: "0 3 * * *"
-  timeZone: Etc/UTC
+  timeZone: Europe/Moscow
   suspend: false
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3
   activeDeadlineSeconds: 3600
-  image:
-    repository: postgres
-    tag: "17-alpine"
-    pullPolicy: IfNotPresent
   retention:
     # Keep the union of the newest N dumps and all dumps younger than N days.
     keepLast: 7
@@ -117,16 +113,6 @@ backup:
     region: us-east-1
     # Keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, optional AWS_SESSION_TOKEN.
     existingSecret: ""
-    image:
-      repository: amazon/aws-cli
-      tag: "2.31.4"
-      pullPolicy: IfNotPresent
-    resources:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        memory: 256Mi
 
 service:
   type: ClusterIP

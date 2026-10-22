@@ -17,3 +17,6 @@ playwright-report
 !.env.example
 docs/screenshots
 project-task.md
+
+# database backups
+/backups/

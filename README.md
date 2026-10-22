@@ -30,6 +30,7 @@ Better Auth · Recharts · Zod · Vitest · Playwright · Docker Compose.
 
 ```bash
 cp .env.example .env
+mkdir -p backups
 ```
 
 Заполните в `.env` обязательные значения:
@@ -47,7 +48,7 @@ docker compose up -d
 ```
 
 По умолчанию используется готовый образ `ghcr.io/mambastick/bestbudget` нужной версии (`BESTBUDGET_VERSION` в `.env`).
-Собрать образ из исходников: `docker compose up -d --build`.
+Собрать образ из исходников: `docker build -t ghcr.io/mambastick/bestbudget:1.0.0-beta.1 .`.
 
 1. Откройте `APP_URL` — приложение перенаправит на `/setup`.
 2. Введите `SETUP_TOKEN`, имя, e-mail и пароль — будет создан системный администратор.
@@ -57,19 +58,18 @@ docker compose up -d
 Миграции базы применяются автоматически при каждом старте контейнера. Данные PostgreSQL хранятся в томе `pgdata` и переживают перезапуск
 и пересоздание контейнеров. Проверка состояния: `GET /api/health`.
 
-### Резервное копирование
+### Бэкапы
 
-Compose автоматически сохраняет сжатые дампы PostgreSQL с SHA-256 в `./.data/backups` ежедневно в 03:00 UTC.
-По умолчанию хранятся последние 7 копий плюс все копии за 30 суток; расписание и хранение настраиваются в `.env`.
+Включены по умолчанию: каждую ночь в 03:00 по `TZ` (`Europe/Moscow`), файлы лежат в `./backups`.
+Хранятся последние 7 копий плюс все за 30 дней. Перед первым запуском создайте `backups`; UID/GID контейнеров — `1000:1000` (для другого владельца задайте `LOCAL_UID`/`LOCAL_GID`).
 
 ```bash
-./scripts/backup.sh now
-./scripts/backup.sh list
-./scripts/restore.sh <имя-файла.dump> --yes
+docker compose run --rm backup now
+docker compose run --rm backup list
+docker compose stop app && docker compose run --rm backup restore backups/ИМЯ-ФАЙЛА.dump --yes && docker compose start app
 ```
 
-В Helm бэкапы включены по умолчанию через CronJob и отдельный PVC (`backup.*`, Kubernetes 1.27+).
-[Настройка, проверка и восстановление в Compose/Kubernetes, S3 и правило 3–2–1](docs/backup.md).
+S3 включается через `BACKUP_S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`; [настройки, статус и Kubernetes](docs/backup.md).
 
 ### Обновление
 
@@ -84,7 +84,7 @@ docker compose pull && docker compose up -d
 Чарт публикуется в GHCR как OCI-артефакт. Минимальная установка со встроенным PostgreSQL и Ingress:
 
 ```bash
-helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.1 \
+helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.0-beta.1 \
   --namespace bestbudget --create-namespace \
   --set appUrl=https://budget.example.com \
   --set ingress.enabled=true --set ingress.className=nginx --set ingress.tls.enabled=true

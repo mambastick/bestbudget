@@ -52,14 +52,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: azure/setup-helm@v4
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-      - name: Validate backup scripts
+      - name: Validate shell scripts
         run: |
-          for script in deploy/helm/bestbudget/files/backup/*.sh scripts/backup.sh scripts/restore.sh scripts/test-backup*.sh scripts/check-helm.sh; do sh -n "$script"; done
+          sh -n docker-entrypoint.sh scripts/check-helm.sh
           bash -n scripts/compose-smoke.sh
-          shellcheck -e SC1091 deploy/helm/bestbudget/files/backup/*.sh scripts/backup.sh scripts/restore.sh scripts/test-backup*.sh scripts/check-helm.sh scripts/compose-smoke.sh
-          ./scripts/test-backup.sh
+          shellcheck docker-entrypoint.sh scripts/check-helm.sh scripts/compose-smoke.sh
       - name: Lint and render Helm deployment variants
         run: ./scripts/check-helm.sh
