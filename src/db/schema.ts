@@ -233,10 +233,60 @@ export type TransactionStatus = (typeof transactionStatus.enumValues)[number]
 export const frequency = pgEnum("recurrence_frequency", ["once", "daily", "weekly", "monthly", "yearly"])
 export type Frequency = (typeof frequency.enumValues)[number]
 
+export const goalKind = pgEnum("goal_kind", ["account", "manual"])
+export const goalStatus = pgEnum("goal_status", ["active", "achieved", "archived"])
+
+export const goals = pgTable("goals", {
+  id: id(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  icon: text("icon").notNull().default("piggy-bank"),
+  color: text("color").notNull().default("#10b981"),
+  targetAmount: money("target_amount").notNull(),
+  currency: text("currency").notNull().default("RUB"),
+  targetDate: date("target_date", { mode: "string" }),
+  kind: goalKind("kind").notNull(),
+  accountId: uuid("account_id"),
+  /** Optional allocation ceiling in the account's minor units; priority consumes the balance first. */
+  allocatedAmount: money("allocated_amount"),
+  /** Null for a fixed target; otherwise target is average monthly expenses × months. */
+  expenseMonths: smallint("expense_months"),
+  expenseWindow: smallint("expense_window").notNull().default(3),
+  status: goalStatus("status").notNull().default("active"),
+  priority: integer("priority").notNull().default(100),
+  sortOrder: integer("sort_order").notNull().default(0),
+  version: integer("version").notNull().default(1),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  unique("goals_household_id_uq").on(t.householdId, t.id),
+  index("goals_household_idx").on(t.householdId, t.status, t.priority),
+  foreignKey({ name: "goals_account_fk", columns: [t.householdId, t.accountId], foreignColumns: [financialAccounts.householdId, financialAccounts.id] }),
+  check("goals_account_ck", sql`(${t.kind} = 'account') = (${t.accountId} is not null)`),
+  check("goals_amount_ck", sql`${t.targetAmount} > 0 and (${t.allocatedAmount} is null or (${t.kind} = 'account' and ${t.allocatedAmount} > 0))`),
+  check("goals_expenses_ck", sql`(${t.expenseMonths} is null or ${t.expenseMonths} between 1 and 60) and ${t.expenseWindow} in (3, 6)`),
+])
+
+export const goalContributions = pgTable("goal_contributions", {
+  id: id(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  goalId: uuid("goal_id").notNull(),
+  date: date("date", { mode: "string" }).notNull(),
+  amount: money("amount").notNull(),
+  comment: text("comment").notNull().default(""),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+}, (t) => [
+  foreignKey({ name: "goal_contributions_goal_fk", columns: [t.householdId, t.goalId], foreignColumns: [goals.householdId, goals.id] }).onDelete("cascade"),
+  index("goal_contributions_goal_idx").on(t.householdId, t.goalId, t.date),
+  check("goal_contributions_amount_ck", sql`${t.amount} <> 0`),
+])
+
 export const recurringRules = pgTable(
   "recurring_rules",
   {
     id: id(),
+    goalId: uuid("goal_id"),
     householdId: uuid("household_id")
       .notNull()
       .references(() => households.id, { onDelete: "cascade" }),
@@ -269,6 +319,8 @@ export const recurringRules = pgTable(
   },
   (t) => [
     unique("recurring_rules_household_id_uq").on(t.householdId, t.id),
+    foreignKey({ name: "recurring_rules_goal_fk", columns: [t.householdId, t.goalId], foreignColumns: [goals.householdId, goals.id] }),
+    uniqueIndex("recurring_rules_goal_uq").on(t.goalId).where(sql`${t.goalId} is not null`),
     index("recurring_rules_household_idx").on(t.householdId),
     foreignKey({
       name: "recurring_rules_category_fk",
@@ -565,3 +617,4 @@ export const notificationSettings = pgTable("notification_settings", {
   version: integer("version").notNull().default(1),
   updatedAt: updatedAt(),
 }, (t) => [check("notification_settings_singleton_ck", sql`${t.id} = 1`)])
+export type Goal = typeof goals.$inferSelect

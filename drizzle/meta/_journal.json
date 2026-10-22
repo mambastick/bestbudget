@@ -36,6 +36,13 @@
       "when": 1792711654121,
       "tag": "0004_payment_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792712714256,
+      "tag": "0005_savings_goals",
+      "breakpoints": true
     }
   ]
 }

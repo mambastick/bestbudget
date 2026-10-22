@@ -43,12 +43,11 @@ function normalizeDay(input: z.output<typeof ruleInput>): number | null {
   return null
 }
 
-export async function createRules(ctx: HouseholdCtx, raw: z.input<typeof ruleSetInput>) {
+export async function createRules(ctx: HouseholdCtx, raw: z.input<typeof ruleSetInput>, db: DbOrTx = getDb()) {
   assertCan(ctx, "finance.write")
   const { rule: input, extra } = ruleSetInput.parse(raw)
   if (extra.length > 0 && input.frequency !== "monthly") throw new AppError("Несколько начислений поддерживаются только для ежемесячных операций")
   const today = todayIn(ctx.timezone)
-  const db = getDb()
   const base = await normalizeOperation(db, ctx, input)
   if (extra.length > 0 && base.toAmount !== null) throw new AppError("Для каждого валютного перевода создайте отдельное расписание с суммой зачисления")
 
@@ -78,7 +77,7 @@ export async function createRules(ctx: HouseholdCtx, raw: z.input<typeof ruleSet
     }
     return rows
   })
-  for (const r of created) await materializeRule(r.id, today)
+  for (const r of created) await materializeRule(r.id, today, db)
   return created
 }
 
@@ -236,9 +235,9 @@ export async function materializeOccurrence(ctx: HouseholdCtx, ruleId: string, r
 // Rule management
 // ---------------------------------------------------------------------------
 
-export async function getRule(ctx: HouseholdCtx, id: string) {
+export async function getRule(ctx: HouseholdCtx, id: string, db: DbOrTx = getDb()) {
   if (!z.uuid().safeParse(id).success) throw notFound("Расписание не найдено")
-  const [rule] = await getDb()
+  const [rule] = await db
     .select()
     .from(recurringRules)
     .where(and(eq(recurringRules.id, id), eq(recurringRules.householdId, ctx.householdId)))
@@ -288,6 +287,7 @@ export async function updateRule(ctx: HouseholdCtx, id: string, raw: z.input<typ
   const from = effectiveFrom ?? today
   const db = getDb()
   const before = await getRule(ctx, id)
+  if (before.goalId && input.toAccountId !== before.toAccountId) throw new AppError("Счёт зачисления цели нельзя изменить")
   if (input.type !== before.type) throw new AppError("Нельзя изменить тип регулярной операции")
   const values = await normalizeOperation(db, ctx, input, { allowArchived: true })
 
@@ -336,10 +336,10 @@ export async function stopRule(ctx: HouseholdCtx, id: string, endDate?: IsoDate)
 }
 
 /** Deletes the schedule and its pending occurrences; confirmed operations stay in history. */
-export async function deleteRule(ctx: HouseholdCtx, id: string) {
+export async function deleteRule(ctx: HouseholdCtx, id: string, db: DbOrTx = getDb()) {
   assertCan(ctx, "finance.write")
-  const rule = await getRule(ctx, id)
-  await getDb().transaction(async (tx) => {
+  const rule = await getRule(ctx, id, db)
+  await db.transaction(async (tx) => {
     await tx.delete(transactions).where(and(eq(transactions.recurringRuleId, id), ne(transactions.status, "posted")))
     await tx.delete(recurringRules).where(and(eq(recurringRules.id, id), eq(recurringRules.householdId, ctx.householdId)))
     await audit({ action: "rule.delete", entityType: "recurring_rule", entityId: id, householdId: ctx.householdId, actorId: ctx.userId, meta: { title: rule.title } }, tx)
