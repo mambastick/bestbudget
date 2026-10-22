@@ -43,6 +43,8 @@ spec:
           env:
             - name: APP_URL
               value: {{ required "appUrl is required, e.g. --set appUrl=https://budget.example.com" .Values.appUrl | quote }}
+            - name: FX_PROVIDER
+              value: {{ .Values.fxProvider | quote }}
             - name: TRUST_PROXY
               value: {{ .Values.auth.trustProxy | quote }}
             - name: AUTH_FORCE_LOCAL_LOGIN

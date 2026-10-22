@@ -20,7 +20,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:dev": "tsx scripts/dev-db.ts",
     "admin": "tsx scripts/admin.ts",
-    "db:seed-demo": "node --conditions=react-server --import tsx scripts/seed-demo.ts"
+    "db:seed-demo": "node --conditions=react-server --import tsx scripts/seed-demo.ts",
+    "test:screenshots": "playwright test --config playwright.screenshots.config.ts"
   },
   "dependencies": {
     "@animate-ui/react": "^2.0.0",

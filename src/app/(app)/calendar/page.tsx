@@ -1,3 +1,4 @@
+import { FxWarnings } from "@/components/app/fx-warnings"
 import type { Metadata } from "next"
 import { CalendarView } from "@/components/app/calendar-view"
 import { MonthSwitcher } from "@/components/app/month-switcher"
@@ -18,6 +19,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="grid grid-cols-1 gap-6">
+      <FxWarnings warnings={data.warnings} canManageRates={ctx.user.role === "admin"} />
       <PageHeader
         title="Календарь"
         description="Фактические и запланированные операции по дням, прогноз остатка"

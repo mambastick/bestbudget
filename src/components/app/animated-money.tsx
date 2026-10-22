@@ -1,6 +1,7 @@
 "use client"
 
 import CountUp from "@/components/reactbits/CountUp"
+import { currencyExponent, currencySymbol } from "@/lib/currencies"
 import { formatMoney } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
@@ -20,7 +21,9 @@ export function AnimatedMoney({
   className?: string
 }) {
   const resolved = tone === "auto" ? (value > 0 ? "income" : value < 0 ? "expense" : "neutral") : tone
-  const symbol = currency === "RUB" ? "₽" : currency
+  const symbol = currencySymbol(currency)
+  const exponent = currencyExponent(currency)
+  const scale = 10 ** exponent
   return (
     <span
       className={cn("tabular whitespace-nowrap", resolved === "income" && "text-income", resolved === "expense" && "text-expense", className)}
@@ -29,8 +32,8 @@ export function AnimatedMoney({
       <span aria-hidden>
         <CountUp
           key={value}
-          to={Math.abs(value) / 100}
-          decimals={value % 100 === 0 ? 0 : 2}
+          to={Math.abs(value) / scale}
+          decimals={value % scale === 0 ? 0 : exponent}
           separator={"\u2009"}
           prefix={value < 0 ? "\u2212" : ""}
           suffix={`\u00a0${symbol}`}

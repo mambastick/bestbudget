@@ -33,20 +33,20 @@ const SECTIONS = [
 ] as const
 
 export function RulesList({ rules }: { rules: RuleListItem[] }) {
-  const { currency } = useCatalog()
+  const { currency, accounts } = useCatalog()
   return (
     <div className="grid grid-cols-1 gap-6">
       {SECTIONS.map((section) => {
         const items = rules.filter((r) => r.rule.type === section.type)
         if (items.length === 0) return null
         const monthlyTotal = items
-          .filter((r) => !r.finished && r.rule.frequency === "monthly" && r.rule.interval === 1)
+          .filter((r) => !r.finished && r.rule.frequency === "monthly" && r.rule.interval === 1 && accounts.find((a) => a.id === r.rule.accountId)?.currency === currency)
           .reduce((s, r) => s + r.rule.amount, 0)
         return (
           <section key={section.type}>
             <div className="mb-1.5 flex items-baseline justify-between px-1 text-xs text-muted-foreground">
               <span className="font-medium tracking-wide uppercase">{section.title}</span>
-              {monthlyTotal > 0 ? (
+              {monthlyTotal > 0 && items.every((r) => accounts.find((a) => a.id === r.rule.accountId)?.currency === currency) ? (
                 <span>
                   ежемесячно: <Money value={monthlyTotal} currency={currency} className="font-medium text-foreground" />
                 </span>
@@ -67,7 +67,8 @@ export function RulesList({ rules }: { rules: RuleListItem[] }) {
 function RuleItem({ item }: { item: RuleListItem }) {
   const { rule } = item
   const ops = useOperations()
-  const { currency, today } = useCatalog()
+  const { accounts, today } = useCatalog()
+  const currency = accounts.find((a) => a.id === rule.accountId)!.currency
   const { run } = useAction()
   const [confirm, setConfirm] = useState<"stop" | "delete" | null>(null)
 

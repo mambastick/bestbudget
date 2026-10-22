@@ -50,6 +50,7 @@ export async function createRules(ctx: HouseholdCtx, raw: z.input<typeof ruleSet
   const today = todayIn(ctx.timezone)
   const db = getDb()
   const base = await normalizeOperation(db, ctx, input)
+  if (extra.length > 0 && base.toAmount !== null) throw new AppError("Для каждого валютного перевода создайте отдельное расписание с суммой зачисления")
 
   const variants = [{ dayOfMonth: normalizeDay(input), amount: input.amount }, ...extra]
   const created = await db.transaction(async (tx) => {
@@ -113,6 +114,7 @@ export async function materializeRule(ruleId: string, today: IsoDate, db: DbOrTx
             type: rule.type,
             status: "planned" as const,
             amount: rule.amount,
+            toAmount: rule.toAmount,
             title: rule.title,
             description: rule.description,
             date: d,
@@ -155,6 +157,7 @@ export interface VirtualOccurrence {
   date: IsoDate
   type: RecurringRule["type"]
   amount: number
+  toAmount: number | null
   title: string
   categoryId: string | null
   accountId: string
@@ -176,7 +179,7 @@ export async function virtualOccurrences(ctx: HouseholdCtx, from: IsoDate, to: I
   for (const rule of rules) {
     const start = maxDate(lo, maxDate(rule.generateFrom, nextDay(rule.materializedThrough) ?? rule.generateFrom))
     for (const d of occurrencesBetween(rule, start, to)) {
-      out.push({ ruleId: rule.id, date: d, type: rule.type, amount: rule.amount, title: rule.title, categoryId: rule.categoryId, accountId: rule.accountId, toAccountId: rule.toAccountId })
+      out.push({ ruleId: rule.id, date: d, type: rule.type, amount: rule.amount, toAmount: rule.toAmount, title: rule.title, categoryId: rule.categoryId, accountId: rule.accountId, toAccountId: rule.toAccountId })
     }
   }
   if (out.length === 0) return out
@@ -209,6 +212,7 @@ export async function materializeOccurrence(ctx: HouseholdCtx, ruleId: string, r
       type: rule.type,
       status: "planned",
       amount: rule.amount,
+      toAmount: rule.toAmount,
       title: rule.title,
       description: rule.description,
       date,
@@ -252,6 +256,7 @@ export async function listRules(ctx: HouseholdCtx) {
       categoryIcon: categories.icon,
       categoryColor: categories.color,
       accountName: financialAccounts.name,
+      currency: financialAccounts.currency,
     })
     .from(recurringRules)
     .leftJoin(categories, eq(categories.id, recurringRules.categoryId))

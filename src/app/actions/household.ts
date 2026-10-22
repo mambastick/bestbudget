@@ -6,6 +6,7 @@ import type { HouseholdRole } from "@/domain/permissions"
 import { appUrl } from "@/lib/env"
 import { forbidden, runAction } from "@/server/errors"
 import { actionHousehold, actionUser, HOUSEHOLD_COOKIE } from "@/server/session"
+import type { Currency } from "@/lib/currencies"
 import * as households from "@/server/services/households"
 
 const refresh = () => revalidatePath("/", "layout")
@@ -39,7 +40,7 @@ export async function switchHouseholdAction(id: string) {
   })
 }
 
-export async function updateHouseholdAction(input: { name: string; timezone: string }) {
+export async function updateHouseholdAction(input: { name: string; timezone: string; currency?: Currency; version?: number }) {
   return runAction(async () => {
     await households.updateHousehold(await actionHousehold(), input)
     refresh()

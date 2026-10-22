@@ -38,6 +38,7 @@ function toRow(r: OperationRow): OperationRow {
     type: r.type,
     status: r.status,
     amount: r.amount,
+    toAmount: r.toAmount,
     title: r.title,
     description: r.description,
     date: r.date,
@@ -106,16 +107,21 @@ function ConfirmOperationDialog({ row, onClose }: { row: OperationRow | null; on
 }
 
 function ConfirmForm({ row, onClose }: { row: OperationRow; onClose: () => void }) {
-  const { today, currency } = useCatalog()
-  const [amount, setAmount] = useState(minorToInput(row.amount))
+  const { today, accounts } = useCatalog()
+  const currency = accounts.find((a) => a.id === row.accountId)!.currency
+  const toCurrency = accounts.find((a) => a.id === row.toAccountId)?.currency
+  const [amount, setAmount] = useState(minorToInput(row.amount, currency))
+  const [toAmount, setToAmount] = useState(row.toAmount && toCurrency ? minorToInput(row.toAmount, toCurrency) : "")
   const [date, setDate] = useState<IsoDate>(row.date > today ? today : row.date)
   const { pending, run } = useAction()
 
   function submit(e: React.FormEvent) {
     e.preventDefault()
-    const value = parseMoney(amount)
+    const value = parseMoney(amount, currency)
     if (!value) return void toast.error("Укажите сумму")
-    run(() => confirmTransactionAction(row.id, { version: row.version, amount: value, date }), {
+    const credited = toCurrency && toCurrency !== currency ? parseMoney(toAmount, toCurrency) : undefined
+    if (credited === null || credited === 0) return void toast.error("Укажите сумму зачисления")
+    run(() => confirmTransactionAction(row.id, { version: row.version, amount: value, toAmount: credited, date }), {
       success: "Операция подтверждена",
       onSuccess: onClose,
     })
@@ -133,8 +139,12 @@ function ConfirmForm({ row, onClose }: { row: OperationRow; onClose: () => void 
       </DialogHeader>
       <Field>
         <FieldLabel htmlFor="confirm-amount">Фактическая сумма</FieldLabel>
-        <MoneyInput id="confirm-amount" value={amount} onChange={setAmount} />
+        <MoneyInput currency={currency} id="confirm-amount" value={amount} onChange={setAmount} />
       </Field>
+      {toCurrency && toCurrency !== currency ? <Field>
+        <FieldLabel htmlFor="confirm-to-amount">Зачислено</FieldLabel>
+        <MoneyInput id="confirm-to-amount" currency={toCurrency} value={toAmount} onChange={setToAmount} />
+      </Field> : null}
       <Field>
         <FieldLabel>Фактическая дата</FieldLabel>
         <DateField value={date} onChange={(d) => d && setDate(d)} today={today} />

@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { FxWarnings } from "@/components/app/fx-warnings"
 import { BudgetList } from "@/components/app/budget-list"
 import { Money } from "@/components/app/money"
 import { MonthSwitcher } from "@/components/app/month-switcher"
@@ -7,7 +8,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { can } from "@/domain/permissions"
 import { formatMonth, parseMonthKey, todayIn } from "@/lib/dates"
 import { requireHousehold } from "@/server/session"
-import { getBudgets } from "@/server/services/budgets"
+import { getBudgetReport } from "@/server/services/budgets"
 
 export const metadata: Metadata = { title: "Бюджеты" }
 
@@ -15,13 +16,14 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
   const ctx = await requireHousehold()
   const today = todayIn(ctx.timezone)
   const month = parseMonthKey((await searchParams).month, today)
-  const rows = await getBudgets(ctx, month)
+  const { rows, warnings } = await getBudgetReport(ctx, month)
   const limited = rows.filter((r) => r.limit !== null)
   const totalLimit = limited.reduce((s, r) => s + r.limit!, 0)
   const totalSpent = limited.reduce((s, r) => s + r.spent, 0)
 
   return (
     <div className="grid grid-cols-1 gap-6">
+      <FxWarnings warnings={warnings} canManageRates={ctx.user.role === "admin"} />
       <PageHeader
         title="Бюджеты"
         description={`Месячные лимиты по категориям расходов · ${formatMonth(month)}`}

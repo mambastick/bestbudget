@@ -21,7 +21,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     currency: ctx.currency,
     role: ctx.role,
     categories: categories.map((c) => ({ id: c.id, kind: c.kind, name: c.name, icon: c.icon, color: c.color, archived: c.archivedAt !== null })),
-    accounts: accounts.map((a) => ({ id: a.id, name: a.name, kind: a.kind, archived: a.archivedAt !== null })),
+    accounts: accounts.map((a) => ({ id: a.id, name: a.name, kind: a.kind, currency: a.currency, archived: a.archivedAt !== null })),
   }
   return (
     <CatalogProvider value={catalog}>

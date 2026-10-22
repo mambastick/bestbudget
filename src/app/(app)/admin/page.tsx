@@ -1,4 +1,7 @@
 import type { Metadata } from "next"
+import { ExchangeRatesSettings } from "@/components/app/admin/exchange-rates"
+import { listExchangeRates } from "@/server/services/exchange-rates"
+import { todayIn } from "@/lib/dates"
 import { AuthSettingsForm } from "@/components/app/admin/auth-settings"
 import { OidcSettingsForm } from "@/components/app/admin/oidc-settings"
 import { UsersTable } from "@/components/app/admin/users-table"
@@ -20,6 +23,7 @@ const TABS = [
   { key: "users", label: "Пользователи" },
   { key: "households", label: "Пространства" },
   { key: "auth", label: "Авторизация" },
+  { key: "rates", label: "Курсы валют" },
   { key: "events", label: "События" },
 ] as const
 
@@ -118,6 +122,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
         />
       </div>
     )
+  } else if (tab === "rates") {
+    content = <ExchangeRatesSettings rates={await listExchangeRates()} today={todayIn("Europe/Moscow")} provider={env().FX_PROVIDER} />
   } else {
     const events = await listSystemEvents(200)
     content = (

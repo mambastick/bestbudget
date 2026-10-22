@@ -34,7 +34,7 @@ export async function deleteTransactionAction(id: string) {
   })
 }
 
-export async function confirmTransactionAction(id: string, input: { version: number; amount?: number; date?: string }) {
+export async function confirmTransactionAction(id: string, input: { version: number; amount?: number; toAmount?: number; date?: string }) {
   return runAction(async () => {
     const ctx = await actionHousehold()
     await tx.confirmTransaction(ctx, id, input)

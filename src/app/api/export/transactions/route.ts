@@ -24,7 +24,7 @@ export async function GET(request: Request) {
 
   const rows = await exportTransactions(ctx, parsed.data)
   const csv = toCsv([
-    ["Дата", "Тип", "Статус", "Название", "Категория", "Счёт", "Счёт зачисления", "Сумма", "Валюта", "Описание", "Автор"],
+    ["Дата", "Тип", "Статус", "Название", "Категория", "Счёт", "Счёт зачисления", "Сумма", "Валюта", "Зачислено", "Валюта зачисления", "Описание", "Автор"],
     ...rows.map((r) => [
       r.date,
       TYPE[r.type],
@@ -33,8 +33,10 @@ export async function GET(request: Request) {
       r.categoryName ?? "",
       r.accountName,
       r.toAccountName ?? "",
-      csvAmount(r.type === "expense" ? -r.amount : r.amount),
-      ctx.currency,
+      csvAmount(r.type === "expense" ? -r.amount : r.amount, r.currency),
+      r.currency,
+      r.type === "transfer" ? csvAmount(r.toAmount ?? r.amount, r.toCurrency!) : "",
+      r.toCurrency ?? "",
       r.description ?? "",
       r.authorName ?? "",
     ]),

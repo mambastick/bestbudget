@@ -41,3 +41,6 @@ yarn-error.log*
 
 # database backups
 /backups/
+
+# local build and test artifacts
+/work/

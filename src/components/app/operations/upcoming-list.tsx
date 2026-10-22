@@ -6,7 +6,6 @@ import { Money } from "@/components/app/money"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { formatDayShort, formatWeekday } from "@/lib/dates"
-import { useCatalog } from "./catalog-context"
 import { useOperations } from "./operations-provider"
 
 export interface UpcomingEntry {
@@ -16,6 +15,7 @@ export interface UpcomingEntry {
   date: string
   type: "income" | "expense" | "transfer"
   amount: number
+  currency: string
   title: string
   categoryIcon: string | null
   categoryColor: string | null
@@ -25,7 +25,6 @@ export interface UpcomingEntry {
 /** Nearest planned operations with one-click confirmation. */
 export function UpcomingList({ items }: { items: UpcomingEntry[] }) {
   const ops = useOperations()
-  const { currency } = useCatalog()
 
   async function act(item: UpcomingEntry, then: "edit" | "confirm") {
     if (item.id) {
@@ -63,7 +62,7 @@ export function UpcomingList({ items }: { items: UpcomingEntry[] }) {
               value={item.amount}
               kind={item.type === "transfer" ? undefined : item.type}
               tone={item.type === "income" ? "income" : "neutral"}
-              currency={currency}
+              currency={item.currency}
               className="text-sm font-medium"
             />
           </button>

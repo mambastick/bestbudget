@@ -8,6 +8,27 @@
       "when": 1792661600319,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792707340790,
+      "tag": "0001_multicurrency",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792707460392,
+      "tag": "0002_currency_edit_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792709141216,
+      "tag": "0003_cbr_fetch_coverage",
+      "breakpoints": true
     }
   ]
 }
