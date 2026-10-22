@@ -27,6 +27,8 @@ printf 'partial\n' > "$BACKUP_DIR/bestbudget-20200101T000000Z.dump"
 printf 'partial\n' > "$BACKUP_DIR/.incomplete.dump"
 fixture bestbudget-20200101T000001Z.dump.extra
 fixture bestbudget-20200101T000002Z-vbad+version.dump
+foreign=$(printf 'bestbudget-20200101T000004Z.dump\nforeign.dump')
+fixture "$foreign"
 ln -s notes.dump "$BACKUP_DIR/bestbudget-20200101T000003Z.dump"
 printf 'unrelated\n' > "$BACKUP_DIR/bestbudget-20200101T000003Z.dump.sha256"
 export BACKUP_KEEP_LAST=2 BACKUP_KEEP_DAYS=30 BACKUP_CUTOFF=20261001T000000Z
@@ -39,6 +41,7 @@ check test -f "$BACKUP_DIR/bestbudget-20200101T000000Z.dump"
 check test -L "$BACKUP_DIR/bestbudget-20200101T000003Z.dump"
 check test -f "$BACKUP_DIR/bestbudget-20200101T000001Z.dump.extra"
 check test -f "$BACKUP_DIR/bestbudget-20200101T000002Z-vbad+version.dump"
+check test -f "$BACKUP_DIR/$foreign"
 # Count retention still protects the newest copies when every copy is old.
 export BACKUP_CUTOFF=20261101T000000Z
 sh "$SCRIPTS/rotate.sh"

@@ -19,6 +19,7 @@ case "${1:-now}" in
     connection
     lock
     version=${BESTBUDGET_VERSION:-}
+    case "$version" in *[!A-Za-z0-9._-]*) version= ;; esac
     if ! printf '%s\n' "$version" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*$'; then version=; fi
     name="bestbudget-$(date -u +%Y%m%dT%H%M%SZ)${version:+-v$version}.dump"
     [ ! -e "$BACKUP_DIR/$name" ] || fail 'A backup with this timestamp already exists; retry in one second.'

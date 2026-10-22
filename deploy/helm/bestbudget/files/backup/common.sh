@@ -9,6 +9,7 @@ SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 fail() { echo "Error: $*" >&2; exit 1; }
 
 valid_name() {
+  case "$1" in *[!A-Za-z0-9._-]*) return 1 ;; esac
   printf '%s\n' "$1" | grep -Eq '^bestbudget-[0-9]{8}T[0-9]{6}Z(-v[A-Za-z0-9][A-Za-z0-9._-]*)?\.dump$'
 }
 
