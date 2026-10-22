@@ -230,6 +230,7 @@ test("notification preferences persist and fit a mobile screen", async ({ page }
   await expect(page.getByRole("switch", { name: "Уведомления в Telegram", exact: true })).not.toBeChecked()
   await expect(page.getByRole("switch", { name: "Уведомления Web Push", exact: true })).not.toBeChecked()
   await page.goto("/admin?tab=notifications")
+  await expect(page.getByText("Последние ошибки доставки", { exact: true })).toHaveCount(1)
   await expect(page.getByText("Последние ошибки доставки", { exact: true })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.screenshot({ path: `${process.env.TMPDIR || "test-results"}/notifications-admin-375.png`, fullPage: true })
