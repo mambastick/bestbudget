@@ -1,0 +1,156 @@
+{{- if .Values.backup.enabled }}
+{{- $name := include "bestbudget.backup.fullname" . }}
+{{- if not .Values.backup.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    {{- include "bestbudget.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  accessModes:
+    {{- toYaml .Values.backup.persistence.accessModes | nindent 4 }}
+  {{- with .Values.backup.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.backup.persistence.size }}
+---
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "bestbudget.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+data:
+  {{- (.Files.Glob "files/backup/*").AsConfig | nindent 2 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "bestbudget.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  timeZone: {{ .Values.backup.timeZone | quote }}
+  suspend: {{ .Values.backup.suspend }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.backup.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.backup.failedJobsHistoryLimit }}
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: {{ .Values.backup.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "bestbudget.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          initContainers:
+            - name: connection
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              command: ["node", "/scripts/connection.mjs"]
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "bestbudget.secretName" . }}
+                      key: DATABASE_URL
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: tmp
+                  mountPath: /work
+          {{- if .Values.backup.s3.enabled }}
+            {{- include "bestbudget.backup.container" . | nindent 12 }}
+          {{- end }}
+          containers:
+          {{- if .Values.backup.s3.enabled }}
+            - name: upload
+              image: "{{ .Values.backup.s3.image.repository }}:{{ .Values.backup.s3.image.tag }}"
+              imagePullPolicy: {{ .Values.backup.s3.image.pullPolicy }}
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              command: ["sh", "/scripts/upload.sh", "once"]
+              env:
+                - name: BACKUP_S3_BUCKET
+                  value: {{ required "backup.s3.bucket is required when S3 is enabled" .Values.backup.s3.bucket | quote }}
+                - name: BACKUP_S3_PREFIX
+                  value: {{ .Values.backup.s3.prefix | quote }}
+                - name: AWS_ENDPOINT_URL
+                  value: {{ .Values.backup.s3.endpoint | quote }}
+                - name: AWS_DEFAULT_REGION
+                  value: {{ .Values.backup.s3.region | quote }}
+                - name: HOME
+                  value: /work
+                - name: TMPDIR
+                  value: /work
+                {{- range $key := list "AWS_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY" "AWS_SESSION_TOKEN" }}
+                - name: {{ $key }}
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ required "backup.s3.existingSecret is required when S3 is enabled" $.Values.backup.s3.existingSecret }}
+                      key: {{ $key }}
+                      {{- if eq $key "AWS_SESSION_TOKEN" }}
+                      optional: true
+                      {{- end }}
+                {{- end }}
+              resources:
+                {{- toYaml .Values.backup.s3.resources | nindent 16 }}
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: tmp
+                  mountPath: /work
+          {{- else }}
+            {{- include "bestbudget.backup.container" . | nindent 12 }}
+          {{- end }}
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: {{ include "bestbudget.backup.claim" . }}
+            - name: scripts
+              configMap:
+                name: {{ $name }}
+            - name: tmp
+              emptyDir: {}
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

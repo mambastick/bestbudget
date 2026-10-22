@@ -59,9 +59,17 @@ docker compose up -d
 
 ### Резервное копирование
 
+Compose автоматически сохраняет сжатые дампы PostgreSQL с SHA-256 в `./.data/backups` ежедневно в 03:00 UTC.
+По умолчанию хранятся последние 7 копий плюс все копии за 30 суток; расписание и хранение настраиваются в `.env`.
+
 ```bash
-docker compose exec db pg_dump -U bestbudget bestbudget > backup.sql
+./scripts/backup.sh now
+./scripts/backup.sh list
+./scripts/restore.sh <имя-файла.dump> --yes
 ```
+
+В Helm бэкапы включены по умолчанию через CronJob и отдельный PVC (`backup.*`, Kubernetes 1.27+).
+[Настройка, проверка и восстановление в Compose/Kubernetes, S3 и правило 3–2–1](docs/backup.md).
 
 ### Обновление
 
@@ -76,7 +84,7 @@ docker compose pull && docker compose up -d
 Чарт публикуется в GHCR как OCI-артефакт. Минимальная установка со встроенным PostgreSQL и Ingress:
 
 ```bash
-helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.0-beta.1 \
+helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.0-beta.2 \
   --namespace bestbudget --create-namespace \
   --set appUrl=https://budget.example.com \
   --set ingress.enabled=true --set ingress.className=nginx --set ingress.tls.enabled=true
