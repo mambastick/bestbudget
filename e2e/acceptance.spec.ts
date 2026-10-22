@@ -204,6 +204,37 @@ test("creates a USD account, quotes and posts a RUB transfer, and fits a phone s
   await page.screenshot({ path: "work/multicurrency-dashboard-375.png", fullPage: true, animations: "disabled" })
 })
 
+test("notification preferences persist and fit a mobile screen", async ({ page }) => {
+  await login(page, ADMIN)
+  await page.goto("/settings?tab=profile")
+  await page.getByRole("switch", { name: "Уведомления в Telegram", exact: true }).click()
+  await page.getByRole("switch", { name: "Уведомления Web Push", exact: true }).click()
+  await page.getByLabel("За сколько дней напоминать").fill("3")
+  await page.getByLabel("Порог превышения бюджета, %").fill("20")
+  await page.getByRole("switch", { name: "Ежедневная сводка вместо отдельных сообщений", exact: true }).click()
+  await page.getByRole("button", { name: "Сохранить уведомления", exact: true }).click()
+  await expect(page.getByText("Настройки уведомлений сохранены", { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole("switch", { name: "Уведомления в Telegram", exact: true })).toBeChecked()
+  await expect(page.getByRole("switch", { name: "Уведомления Web Push", exact: true })).toBeChecked()
+  await expect(page.getByLabel("За сколько дней напоминать")).toHaveValue("3")
+  await expect(page.getByLabel("Порог превышения бюджета, %")).toHaveValue("20")
+  await page.setViewportSize({ width: 375, height: 812 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.screenshot({ path: `${process.env.TMPDIR || "test-results"}/notifications-profile-375.png`, fullPage: true })
+  await page.getByRole("switch", { name: "Уведомления в Telegram", exact: true }).click()
+  await page.getByRole("switch", { name: "Уведомления Web Push", exact: true }).click()
+  await page.getByRole("button", { name: "Сохранить уведомления", exact: true }).click()
+  await expect(page.getByText("Настройки уведомлений сохранены", { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole("switch", { name: "Уведомления в Telegram", exact: true })).not.toBeChecked()
+  await expect(page.getByRole("switch", { name: "Уведомления Web Push", exact: true })).not.toBeChecked()
+  await page.goto("/admin?tab=notifications")
+  await expect(page.getByText("Последние ошибки доставки", { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.screenshot({ path: `${process.env.TMPDIR || "test-results"}/notifications-admin-375.png`, fullPage: true })
+})
+
 test.describe.serial("single sign-on (OIDC)", () => {
   const idp = new OAuth2Server()
   let identity: Record<string, unknown> = {}
@@ -238,7 +269,7 @@ test.describe.serial("single sign-on (OIDC)", () => {
     // Local login cannot be disabled before SSO is linked to the admin — lock-out protection.
     await page.getByText("Вход по e-mail и паролю").click()
     await page.getByRole("button", { name: "Сохранить" }).first().click()
-    await expect(page.getByText(/привяжите SSO к своему аккаунту/)).toBeVisible()
+    await expect(page.getByText(/^Сначала привяжите SSO к своему аккаунту/)).toBeVisible()
 
     await page.goto("/settings?tab=profile")
     await page.getByRole("button", { name: "Привязать Keycloak" }).click()

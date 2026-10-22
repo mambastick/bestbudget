@@ -29,6 +29,13 @@
       "when": 1792709141216,
       "tag": "0003_cbr_fetch_coverage",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792711654121,
+      "tag": "0004_payment_notifications",
+      "breakpoints": true
     }
   ]
 }
