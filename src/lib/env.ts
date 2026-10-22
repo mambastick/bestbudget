@@ -32,6 +32,14 @@ const schema = z.object({
   OIDC_ENABLED: z.enum(["true", "false"]).optional(),
   OIDC_ALLOW_SIGNUP: bool,
 
+  JOBS_ENABLED: z.enum(["true", "false"]).optional(),
+  TELEGRAM_BOT_TOKEN: optionalString,
+  TELEGRAM_MODE: z.enum(["polling", "webhook"]).optional(),
+  TELEGRAM_WEBHOOK_SECRET: optionalString.pipe(z.string().regex(/^[A-Za-z0-9_-]{1,256}$/, "Use a URL-safe Telegram webhook secret (1-256 characters)").optional()),
+  VAPID_PUBLIC_KEY: optionalString,
+  VAPID_PRIVATE_KEY: optionalString,
+  VAPID_SUBJECT: optionalString,
+
   SMTP_URL: optionalString,
   SMTP_FROM: optionalString,
 })

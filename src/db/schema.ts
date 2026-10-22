@@ -476,3 +476,92 @@ export type Category = typeof categories.$inferSelect
 export type Transaction = typeof transactions.$inferSelect
 export type RecurringRule = typeof recurringRules.$inferSelect
 export type Invitation = typeof invitations.$inferSelect
+
+// ---------------------------------------------------------------------------
+// Notifications (opt-in per household; transport credentials are encrypted)
+// ---------------------------------------------------------------------------
+
+export const notificationPreferences = pgTable("notification_preferences", {
+  userId: uuid("user_id").notNull(),
+  householdId: uuid("household_id").notNull(),
+  telegram: boolean("telegram").notNull().default(false),
+  push: boolean("push").notNull().default(false),
+  due: boolean("due").notNull().default(true),
+  overdue: boolean("overdue").notNull().default(true),
+  cashGap: boolean("cash_gap").notNull().default(true),
+  budget: boolean("budget").notNull().default(true),
+  daysBefore: smallint("days_before").notNull().default(1),
+  budgetThreshold: smallint("budget_threshold").notNull().default(15),
+  digest: boolean("digest").notNull().default(false),
+  digestTime: text("digest_time").notNull().default("09:00"),
+  quietStart: text("quiet_start").notNull().default("22:00"),
+  quietEnd: text("quiet_end").notNull().default("08:00"),
+  version: integer("version").notNull().default(1),
+  updatedAt: updatedAt(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.householdId] }),
+  foreignKey({ columns: [t.householdId, t.userId], foreignColumns: [householdMembers.householdId, householdMembers.userId] }).onDelete("cascade"),
+  check("notification_preferences_days_ck", sql`${t.daysBefore} between 0 and 30`),
+  check("notification_preferences_threshold_ck", sql`${t.budgetThreshold} between 0 and 500`),
+])
+
+export const notificationDeliveries = pgTable("notification_deliveries", {
+  id: id(),
+  userId: uuid("user_id").notNull(),
+  householdId: uuid("household_id").notNull(),
+  channel: text("channel").notNull(),
+  kind: text("kind").notNull(),
+  dedupeKey: text("dedupe_key").notNull(),
+  budgetKeys: jsonb("budget_keys").$type<string[]>().notNull().default([]),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  status: text("status").notNull().default("sending"),
+  error: text("error"),
+  attempts: integer("attempts").notNull().default(1),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  createdAt: createdAt(),
+}, (t) => [
+  unique("notification_deliveries_dedupe_uq").on(t.userId, t.channel, t.dedupeKey),
+  foreignKey({ columns: [t.householdId, t.userId], foreignColumns: [householdMembers.householdId, householdMembers.userId] }).onDelete("cascade"),
+  index("notification_deliveries_created_idx").on(t.createdAt),
+])
+
+export const telegramLinks = pgTable("telegram_links", {
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  chatId: text("chat_id").unique(),
+  tokenHash: text("token_hash").unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: createdAt(),
+})
+
+export const telegramUpdates = pgTable("telegram_updates", {
+  key: text("key").primaryKey(),
+  createdAt: createdAt(),
+})
+
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: id(),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  /** Encrypted shared subscription secret; p256dh is a public key. */
+  auth: text("auth").notNull(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  userAgent: text("user_agent").notNull().default(""),
+  createdAt: createdAt(),
+}, (t) => [index("push_subscriptions_user_idx").on(t.userId)])
+
+export const notificationSettings = pgTable("notification_settings", {
+  id: smallint("id").primaryKey().default(1),
+  botTokenEncrypted: text("bot_token_encrypted"),
+  mode: text("mode").notNull().default("polling"),
+  botUsername: text("bot_username"),
+  botId: text("bot_id"),
+  updateOffset: bigint("update_offset", { mode: "number" }).notNull().default(0),
+  lastUpdateAt: timestamp("last_update_at", { withTimezone: true }),
+  webhookSecretEncrypted: text("webhook_secret_encrypted"),
+  transportFingerprint: text("transport_fingerprint"),
+  transportError: text("transport_error"),
+  vapidPublicKey: text("vapid_public_key"),
+  vapidPrivateKeyEncrypted: text("vapid_private_key_encrypted"),
+  version: integer("version").notNull().default(1),
+  updatedAt: updatedAt(),
+}, (t) => [check("notification_settings_singleton_ck", sql`${t.id} = 1`)])
