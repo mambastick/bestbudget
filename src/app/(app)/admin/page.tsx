@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { ExchangeRatesSettings } from "@/components/app/admin/exchange-rates"
 import { listExchangeRates } from "@/server/services/exchange-rates"
 import { todayIn } from "@/lib/dates"
+import { NotificationAdmin } from "@/components/app/admin/notification-settings"
 import { AuthSettingsForm } from "@/components/app/admin/auth-settings"
 import { OidcSettingsForm } from "@/components/app/admin/oidc-settings"
 import { UsersTable } from "@/components/app/admin/users-table"
@@ -13,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatDateTime } from "@/lib/dates"
 import { env } from "@/lib/env"
 import { smtpEnabled } from "@/lib/mail"
+import { notificationAdmin } from "@/server/notifications/view"
 import { requireSystemAdmin } from "@/server/session"
 import { defaultRedirectUri, getAppSettings, getAuthMethods, getOidcConfig } from "@/server/services/settings"
 import { listHouseholdsForAdmin, listSystemEvents, listUsersForAdmin } from "@/server/services/users"
@@ -25,6 +27,7 @@ const TABS = [
   { key: "auth", label: "Авторизация" },
   { key: "rates", label: "Курсы валют" },
   { key: "events", label: "События" },
+  { key: "notifications", label: "Уведомления" },
 ] as const
 
 const EVENT_LABELS: Record<string, string> = {
@@ -124,6 +127,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     )
   } else if (tab === "rates") {
     content = <ExchangeRatesSettings rates={await listExchangeRates()} today={todayIn("Europe/Moscow")} provider={env().FX_PROVIDER} />
+  } else if (tab === "notifications") {
+    content = <NotificationAdmin {...await notificationAdmin()} />
   } else {
     const events = await listSystemEvents(200)
     content = (

@@ -1,10 +1,12 @@
 import type { Metadata } from "next"
+import { NotificationSettings } from "@/components/app/settings/notification-settings"
 import { CategoriesSettings } from "@/components/app/settings/categories-settings"
 import { HouseholdSettings } from "@/components/app/settings/household-settings"
 import { ProfileSettings } from "@/components/app/settings/profile-settings"
 import { NavTabs } from "@/components/app/nav-tabs"
 import { PageHeader } from "@/components/app/page-header"
 import { can } from "@/domain/permissions"
+import { notificationProfile } from "@/server/notifications/view"
 import { requireHousehold } from "@/server/session"
 import { listCategories } from "@/server/services/catalog"
 import { getHousehold, listInvitations, listMembers } from "@/server/services/households"
@@ -49,14 +51,17 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       />
     )
   } else {
-    const [providers, methods] = await Promise.all([getLoginProviders(ctx.userId), getAuthMethods()])
+    const [providers, methods, notifications] = await Promise.all([getLoginProviders(ctx.userId), getAuthMethods(), notificationProfile(ctx)])
     content = (
-      <ProfileSettings
-        user={{ name: ctx.user.name, email: ctx.user.email }}
-        hasPassword={providers.includes("credential")}
-        localEnabled={methods.local}
-        sso={methods.oidc ? { name: methods.oidc.displayName, linked: providers.includes("oidc") } : null}
-      />
+      <>
+        <ProfileSettings
+          user={{ name: ctx.user.name, email: ctx.user.email }}
+          hasPassword={providers.includes("credential")}
+          localEnabled={methods.local}
+          sso={methods.oidc ? { name: methods.oidc.displayName, linked: providers.includes("oidc") } : null}
+        />
+        <NotificationSettings {...notifications} />
+      </>
     )
   }
 

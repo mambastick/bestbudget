@@ -18,6 +18,7 @@ const env = {
   FX_PROVIDER: "none",
   DB_POOL_MAX: "1",
   RATE_LIMIT_ENABLED: "false",
+  JOBS_ENABLED: "false",
   PORT: String(PORT),
   HOSTNAME: "127.0.0.1",
 }

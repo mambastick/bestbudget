@@ -14,6 +14,7 @@ const csp = [
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "object-src 'none'",
+  "worker-src 'self'",
 ].join("; ")
 
 const nextConfig: NextConfig = {
@@ -24,6 +25,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   async headers() {
     return [
+      { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
       {
         source: "/:path*",
         headers: [
