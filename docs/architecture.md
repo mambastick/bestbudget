@@ -158,9 +158,14 @@ e2e/                     # Playwright
 
 ## Уведомления и фоновые задачи
 
-`src/instrumentation.ts` запускает минутный scheduler только в Node.js runtime, вне build/Vitest и при `JOBS_ENABLED != false`.
+`src/instrumentation.ts` запускает минутный scheduler и независимый непрерывный контроллер Telegram только в Node.js runtime,
+вне build/Vitest и при `JOBS_ENABLED != false`.
 `src/server/jobs/lock.ts` удерживает `pg_try_advisory_lock` на отдельном соединении на всё время прогона; финансовые сервисы продолжают
 работать через обычный пул, включая `DB_POOL_MAX=1`. Перекрывающиеся тики пропускаются. При нескольких репликах работает один scheduler.
+Telegram использует другой advisory lock (ключ 2 вместо 1) и закреплённую долгоживущую SQL-сессию без idle/max-lifetime timeout.
+`getUpdates(timeout: 30)` повторяется сразу после ответа; ошибки и 409 получают backoff. Проверка версии настроек раз в секунду
+отменяет HTTP/backoff при смене токена или режима. SIGTERM/SIGINT отменяют polling и освобождают сессию; её потеря тоже отменяет polling.
+Callback подтверждается до финансовых запросов, итоговое сообщение отправляется после проверки прав и версии платежа.
 
 `notification_preferences` связана составным FK с членством `(household_id, user_id)` и удаляется при выходе из семьи.
 Job заново разрешает контекст и права; финансовые данные читает через существующие сервисы операций, прогнозов и бюджетов.
