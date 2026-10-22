@@ -84,7 +84,7 @@ docker compose pull && docker compose up -d
 Чарт публикуется в GHCR как OCI-артефакт. Минимальная установка со встроенным PostgreSQL и Ingress:
 
 ```bash
-helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.0-beta.2 \
+helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.1 \
   --namespace bestbudget --create-namespace \
   --set appUrl=https://budget.example.com \
   --set ingress.enabled=true --set ingress.className=nginx --set ingress.tls.enabled=true
