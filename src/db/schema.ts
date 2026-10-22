@@ -170,7 +170,7 @@ export const invitations = pgTable(
 // Finance
 // ---------------------------------------------------------------------------
 
-export const accountKind = pgEnum("financial_account_kind", ["cash", "debit_card", "credit_card", "savings", "shared", "other"])
+export const accountKind = pgEnum("financial_account_kind", ["cash", "debit_card", "credit_card", "savings", "shared", "other", "loan"])
 export type AccountKind = (typeof accountKind.enumValues)[number]
 
 export const financialAccounts = pgTable(
@@ -185,6 +185,7 @@ export const financialAccounts = pgTable(
     currency: text("currency").notNull().default("RUB"),
     /** Balance at the moment tracking started; negative for credit card debt. */
     openingBalance: money("opening_balance").notNull().default(0),
+    creditLimit: money("credit_limit").notNull().default(0),
     version: integer("version").notNull().default(1),
     sortOrder: integer("sort_order").notNull().default(0),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -194,6 +195,7 @@ export const financialAccounts = pgTable(
   (t) => [
     // Target for composite foreign keys that guarantee same-household references.
     unique("financial_accounts_household_id_uq").on(t.householdId, t.id),
+    check("financial_accounts_credit_limit_ck", sql`${t.creditLimit} >= 0`),
   ],
 )
 
@@ -350,6 +352,78 @@ export const recurringRules = pgTable(
   ],
 )
 
+export const loanKind = pgEnum("loan_kind", ["mortgage", "consumer", "car", "credit_line", "other"])
+export const loanScheduleType = pgEnum("loan_schedule_type", ["annuity", "differentiated"])
+export const loanInterestMethod = pgEnum("loan_interest_method", ["monthly", "daily_365", "daily_actual"])
+export const loanStatus = pgEnum("loan_status", ["active", "closed"])
+export const loanEventType = pgEnum("loan_event_type", ["prepayment", "rate_change", "reconciliation"])
+export const loanPrepaymentMode = pgEnum("loan_prepayment_mode", ["reduce_term", "reduce_payment"])
+
+export const loans = pgTable("loans", {
+  id: id(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  accountId: uuid("account_id").notNull(),
+  lender: text("lender").notNull(),
+  kind: loanKind("kind").notNull(),
+  principal: money("principal").notNull(),
+  annualRate: numeric("annual_rate", { precision: 9, scale: 6 }).notNull(),
+  startDate: date("start_date", { mode: "string" }).notNull(),
+  trackingDate: date("tracking_date", { mode: "string" }).notNull(),
+  trackingBalance: money("tracking_balance").notNull(),
+  firstPaymentDate: date("first_payment_date", { mode: "string" }).notNull(),
+  /** Remaining term at trackingDate, including firstPaymentDate. */
+  termMonths: integer("term_months").notNull(),
+  paymentDay: smallint("payment_day").notNull(),
+  paymentAmount: money("payment_amount"),
+  scheduleType: loanScheduleType("schedule_type").notNull(),
+  interestMethod: loanInterestMethod("interest_method").notNull(),
+  paymentAccountId: uuid("payment_account_id").notNull(),
+  interestCategoryId: uuid("interest_category_id").notNull(),
+  status: loanStatus("status").notNull().default("active"),
+  version: integer("version").notNull().default(1),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  unique("loans_household_id_uq").on(t.householdId, t.id),
+  unique("loans_account_uq").on(t.accountId),
+  index("loans_household_idx").on(t.householdId),
+  foreignKey({ name: "loans_account_fk", columns: [t.householdId, t.accountId], foreignColumns: [financialAccounts.householdId, financialAccounts.id] }),
+  foreignKey({ name: "loans_payment_account_fk", columns: [t.householdId, t.paymentAccountId], foreignColumns: [financialAccounts.householdId, financialAccounts.id] }),
+  foreignKey({ name: "loans_interest_category_fk", columns: [t.householdId, t.interestCategoryId], foreignColumns: [categories.householdId, categories.id] }),
+  check("loans_amounts_ck", sql`${t.principal} > 0 and ${t.trackingBalance} > 0 and ${t.trackingBalance} <= ${t.principal} and (${t.paymentAmount} is null or ${t.paymentAmount} > 0)`),
+  check("loans_rate_ck", sql`${t.annualRate} between 0 and 100`),
+  check("loans_term_ck", sql`${t.termMonths} between 1 and 600 and ${t.paymentDay} between 1 and 31`),
+  check("loans_dates_ck", sql`${t.startDate} <= ${t.trackingDate} and ${t.firstPaymentDate} > ${t.trackingDate}`),
+  check("loans_accounts_ck", sql`${t.accountId} <> ${t.paymentAccountId}`),
+])
+
+export const loanEvents = pgTable("loan_events", {
+  id: id(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  loanId: uuid("loan_id").notNull(),
+  type: loanEventType("type").notNull(),
+  date: date("date", { mode: "string" }).notNull(),
+  amount: money("amount"),
+  mode: loanPrepaymentMode("mode"),
+  annualRate: numeric("annual_rate", { precision: 9, scale: 6 }),
+  balance: money("balance"),
+  /** Signed ledger adjustment on reconciliation; excluded from income and expenses. */
+  balanceDelta: money("balance_delta"),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+}, (t) => [
+  foreignKey({ name: "loan_events_loan_fk", columns: [t.householdId, t.loanId], foreignColumns: [loans.householdId, loans.id] }).onDelete("cascade"),
+  unique("loan_events_date_uq").on(t.loanId, t.date),
+  check("loan_events_payload_ck", sql`(
+    ${t.type} = 'prepayment' and ${t.amount} is not null and ${t.amount} > 0 and ${t.mode} is not null and ${t.annualRate} is null and ${t.balance} is null and ${t.balanceDelta} is null
+  ) or (
+    ${t.type} = 'rate_change' and ${t.annualRate} is not null and ${t.annualRate} between 0 and 100 and ${t.amount} is null and ${t.mode} is null and ${t.balance} is null and ${t.balanceDelta} is null
+  ) or (
+    ${t.type} = 'reconciliation' and ${t.balance} is not null and ${t.balance} >= 0 and ${t.balanceDelta} is not null and ${t.amount} is null and ${t.mode} is null and ${t.annualRate} is null
+  )`),
+])
+
 export const transactions = pgTable(
   "transactions",
   {
@@ -368,6 +442,10 @@ export const transactions = pgTable(
     categoryId: uuid("category_id"),
     accountId: uuid("account_id").notNull(),
     toAccountId: uuid("to_account_id"),
+    loanId: uuid("loan_id"),
+    loanDueDate: date("loan_due_date", { mode: "string" }),
+    loanPart: text("loan_part", { enum: ["principal", "interest", "prepayment"] }),
+    loanPaymentKey: text("loan_payment_key"),
     recurringRuleId: uuid("recurring_rule_id"),
     /** Original schedule slot; stays fixed when the occurrence is moved, which keeps generation idempotent. */
     occurrenceDate: date("occurrence_date", { mode: "string" }),
@@ -379,6 +457,10 @@ export const transactions = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [
+    index("transactions_loan_payment_key_idx").on(t.householdId, t.loanPaymentKey),
+    unique("transactions_loan_part_uq").on(t.loanId, t.loanDueDate, t.loanPart),
+    foreignKey({ name: "transactions_loan_fk", columns: [t.householdId, t.loanId], foreignColumns: [loans.householdId, loans.id] }),
+    check("transactions_loan_ck", sql`(${t.loanId} is null and ${t.loanDueDate} is null and ${t.loanPart} is null and ${t.loanPaymentKey} is null) or (${t.loanId} is not null and ${t.loanDueDate} is not null and ${t.loanPaymentKey} is not null and ${t.loanPart} is not null and ${t.recurringRuleId} is null and ((${t.loanPart} = 'interest' and ${t.type} = 'expense') or (${t.loanPart} in ('principal', 'prepayment') and ${t.type} = 'transfer')))`),
     unique("transactions_occurrence_uq").on(t.recurringRuleId, t.occurrenceDate),
     index("transactions_household_date_idx").on(t.householdId, t.date),
     index("transactions_household_status_date_idx").on(t.householdId, t.status, t.date),
@@ -618,3 +700,5 @@ export const notificationSettings = pgTable("notification_settings", {
   updatedAt: updatedAt(),
 }, (t) => [check("notification_settings_singleton_ck", sql`${t.id} = 1`)])
 export type Goal = typeof goals.$inferSelect
+export type Loan = typeof loans.$inferSelect
+export type LoanEvent = typeof loanEvents.$inferSelect

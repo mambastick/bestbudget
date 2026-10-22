@@ -38,6 +38,8 @@ it("upgrades beta operations, transfers and recurring rules without changing RUB
     expect((await db.query("select currency, opening_balance::text, version from financial_accounts order by id")).rows).toEqual([
       { currency: "RUB", opening_balance: "123456", version: 1 }, { currency: "RUB", opening_balance: "0", version: 1 },
     ])
+    expect((await db.query("select credit_limit::text from financial_accounts order by id")).rows).toEqual([{ credit_limit: "0" }, { credit_limit: "0" }])
+    expect((await db.query("select count(*)::int as n from transactions where loan_id is not null")).rows).toEqual([{ n: 0 }])
     expect((await db.query("select currency, version from households")).rows).toEqual([{ currency: "RUB", version: 1 }])
     expect((await db.query("select indexdef from pg_indexes where indexname = 'transactions_household_status_date_idx'")).rows).toEqual([
       { indexdef: expect.stringContaining("(household_id, status, date)") },
