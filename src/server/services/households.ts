@@ -6,16 +6,18 @@ import { categories, financialAccounts, householdMembers, households, invitation
 import { DEFAULT_ACCOUNT_NAME, DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES } from "@/domain/defaults"
 import type { HouseholdRole } from "@/domain/permissions"
 import { hashToken, randomToken } from "@/lib/crypto"
+import { CURRENCY_CODES } from "@/lib/currencies"
 import { isValidTimeZone } from "@/lib/dates"
 import { audit } from "../audit"
 import { assertCan, type HouseholdCtx } from "../context"
-import { AppError, notFound } from "../errors"
+import { AppError, conflict, notFound } from "../errors"
 
 const timezone = z.string().refine(isValidTimeZone, "Неизвестный часовой пояс")
 const memberIdSchema = z.uuid("Некорректный идентификатор")
 
 export const householdInput = z.object({
   name: z.string().trim().min(1, "Укажите название").max(80),
+  currency: z.enum(CURRENCY_CODES).optional(),
   timezone: timezone.default("Europe/Moscow"),
 })
 
@@ -24,7 +26,7 @@ export async function createHousehold(userId: string, raw: z.input<typeof househ
   return getDb().transaction(async (tx) => {
     const [household] = await tx
       .insert(households)
-      .values({ name: input.name, timezone: input.timezone, createdBy: userId })
+      .values({ name: input.name, timezone: input.timezone, currency: input.currency ?? "RUB", createdBy: userId })
       .returning()
     const id = household!.id
     await tx.insert(householdMembers).values({ householdId: id, userId, role: "owner" })
@@ -32,7 +34,7 @@ export async function createHousehold(userId: string, raw: z.input<typeof househ
       ...DEFAULT_INCOME_CATEGORIES.map((c, i) => ({ ...c, householdId: id, kind: "income" as const, sortOrder: i })),
       ...DEFAULT_EXPENSE_CATEGORIES.map((c, i) => ({ ...c, householdId: id, kind: "expense" as const, sortOrder: i })),
     ])
-    await tx.insert(financialAccounts).values({ householdId: id, name: DEFAULT_ACCOUNT_NAME, kind: "debit_card" })
+    await tx.insert(financialAccounts).values({ householdId: id, name: DEFAULT_ACCOUNT_NAME, kind: "debit_card", currency: input.currency ?? "RUB" })
     await audit({ action: "household.create", entityType: "household", entityId: id, householdId: id, actorId: userId }, tx)
     return household!
   })
@@ -71,10 +73,13 @@ export async function getHousehold(ctx: HouseholdCtx) {
   return row
 }
 
-export async function updateHousehold(ctx: HouseholdCtx, raw: z.input<typeof householdInput>) {
+export async function updateHousehold(ctx: HouseholdCtx, raw: z.input<typeof householdInput> & { version?: number }) {
   assertCan(ctx, "household.manage")
   const input = householdInput.parse(raw)
-  await getDb().update(households).set(input).where(eq(households.id, ctx.householdId))
+  const before = await getHousehold(ctx)
+  const version = z.number().int().positive().parse(raw.version ?? before.version)
+  const updated = await getDb().update(households).set({ ...input, version: sql`${households.version} + 1` }).where(and(eq(households.id, ctx.householdId), eq(households.version, version))).returning()
+  if (!updated.length) throw conflict()
   await audit({ action: "household.update", entityType: "household", entityId: ctx.householdId, householdId: ctx.householdId, actorId: ctx.userId, meta: input })
 }
 

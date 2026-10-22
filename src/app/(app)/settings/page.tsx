@@ -33,7 +33,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     ])
     content = (
       <HouseholdSettings
-        household={{ name: household.name, timezone: household.timezone, currency: household.currency }}
+        household={{ name: household.name, timezone: household.timezone, currency: household.currency, version: household.version }}
         members={members.map((m) => ({ ...m, joinedAt: m.joinedAt.toISOString() }))}
         invitations={invitations.map((i) => ({ ...i, expiresAt: i.expiresAt.toISOString(), createdAt: i.createdAt.toISOString() }))}
         currentUserId={ctx.userId}

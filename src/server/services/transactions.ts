@@ -20,6 +20,7 @@ export const amount = z
 export const operationFields = z.object({
   type: z.enum(["income", "expense", "transfer"]),
   amount,
+  toAmount: amount.nullable().optional(),
   title: z.string().trim().max(120).optional().default(""),
   description: z.string().trim().max(1000).optional().nullable(),
   categoryId: z.uuid().nullable().optional(),
@@ -50,11 +51,19 @@ export async function normalizeOperation(db: DbOrTx, ctx: HouseholdCtx, input: O
 
   const accountIds = [input.accountId, ...(toAccountId ? [toAccountId] : [])]
   const accounts = await db
-    .select({ id: financialAccounts.id, name: financialAccounts.name, archivedAt: financialAccounts.archivedAt })
+    .select({ id: financialAccounts.id, name: financialAccounts.name, archivedAt: financialAccounts.archivedAt, currency: financialAccounts.currency })
     .from(financialAccounts)
     .where(and(eq(financialAccounts.householdId, ctx.householdId), inArray(financialAccounts.id, accountIds)))
   if (accounts.length !== accountIds.length) throw notFound("Счёт не найден")
   if (!opts.allowArchived && accounts.some((a) => a.archivedAt)) throw new AppError("Счёт находится в архиве")
+
+  const fromAccount = accounts.find((a) => a.id === input.accountId)!
+  const toAccount = accounts.find((a) => a.id === toAccountId)
+  const crossCurrency = isTransfer && fromAccount.currency !== toAccount?.currency
+  if (crossCurrency && !input.toAmount) throw new AppError("Укажите сумму зачисления в валюте получателя")
+  if (isTransfer && !crossCurrency && input.toAmount != null && input.toAmount !== input.amount) {
+    throw new AppError("В одной валюте суммы списания и зачисления должны совпадать")
+  }
 
   let title = input.title
   if (categoryId) {
@@ -71,6 +80,7 @@ export async function normalizeOperation(db: DbOrTx, ctx: HouseholdCtx, input: O
   return {
     type: input.type,
     amount: input.amount,
+    toAmount: crossCurrency ? input.toAmount! : null,
     title,
     description: input.description || null,
     categoryId,
@@ -165,6 +175,7 @@ export async function updateTransaction(ctx: HouseholdCtx, id: string, raw: Tran
 export const confirmInput = z.object({
   version: z.number().int(),
   amount: amount.optional(),
+  toAmount: amount.optional(),
   date: isoDate.optional(),
 })
 
@@ -174,11 +185,14 @@ export async function confirmTransaction(ctx: HouseholdCtx, id: string, raw: z.i
   const input = confirmInput.parse(raw)
   const before = await getOwned(getDb(), ctx, id)
   if (before.status === "posted") throw new AppError("Операция уже подтверждена")
+  const values = await normalizeOperation(getDb(), ctx, operationFields.parse({
+    ...before, amount: input.amount ?? before.amount, toAmount: input.toAmount ?? before.toAmount,
+  }), { allowArchived: true })
   return updateVersioned(
     ctx,
     before,
     input.version,
-    { status: "posted", postedAt: new Date(), amount: input.amount ?? before.amount, date: input.date ?? before.date },
+    { ...values, status: "posted", postedAt: new Date(), date: input.date ?? before.date },
     "transaction.confirm",
   )
 }
@@ -253,6 +267,9 @@ export const transactionListColumns = {
   type: transactions.type,
   status: transactions.status,
   amount: transactions.amount,
+  toAmount: transactions.toAmount,
+  currency: financialAccounts.currency,
+  toCurrency: toAccounts.currency,
   title: transactions.title,
   description: transactions.description,
   date: transactions.date,

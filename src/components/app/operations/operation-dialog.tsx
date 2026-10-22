@@ -1,7 +1,10 @@
 "use client"
 
 import { Plus, Repeat, Trash2 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { quoteConversionAction } from "@/app/actions/exchange-rates"
+import { currencyExponent } from "@/lib/currencies"
+import type { CatalogAccount } from "./catalog-context"
 import { createRulesAction, createTransactionAction, updateRuleAction, updateTransactionAction } from "@/app/actions/finance"
 import { CategoryIcon } from "@/components/app/category-icon"
 import { DateField } from "@/components/app/date-field"
@@ -32,6 +35,7 @@ type Frequency = keyof typeof FREQUENCY_LABELS
 interface FormState {
   type: OperationType
   amount: string
+  toAmount: string | null
   categoryId: string | null
   accountId: string | null
   toAccountId: string | null
@@ -48,10 +52,11 @@ interface FormState {
   scope: "one" | "future"
 }
 
-function initialState(mode: OperationDialogMode, today: IsoDate, defaultAccount: string | null): FormState {
+function initialState(mode: OperationDialogMode, today: IsoDate, defaultAccount: string | null, accounts: CatalogAccount[]): FormState {
   const base: FormState = {
     type: "expense",
     amount: "",
+    toAmount: null,
     categoryId: null,
     accountId: defaultAccount,
     toAccountId: null,
@@ -76,7 +81,8 @@ function initialState(mode: OperationDialogMode, today: IsoDate, defaultAccount:
     return {
       ...base,
       type: r.type,
-      amount: minorToInput(r.amount),
+      amount: minorToInput(r.amount, accounts.find((a) => a.id === r.accountId)!.currency),
+      toAmount: r.toAmount ? minorToInput(r.toAmount, accounts.find((a) => a.id === r.toAccountId)!.currency) : null,
       categoryId: r.categoryId,
       accountId: r.accountId,
       toAccountId: r.toAccountId,
@@ -90,7 +96,8 @@ function initialState(mode: OperationDialogMode, today: IsoDate, defaultAccount:
   return {
     ...base,
     type: rule.type,
-    amount: minorToInput(rule.amount),
+    amount: minorToInput(rule.amount, accounts.find((a) => a.id === rule.accountId)!.currency),
+    toAmount: rule.toAmount ? minorToInput(rule.toAmount, accounts.find((a) => a.id === rule.toAccountId)!.currency) : null,
     categoryId: rule.categoryId,
     accountId: rule.accountId,
     toAccountId: rule.toAccountId,
@@ -120,10 +127,32 @@ export function OperationDialog({ mode, open, onOpenChange }: { mode: OperationD
 function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: () => void }) {
   const { categories, accounts, today } = useCatalog()
   const activeAccounts = accounts.filter((a) => !a.archived)
-  const [s, setS] = useState<FormState>(() => initialState(mode, today, activeAccounts[0]?.id ?? null))
+  const [s, setS] = useState<FormState>(() => initialState(mode, today, activeAccounts[0]?.id ?? null, accounts))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const { pending, run } = useAction()
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setS((prev) => ({ ...prev, [key]: value }))
+
+  const currency = accounts.find((a) => a.id === s.accountId)?.currency ?? "RUB"
+  const toCurrency = accounts.find((a) => a.id === s.toAccountId)?.currency ?? currency
+  const crossCurrency = s.type === "transfer" && currency !== toCurrency
+  const parsedAmount = parseMoney(s.amount, currency)
+  const quoteDate = s.posted && !s.repeat && mode.kind !== "rule" && s.scope !== "future" ? s.date : today
+  const quoteKey = `${parsedAmount}:${currency}:${toCurrency}:${quoteDate}`
+  const [quote, setQuote] = useState<{ key: string; amount: number | null; warnings: string[] } | null>(null)
+  useEffect(() => {
+    if (!crossCurrency || !parsedAmount) return
+    let active = true
+    const timer = setTimeout(() => {
+      void quoteConversionAction(parsedAmount, currency, toCurrency, quoteDate).then((res) => {
+        if (active && res.ok) setQuote({ key: quoteKey, ...res.data })
+      })
+    }, 250)
+    return () => { active = false; clearTimeout(timer) }
+  }, [parsedAmount, currency, toCurrency, quoteDate, quoteKey, crossCurrency])
+  const currentQuote = quote?.key === quoteKey ? quote : null
+  const creditedInput = s.toAmount ?? (currentQuote?.amount ? minorToInput(currentQuote.amount, toCurrency) : "")
+  const credited = crossCurrency ? parseMoney(creditedInput, toCurrency) : null
+  const effectiveRate = parsedAmount && credited ? (credited / 10 ** currencyExponent(toCurrency)) / (parsedAmount / 10 ** currencyExponent(currency)) : null
 
   const isRule = mode.kind === "rule"
   const isOccurrence = mode.kind === "transaction" && mode.row.recurringRuleId !== null
@@ -155,13 +184,14 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
 
   function submit(e: React.FormEvent) {
     e.preventDefault()
-    const amount = parseMoney(s.amount)
+    const amount = parseMoney(s.amount, currency)
     const fieldErrors: Record<string, string> = {}
+    if (crossCurrency && !credited) fieldErrors.toAmount = "Укажите сумму зачисления"
     if (!amount) fieldErrors.amount = "Укажите сумму"
     if (s.type !== "transfer" && !s.categoryId) fieldErrors.categoryId = "Выберите категорию"
     if (!s.accountId) fieldErrors.accountId = "Выберите счёт"
     if (s.type === "transfer" && !s.toAccountId) fieldErrors.toAccountId = "Выберите счёт зачисления"
-    const extra = s.extra.map((x) => ({ dayOfMonth: Number(x.dayOfMonth), amount: parseMoney(x.amount) ?? 0 }))
+    const extra = s.extra.map((x) => ({ dayOfMonth: Number(x.dayOfMonth), amount: parseMoney(x.amount, currency) ?? 0 }))
     if (showSchedule && extra.some((x) => !x.amount || !(x.dayOfMonth >= 1 && x.dayOfMonth <= 31))) fieldErrors.extra = "Проверьте дополнительные начисления"
     setErrors(fieldErrors)
     if (Object.keys(fieldErrors).length > 0 || !amount || !s.accountId) return
@@ -169,6 +199,7 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
     const fields = {
       type: s.type,
       amount,
+      toAmount: crossCurrency ? credited : null,
       title: s.title.trim(),
       description: s.description.trim() || null,
       categoryId: s.type === "transfer" ? null : s.categoryId,
@@ -261,10 +292,11 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
       <Field>
         <FieldLabel htmlFor="op-amount">Сумма</FieldLabel>
         <MoneyInput
+          currency={currency}
           id="op-amount"
           autoFocus={mode.kind === "create"}
           value={s.amount}
-          onChange={(v) => set("amount", v)}
+          onChange={(v) => setS((prev) => ({ ...prev, amount: v, toAmount: null }))}
           aria-invalid={Boolean(errors.amount)}
           className="[&_input]:h-11 [&_input]:text-lg"
         />
@@ -305,20 +337,28 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
       <div className={s.type === "transfer" ? "grid grid-cols-1 gap-4 sm:grid-cols-2" : "grid grid-cols-1 gap-4"}>
         <Field>
           <FieldLabel>{s.type === "transfer" ? "Со счёта" : "Счёт"}</FieldLabel>
-          <AccountSelect value={s.accountId} onChange={(v) => set("accountId", v)} accounts={selectableAccounts} invalid={Boolean(errors.accountId)} />
+          <AccountSelect value={s.accountId} onChange={(v) => setS((prev) => ({ ...prev, accountId: v, toAmount: null }))} accounts={selectableAccounts} invalid={Boolean(errors.accountId)} />
         </Field>
         {s.type === "transfer" ? (
           <Field>
             <FieldLabel>На счёт</FieldLabel>
             <AccountSelect
               value={s.toAccountId}
-              onChange={(v) => set("toAccountId", v)}
+              onChange={(v) => setS((prev) => ({ ...prev, toAccountId: v, toAmount: null }))}
               accounts={selectableAccounts.filter((a) => a.id !== s.accountId)}
               invalid={Boolean(errors.toAccountId)}
             />
           </Field>
         ) : null}
       </div>
+
+      {crossCurrency ? <Field>
+        <FieldLabel htmlFor="op-to-amount">Зачислено</FieldLabel>
+        <MoneyInput id="op-to-amount" currency={toCurrency} value={creditedInput} onChange={(v) => set("toAmount", v)} aria-invalid={Boolean(errors.toAmount)} />
+        {effectiveRate ? <p className="text-xs text-muted-foreground">Эффективный курс: 1 {currency} = {new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 8 }).format(effectiveRate)} {toCurrency}</p> : null}
+        {currentQuote?.warnings.map((warning) => <p key={warning} className="text-xs text-muted-foreground">{warning}</p>)}
+        {errors.toAmount ? <p className="text-sm text-destructive">{errors.toAmount}</p> : null}
+      </Field> : null}
 
       {!editingFuture ? (
         <Field>
@@ -352,7 +392,7 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
         </label>
       ) : null}
 
-      {showSchedule ? <ScheduleFields s={s} set={set} errors={errors} today={today} allowExtra={mode.kind === "create"} /> : null}
+      {showSchedule ? <ScheduleFields s={s} set={set} errors={errors} today={today} allowExtra={mode.kind === "create" && s.type !== "transfer"} currency={currency} /> : null}
 
       {!showSchedule && !editingFuture ? (
         <label className="flex items-center justify-between gap-3 rounded-lg border p-3">
@@ -386,18 +426,18 @@ function AccountSelect({
 }: {
   value: string | null
   onChange: (value: string | null) => void
-  accounts: { id: string; name: string }[]
+  accounts: { id: string; name: string; currency: string }[]
   invalid?: boolean
 }) {
   return (
-    <Select value={value} onValueChange={(v) => onChange(v as string | null)} items={accounts.map((a) => ({ value: a.id, label: a.name }))}>
+    <Select value={value} onValueChange={(v) => onChange(v as string | null)} items={accounts.map((a) => ({ value: a.id, label: `${a.name} · ${a.currency}` }))}>
       <SelectTrigger className="w-full" aria-invalid={invalid}>
         <SelectValue placeholder="Выберите счёт" />
       </SelectTrigger>
       <SelectContent>
         {accounts.map((a) => (
           <SelectItem key={a.id} value={a.id}>
-            {a.name}
+            {a.name} · {a.currency}
           </SelectItem>
         ))}
       </SelectContent>
@@ -411,12 +451,14 @@ function ScheduleFields({
   errors,
   today,
   allowExtra,
+  currency,
 }: {
   s: FormState
   set: <K extends keyof FormState>(key: K, value: FormState[K]) => void
   errors: Record<string, string>
   today: IsoDate
   allowExtra: boolean
+  currency: string
 }) {
   const monthly = s.frequency === "monthly"
   const dayBased = monthly || s.frequency === "yearly"
@@ -486,7 +528,7 @@ function ScheduleFields({
               </Field>
               <Field>
                 <Label className="text-xs">Сумма</Label>
-                <MoneyInput value={x.amount} onChange={(v) => set("extra", s.extra.map((y, j) => (j === i ? { ...y, amount: v } : y)))} />
+                <MoneyInput currency={currency} value={x.amount} onChange={(v) => set("extra", s.extra.map((y, j) => (j === i ? { ...y, amount: v } : y)))} />
               </Field>
               <Button type="button" variant="ghost" size="icon" aria-label="Удалить начисление" onClick={() => set("extra", s.extra.filter((_, j) => j !== i))}>
                 <Trash2 />

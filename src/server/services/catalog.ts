@@ -3,9 +3,10 @@ import { and, asc, eq, isNull, or, sql } from "drizzle-orm"
 import { z } from "zod"
 import { getDb } from "@/db"
 import { accountKind, categories, financialAccounts, recurringRules, transactions } from "@/db/schema"
+import { CURRENCY_CODES } from "@/lib/currencies"
 import { audit, diff } from "../audit"
 import { assertCan, type HouseholdCtx } from "../context"
-import { AppError, notFound } from "../errors"
+import { AppError, conflict, notFound } from "../errors"
 
 const uuid = z.uuid("Некорректный идентификатор")
 
@@ -93,13 +94,14 @@ export async function deleteCategory(ctx: HouseholdCtx, id: string) {
 export const accountInput = z.object({
   name: z.string().trim().min(1, "Укажите название").max(60),
   kind: z.enum(accountKind.enumValues),
+  currency: z.enum(CURRENCY_CODES).optional(),
   /** Minor units; negative allowed (credit card debt, overdraft). */
   openingBalance: z.number().int().safe(),
 })
 
 /**
  * Accounts with their current balance: opening balance plus all posted operations.
- * Transfers decrease the source and increase the destination, so the total is unchanged.
+ * Transfers debit the source amount and credit the destination amount in their own currencies.
  */
 export async function listAccounts(ctx: HouseholdCtx, opts: { includeArchived?: boolean } = {}) {
   const t = transactions
@@ -109,7 +111,7 @@ export async function listAccounts(ctx: HouseholdCtx, opts: { includeArchived?: 
       when ${t.type} = 'income' then ${t.amount}
       when ${t.type} = 'expense' then -${t.amount}
       when ${t.type} = 'transfer' and ${t.accountId} = ${a.id} then -${t.amount}
-      when ${t.type} = 'transfer' and ${t.toAccountId} = ${a.id} then ${t.amount}
+      when ${t.type} = 'transfer' and ${t.toAccountId} = ${a.id} then coalesce(${t.toAmount}, ${t.amount})
       else 0
     end), 0)`
   const rows = await getDb()
@@ -117,12 +119,14 @@ export async function listAccounts(ctx: HouseholdCtx, opts: { includeArchived?: 
       id: a.id,
       name: a.name,
       kind: a.kind,
+      version: a.version,
       currency: a.currency,
       openingBalance: a.openingBalance,
       archivedAt: a.archivedAt,
       sortOrder: a.sortOrder,
       delta: balanceDelta,
-      operations: sql<number>`count(${t.id})::int`,
+      operations: sql<number>`(select count(*)::int from transactions u where u.household_id = ${a.householdId} and (u.account_id = ${a.id} or u.to_account_id = ${a.id}))`,
+      currencyLocked: sql<boolean>`exists(select 1 from transactions u where u.household_id = ${a.householdId} and (u.account_id = ${a.id} or u.to_account_id = ${a.id})) or exists(select 1 from recurring_rules r where r.household_id = ${a.householdId} and (r.account_id = ${a.id} or r.to_account_id = ${a.id}))`,
     })
     .from(a)
     .leftJoin(t, and(eq(t.status, "posted"), eq(t.householdId, a.householdId), or(eq(t.accountId, a.id), eq(t.toAccountId, a.id))))
@@ -137,13 +141,13 @@ export async function createAccount(ctx: HouseholdCtx, raw: z.input<typeof accou
   const input = accountInput.parse(raw)
   const [row] = await getDb()
     .insert(financialAccounts)
-    .values({ ...input, householdId: ctx.householdId, currency: ctx.currency, sortOrder: 100 })
+    .values({ ...input, householdId: ctx.householdId, currency: input.currency ?? ctx.currency, sortOrder: 100 })
     .returning()
   await audit({ action: "account.create", entityType: "account", entityId: row!.id, householdId: ctx.householdId, actorId: ctx.userId, meta: { name: input.name } })
   return row!
 }
 
-export async function updateAccount(ctx: HouseholdCtx, id: string, raw: z.input<typeof accountInput>) {
+export async function updateAccount(ctx: HouseholdCtx, id: string, raw: z.input<typeof accountInput> & { version?: number }) {
   assertCan(ctx, "catalog.manage")
   const input = accountInput.parse(raw)
   const db = getDb()
@@ -152,7 +156,14 @@ export async function updateAccount(ctx: HouseholdCtx, id: string, raw: z.input<
     .from(financialAccounts)
     .where(and(eq(financialAccounts.id, uuid.parse(id)), eq(financialAccounts.householdId, ctx.householdId)))
   if (!before) throw notFound("Счёт не найден")
-  await db.update(financialAccounts).set(input).where(eq(financialAccounts.id, id))
+  if (input.currency && input.currency !== before.currency) {
+    const [used] = await db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.householdId, ctx.householdId), or(eq(transactions.accountId, id), eq(transactions.toAccountId, id)))).limit(1)
+    const [rule] = await db.select({ id: recurringRules.id }).from(recurringRules).where(and(eq(recurringRules.householdId, ctx.householdId), or(eq(recurringRules.accountId, id), eq(recurringRules.toAccountId, id)))).limit(1)
+    if (used || rule) throw new AppError("Нельзя изменить валюту счёта с операциями или расписаниями")
+  }
+  const version = z.number().int().positive().parse(raw.version ?? before.version)
+  const updated = await db.update(financialAccounts).set({ ...input, version: sql`${financialAccounts.version} + 1` }).where(and(eq(financialAccounts.id, id), eq(financialAccounts.householdId, ctx.householdId), eq(financialAccounts.version, version))).returning()
+  if (!updated.length) throw conflict()
   await audit({ action: "account.update", entityType: "account", entityId: id, householdId: ctx.householdId, actorId: ctx.userId, meta: diff(before, input) })
 }
 

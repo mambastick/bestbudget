@@ -29,6 +29,7 @@ export interface BudgetRow {
 
 export function BudgetList({ rows, canManage }: { rows: BudgetRow[]; canManage: boolean }) {
   const [editing, setEditing] = useState<BudgetRow | null>(null)
+  const { currency } = useCatalog()
   const limited = rows.filter((r) => r.limit !== null).sort((a, b) => (b.percent ?? 0) - (a.percent ?? 0))
   const unlimited = rows.filter((r) => r.limit === null)
 
@@ -61,7 +62,7 @@ export function BudgetList({ rows, canManage }: { rows: BudgetRow[]; canManage: 
                 <CategoryIcon icon={r.icon} color={r.color} />
                 <span className="min-w-0 flex-1 truncate text-sm">{r.name}</span>
                 <span className="text-sm text-muted-foreground">
-                  <Money value={r.spent} />
+                  <Money value={r.spent} currency={currency} />
                 </span>
                 {canManage ? (
                   <Button variant="ghost" size="sm" onClick={() => setEditing(r)}>
@@ -146,14 +147,15 @@ function LimitDialog({ row, onClose }: { row: BudgetRow | null; onClose: () => v
 }
 
 function LimitForm({ row, onClose }: { row: BudgetRow; onClose: () => void }) {
-  const [value, setValue] = useState(row.limit ? minorToInput(row.limit) : "")
+  const { currency } = useCatalog()
+  const [value, setValue] = useState(row.limit ? minorToInput(row.limit, currency) : "")
   const { pending, run } = useAction()
   return (
     <form
       className="grid grid-cols-1 gap-4"
       onSubmit={(e) => {
         e.preventDefault()
-        const amount = parseMoney(value)
+        const amount = parseMoney(value, currency)
         if (!amount) return
         run(() => setBudgetAction({ categoryId: row.id, amount }), { success: "Лимит сохранён", onSuccess: onClose })
       }}
@@ -164,7 +166,7 @@ function LimitForm({ row, onClose }: { row: BudgetRow; onClose: () => void }) {
       </DialogHeader>
       <Field>
         <FieldLabel htmlFor="limit">Лимит в месяц</FieldLabel>
-        <MoneyInput id="limit" autoFocus value={value} onChange={setValue} />
+        <MoneyInput currency={currency} id="limit" autoFocus value={value} onChange={setValue} />
       </Field>
       <DialogFooter>
         {row.limit ? (
@@ -181,7 +183,7 @@ function LimitForm({ row, onClose }: { row: BudgetRow; onClose: () => void }) {
         <Button type="button" variant="outline" onClick={onClose}>
           Отмена
         </Button>
-        <Button type="submit" disabled={pending || !parseMoney(value)}>
+        <Button type="submit" disabled={pending || !parseMoney(value, currency)}>
           Сохранить
         </Button>
       </DialogFooter>

@@ -1,77 +1,51 @@
 import "server-only"
-import { and, eq, gte, lt, lte, sql } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 import { getDb } from "@/db"
-import { categories, financialAccounts, transactions } from "@/db/schema"
-import { effectiveDate, projectDailyBalances, signedAmount, type FlowItem } from "@/domain/forecast"
+import { categories } from "@/db/schema"
+import { effectiveDate, type FlowItem } from "@/domain/forecast"
 import { addDays, addMonths, diffDays, endOfMonth, maxDate, monthKey, startOfMonth, todayIn, type IsoDate } from "@/lib/dates"
+import { selectRate } from "@/lib/exchange-rates"
 import { assertCan, type HouseholdCtx } from "../context"
+import { applyMovement, loadFinance, type FinanceData } from "./finance-data"
 import { ensureMaterialized, virtualOccurrences, type VirtualOccurrence } from "./recurring"
 import { listInRange, type TransactionRow } from "./transactions"
 
-const signedSql = sql<string>`coalesce(sum(case
-  when ${transactions.type} = 'income' then ${transactions.amount}
-  when ${transactions.type} = 'expense' then -${transactions.amount}
-  else 0 end), 0)`
-
-async function openingTotal(ctx: HouseholdCtx) {
-  const [row] = await getDb()
-    .select({ total: sql<string>`coalesce(sum(${financialAccounts.openingBalance}), 0)` })
-    .from(financialAccounts)
-    .where(eq(financialAccounts.householdId, ctx.householdId))
-  return Number(row?.total ?? 0)
-}
-
-/** Current actual balance: opening balances of all accounts plus every posted operation. */
+/** Account balances are valued at the latest known rate, including archived accounts. */
 export async function actualBalance(ctx: HouseholdCtx) {
-  const [row] = await getDb()
-    .select({ total: signedSql })
-    .from(transactions)
-    .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.status, "posted")))
-  return (await openingTotal(ctx)) + Number(row?.total ?? 0)
+  assertCan(ctx, "finance.read")
+  return (await loadFinance(ctx)).balance
 }
 
-async function postedSignedBefore(ctx: HouseholdCtx, date: IsoDate) {
-  const [row] = await getDb()
-    .select({ total: signedSql })
-    .from(transactions)
-    .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.status, "posted"), lt(transactions.date, date)))
-  return Number(row?.total ?? 0)
+async function project(ctx: HouseholdCtx, data: FinanceData, from: IsoDate, to: IsoDate, today: IsoDate) {
+  const virtual = to >= today ? await virtualOccurrences(ctx, today, to, today) : [] as VirtualOccurrence[]
+  const planned = [...data.rows.filter((r) => r.status === "planned" && r.date <= to), ...virtual.map((v) => ({ ...v, status: "planned" as const }))]
+  const plannedItems: FlowItem[] = planned.map((r) => ({ date: r.date, type: r.type, status: "planned", amount: data.value(r) }))
+  const movements = [
+    ...data.rows.filter((r) => r.status === "posted" && r.date <= to),
+    ...planned.map((r) => ({ ...r, date: effectiveDate({ date: r.date, status: "planned" }, today) })),
+  ].sort((a, b) => a.date.localeCompare(b.date))
+  const balances = new Map(data.accounts.map((a) => [a.id, a.openingBalance]))
+  let index = 0
+  const days = []
+  for (let date = from; date <= to; date = addDays(date, 1)) {
+    let income = 0
+    let expense = 0
+    while (index < movements.length && movements[index]!.date <= date) {
+      const row = movements[index++]!
+      applyMovement(balances, row)
+      if (row.date !== date) continue
+      if (row.type === "income") income += data.value(row)
+      if (row.type === "expense") expense += data.value(row)
+    }
+    const balance = data.accounts.reduce((sum, a) => sum + data.convert(balances.get(a.id)!, a.currency, date), 0)
+    days.push({ date, income, expense, balance })
+  }
+  return { days, plannedItems, virtual }
 }
 
-async function plannedRowsUntil(ctx: HouseholdCtx, to: IsoDate) {
-  return getDb()
-    .select({ date: transactions.date, type: transactions.type, amount: transactions.amount })
-    .from(transactions)
-    .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.status, "planned"), lte(transactions.date, to)))
-}
-
-async function postedRowsBetween(ctx: HouseholdCtx, from: IsoDate, to: IsoDate) {
-  return getDb()
-    .select({ date: transactions.date, type: transactions.type, amount: transactions.amount })
-    .from(transactions)
-    .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.status, "posted"), gte(transactions.date, from), lte(transactions.date, to)))
-}
-
-/**
- * Daily projected balance for [from, to].
- * Past days use posted operations only; from today on, planned (materialized and virtual) operations are added.
- */
 export async function projection(ctx: HouseholdCtx, from: IsoDate, to: IsoDate, today: IsoDate) {
-  const [opening, postedBefore, planned, posted, virtual] = await Promise.all([
-    openingTotal(ctx),
-    postedSignedBefore(ctx, from),
-    plannedRowsUntil(ctx, to),
-    postedRowsBetween(ctx, from, to),
-    to >= today ? virtualOccurrences(ctx, today, to, today) : Promise.resolve([] as VirtualOccurrence[]),
-  ])
-  const plannedItems: FlowItem[] = [
-    ...planned.map((p) => ({ ...p, status: "planned" as const })),
-    ...virtual.map((v) => ({ date: v.date, type: v.type, amount: v.amount, status: "planned" as const })),
-  ]
-  let base = opening + postedBefore
-  for (const p of plannedItems) if (effectiveDate(p, today) < from) base += signedAmount(p)
-  const items: FlowItem[] = [...posted.map((p) => ({ ...p, status: "posted" as const })), ...plannedItems]
-  return { days: projectDailyBalances(base, from, to, today, items), plannedItems, virtual }
+  assertCan(ctx, "finance.read")
+  return project(ctx, await loadFinance(ctx), from, to, today)
 }
 
 export interface UpcomingItem {
@@ -81,288 +55,155 @@ export interface UpcomingItem {
   date: IsoDate
   type: "income" | "expense" | "transfer"
   amount: number
+  currency: string
   title: string
   categoryIcon: string | null
   categoryColor: string | null
   overdue: boolean
 }
 
+function totals(data: FinanceData, from: string, to: string, status = "posted") {
+  let income = 0
+  let expense = 0
+  let count = 0
+  for (const r of data.rows) {
+    if (r.status !== status || r.date < from || r.date > to || r.type === "transfer") continue
+    const amount = data.value(r)
+    if (r.type === "income") income += amount
+    else expense += amount
+    count += r.count
+  }
+  return { income, expense, net: income - expense, count }
+}
+
+function monthlyTotals(data: FinanceData, from: string, to: string) {
+  const result = []
+  for (let m = startOfMonth(from); m <= to; m = addMonths(m, 1)) {
+    result.push({ month: monthKey(m), ...totals(data, maxDate(m, from), endOfMonth(m) < to ? endOfMonth(m) : to) })
+  }
+  return result
+}
+
+async function categoryTotals(ctx: HouseholdCtx, data: FinanceData, from: string, to: string) {
+  const cats = await getDb().select().from(categories).where(eq(categories.householdId, ctx.householdId))
+  const sums = new Map<string, number>()
+  for (const r of data.rows) {
+    if (r.status !== "posted" || r.type !== "expense" || !r.categoryId || r.date < from || r.date > to) continue
+    sums.set(r.categoryId, (sums.get(r.categoryId) ?? 0) + data.value(r))
+  }
+  return cats.filter((c) => sums.has(c.id)).map((c) => ({ categoryId: c.id, name: c.name, color: c.color, icon: c.icon, total: sums.get(c.id)! })).sort((a, b) => b.total - a.total)
+}
+
 export async function getDashboard(ctx: HouseholdCtx, month: IsoDate) {
   assertCan(ctx, "finance.read")
   const today = todayIn(ctx.timezone)
   await ensureMaterialized(ctx.householdId, today)
+  const data = await loadFinance(ctx)
   const monthStart = startOfMonth(month)
   const monthEnd = endOfMonth(month)
-  const db = getDb()
-
-  const sixStart = addMonths(monthStart, -5)
-  const forecastEnd = addDays(today, 90)
-
-  const [balance, monthProjection, trend, byCategory, forecast, upcomingRows, upcomingVirtual] = await Promise.all([
-    actualBalance(ctx),
-    projection(ctx, monthStart, monthEnd, today),
-    db
-      .select({
-        month: sql<string>`to_char(${transactions.date}, 'YYYY-MM')`,
-        income: sql<string>`coalesce(sum(${transactions.amount}) filter (where ${transactions.type} = 'income'), 0)`,
-        expense: sql<string>`coalesce(sum(${transactions.amount}) filter (where ${transactions.type} = 'expense'), 0)`,
-      })
-      .from(transactions)
-      .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.status, "posted"), gte(transactions.date, sixStart), lte(transactions.date, monthEnd)))
-      .groupBy(sql`1`),
-    expenseByCategory(ctx, monthStart, monthEnd),
-    projection(ctx, today, forecastEnd, today),
+  const obligationsUntil = maxDate(monthEnd, endOfMonth(today))
+  const [monthProjection, forecast, byCategory, upcomingRows, upcomingVirtual, cats, obligations] = await Promise.all([
+    project(ctx, data, monthStart, monthEnd, today),
+    project(ctx, data, today, addDays(today, 90), today),
+    categoryTotals(ctx, data, monthStart, monthEnd),
     listInRange(ctx, today, addDays(today, 31), { overdueBefore: today }),
     virtualOccurrences(ctx, today, addDays(today, 31), today),
+    getDb().select().from(categories).where(eq(categories.householdId, ctx.householdId)),
+    project(ctx, data, today, obligationsUntil, today),
   ])
-
-  const monthRows = await getDb()
-    .select({
-      status: transactions.status,
-      income: sql<string>`coalesce(sum(${transactions.amount}) filter (where ${transactions.type} = 'income'), 0)`,
-      expense: sql<string>`coalesce(sum(${transactions.amount}) filter (where ${transactions.type} = 'expense'), 0)`,
-    })
-    .from(transactions)
-    .where(and(eq(transactions.householdId, ctx.householdId), gte(transactions.date, monthStart), lte(transactions.date, monthEnd)))
-    .groupBy(transactions.status)
-  const sumOf = (status: string, key: "income" | "expense") => Number(monthRows.find((r) => r.status === status)?.[key] ?? 0)
-
-  let plannedIncome = sumOf("planned", "income")
-  let plannedExpense = sumOf("planned", "expense")
+  const actual = totals(data, monthStart, monthEnd)
+  const planned = totals(data, monthStart, monthEnd, "planned")
   for (const v of monthProjection.virtual) {
     if (v.date < monthStart || v.date > monthEnd) continue
-    if (v.type === "income") plannedIncome += v.amount
-    if (v.type === "expense") plannedExpense += v.amount
+    if (v.type === "income") planned.income += data.value(v)
+    if (v.type === "expense") planned.expense += data.value(v)
   }
-
-  // Money that stays free after all planned expenses up to the end of the (current or selected future) month,
-  // without relying on income that has not arrived yet.
-  const obligationsUntil = maxDate(monthEnd, endOfMonth(today))
-  const obligationSource =
-    obligationsUntil === monthEnd ? monthProjection.plannedItems : (await projection(ctx, today, obligationsUntil, today)).plannedItems
-  const plannedObligations = obligationSource
-    .filter((p) => p.type === "expense" && p.date <= obligationsUntil)
-    .reduce((s, p) => s + p.amount, 0)
-
-  const categoryLook = new Map(
-    (await db.select({ id: categories.id, icon: categories.icon, color: categories.color }).from(categories).where(eq(categories.householdId, ctx.householdId))).map(
-      (c) => [c.id, c],
-    ),
-  )
-  const trendMap = new Map(trend.map((t) => [t.month, t]))
-  const trendSeries = Array.from({ length: 6 }, (_, i) => {
-    const key = monthKey(addMonths(sixStart, i))
-    const t = trendMap.get(key)
-    return { month: key, income: Number(t?.income ?? 0), expense: Number(t?.expense ?? 0) }
-  })
-
+  const plannedObligations = obligations.plannedItems.filter((r) => r.type === "expense").reduce((s, r) => s + r.amount, 0)
+  const catMap = new Map(cats.map((c) => [c.id, c]))
   const upcoming: UpcomingItem[] = [
-    ...upcomingRows
-      .filter((r) => r.status === "planned")
-      .map((r) => ({
-        key: r.id,
-        id: r.id,
-        ruleId: r.recurringRuleId,
-        date: r.date,
-        type: r.type,
-        amount: r.amount,
-        title: r.title,
-        categoryIcon: r.categoryIcon,
-        categoryColor: r.categoryColor,
-        overdue: r.date < today,
-      })),
-    ...upcomingVirtual.map((v) => {
-      const c = v.categoryId ? categoryLook.get(v.categoryId) : undefined
-      return {
-        key: `${v.ruleId}:${v.date}`,
-        id: null,
-        ruleId: v.ruleId,
-        date: v.date,
-        type: v.type,
-        amount: v.amount,
-        title: v.title,
-        categoryIcon: c?.icon ?? null,
-        categoryColor: c?.color ?? null,
-        overdue: false,
-      }
-    }),
-  ]
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(0, 10)
-
-  const lastDay = monthProjection.days.at(-1)
+    ...upcomingRows.filter((r) => r.status === "planned").map((r) => ({
+      key: r.id, id: r.id, ruleId: r.recurringRuleId, date: r.date, type: r.type, amount: r.amount, currency: r.currency,
+      title: r.title, categoryIcon: r.categoryIcon, categoryColor: r.categoryColor, overdue: r.date < today,
+    })),
+    ...upcomingVirtual.map((v) => ({
+      key: `${v.ruleId}:${v.date}`, id: null, ruleId: v.ruleId, date: v.date, type: v.type, amount: v.amount,
+      currency: data.accountMap.get(v.accountId)!.currency, title: v.title,
+      categoryIcon: catMap.get(v.categoryId ?? "")?.icon ?? null, categoryColor: catMap.get(v.categoryId ?? "")?.color ?? null, overdue: false,
+    })),
+  ].sort((a, b) => a.date.localeCompare(b.date)).slice(0, 10)
+  const foreign = data.accounts.filter((a) => a.currency !== ctx.currency)
+  const usedRates = [...new Set([...foreign.map((a) => a.currency), ctx.currency])].filter((c) => c !== "RUB").map((c) => selectRate(data.rates, c, today)).filter((r) => r !== null)
+  const valuationNote = foreign.length ? `Включая ${foreign.length} валютных счетов по курсу ${usedRates.some((r) => r.source === "manual") ? "ЦБ / ручному" : "ЦБ"} на ${usedRates.map((r) => r.date).sort()[0] ?? "неизвестную дату"}` : null
   return {
-    today,
-    monthStart,
-    balance,
-    monthIncome: sumOf("posted", "income"),
-    monthExpense: sumOf("posted", "expense"),
-    plannedIncome,
-    plannedExpense,
-    forecastEndOfMonth: lastDay?.balance ?? balance,
-    availableAfterObligations: balance - plannedObligations,
-    obligationsUntil,
-    monthDays: monthProjection.days,
-    trend: trendSeries,
-    byCategory,
-    forecast: forecast.days,
-    upcoming,
+    today, monthStart, balance: data.balance, monthIncome: actual.income, monthExpense: actual.expense,
+    plannedIncome: planned.income, plannedExpense: planned.expense,
+    forecastEndOfMonth: monthProjection.days.at(-1)?.balance ?? data.balance,
+    availableAfterObligations: data.balance - plannedObligations, obligationsUntil,
+    monthDays: monthProjection.days, trend: monthlyTotals(data, addMonths(monthStart, -5), monthEnd), byCategory,
+    forecast: forecast.days, upcoming, warnings: [...data.fx.warnings], valuationNote,
   }
 }
 
 export async function expenseByCategory(ctx: HouseholdCtx, from: IsoDate, to: IsoDate) {
-  const rows = await getDb()
-    .select({
-      categoryId: transactions.categoryId,
-      name: categories.name,
-      color: categories.color,
-      icon: categories.icon,
-      total: sql<string>`sum(${transactions.amount})`,
-    })
-    .from(transactions)
-    .innerJoin(categories, eq(categories.id, transactions.categoryId))
-    .where(
-      and(
-        eq(transactions.householdId, ctx.householdId),
-        eq(transactions.status, "posted"),
-        eq(transactions.type, "expense"),
-        gte(transactions.date, from),
-        lte(transactions.date, to),
-      ),
-    )
-    .groupBy(transactions.categoryId, categories.name, categories.color, categories.icon)
-  return rows.map((r) => ({ ...r, total: Number(r.total) })).sort((a, b) => b.total - a.total)
+  assertCan(ctx, "finance.read")
+  return categoryTotals(ctx, await loadFinance(ctx), from, to)
 }
 
-// ---------------------------------------------------------------------------
-// Calendar
-// ---------------------------------------------------------------------------
-
-export type CalendarItem = Pick<
-  TransactionRow,
-  "id" | "type" | "status" | "amount" | "title" | "date" | "categoryIcon" | "categoryColor" | "categoryName" | "accountName" | "toAccountName" | "authorName" | "recurringRuleId" | "version"
+export type CalendarItem = Pick<TransactionRow,
+  "id" | "type" | "status" | "amount" | "currency" | "toAmount" | "toCurrency" | "title" | "date" | "categoryIcon" | "categoryColor" | "categoryName" | "accountName" | "toAccountName" | "authorName" | "recurringRuleId" | "version"
 > & { virtual: boolean; key: string }
 
 export async function getCalendarMonth(ctx: HouseholdCtx, month: IsoDate) {
   assertCan(ctx, "finance.read")
   const today = todayIn(ctx.timezone)
   await ensureMaterialized(ctx.householdId, today)
+  const data = await loadFinance(ctx)
   const from = startOfMonth(month)
   const to = endOfMonth(month)
-  const inThisMonth = today >= from && today <= to
-  const [proj, rows] = await Promise.all([
-    projection(ctx, from, to, today),
-    listInRange(ctx, from, to, inThisMonth ? { overdueBefore: from } : {}),
+  const [proj, rows, cats] = await Promise.all([
+    project(ctx, data, from, to, today), listInRange(ctx, from, to, today >= from && today <= to ? { overdueBefore: from } : {}),
+    getDb().select().from(categories).where(eq(categories.householdId, ctx.householdId)),
   ])
-  const catRows = await getDb()
-    .select({ id: categories.id, name: categories.name, icon: categories.icon, color: categories.color })
-    .from(categories)
-    .where(eq(categories.householdId, ctx.householdId))
-  const cats = new Map(catRows.map((c) => [c.id, c]))
-
+  const catMap = new Map(cats.map((c) => [c.id, c]))
   const items: CalendarItem[] = [
     ...rows.map((r) => ({ ...r, virtual: false, key: r.id })),
-    ...proj.virtual
-      .filter((v) => v.date >= from && v.date <= to)
-      .map((v) => {
-        const c = v.categoryId ? cats.get(v.categoryId) : undefined
-        return {
-          id: "",
-          key: `${v.ruleId}:${v.date}`,
-          virtual: true,
-          type: v.type,
-          status: "planned" as const,
-          amount: v.amount,
-          title: v.title,
-          date: v.date,
-          categoryIcon: c?.icon ?? null,
-          categoryColor: c?.color ?? null,
-          categoryName: c?.name ?? null,
-          accountName: "",
-          toAccountName: null,
-          authorName: null,
-          recurringRuleId: v.ruleId,
-          version: 0,
-        }
-      }),
+    ...proj.virtual.filter((v) => v.date >= from && v.date <= to).map((v) => ({
+      id: "", key: `${v.ruleId}:${v.date}`, virtual: true, type: v.type, status: "planned" as const,
+      amount: v.amount, currency: data.accountMap.get(v.accountId)!.currency, toAmount: v.toAmount,
+      toCurrency: v.toAccountId ? data.accountMap.get(v.toAccountId)!.currency : null,
+      title: v.title, date: v.date, categoryIcon: catMap.get(v.categoryId ?? "")?.icon ?? null,
+      categoryColor: catMap.get(v.categoryId ?? "")?.color ?? null, categoryName: catMap.get(v.categoryId ?? "")?.name ?? null,
+      accountName: data.accountMap.get(v.accountId)!.name, toAccountName: v.toAccountId ? data.accountMap.get(v.toAccountId)!.name : null,
+      authorName: null, recurringRuleId: v.ruleId, version: 0,
+    })),
   ]
-  return { today, from, to, days: proj.days, items }
-}
-
-// ---------------------------------------------------------------------------
-// Analytics (actual data; forecast is separate)
-// ---------------------------------------------------------------------------
-
-async function totals(ctx: HouseholdCtx, from: IsoDate, to: IsoDate) {
-  const [row] = await getDb()
-    .select({
-      income: sql<string>`coalesce(sum(${transactions.amount}) filter (where ${transactions.type} = 'income'), 0)`,
-      expense: sql<string>`coalesce(sum(${transactions.amount}) filter (where ${transactions.type} = 'expense'), 0)`,
-      count: sql<number>`count(*) filter (where ${transactions.type} <> 'transfer')::int`,
-    })
-    .from(transactions)
-    .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.status, "posted"), gte(transactions.date, from), lte(transactions.date, to)))
-  const income = Number(row?.income ?? 0)
-  const expense = Number(row?.expense ?? 0)
-  return { income, expense, net: income - expense, count: row?.count ?? 0 }
+  return { today, from, to, days: proj.days, items, warnings: [...data.fx.warnings] }
 }
 
 export async function getAnalytics(ctx: HouseholdCtx, from: IsoDate, to: IsoDate) {
   assertCan(ctx, "finance.read")
-  const today = todayIn(ctx.timezone)
+  const data = await loadFinance(ctx)
+  const today = data.today
   const length = diffDays(to, from) + 1
   const prevTo = addDays(from, -1)
   const prevFrom = addDays(prevTo, -(length - 1))
-
-  const db = getDb()
-  const [current, previous, categoriesTop, monthly, opening, postedBeforeFrom] = await Promise.all([
-    totals(ctx, from, to),
-    totals(ctx, prevFrom, prevTo),
-    expenseByCategory(ctx, from, to),
-    db
-      .select({
-        month: sql<string>`to_char(${transactions.date}, 'YYYY-MM')`,
-        income: sql<string>`coalesce(sum(${transactions.amount}) filter (where ${transactions.type} = 'income'), 0)`,
-        expense: sql<string>`coalesce(sum(${transactions.amount}) filter (where ${transactions.type} = 'expense'), 0)`,
-      })
-      .from(transactions)
-      .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.status, "posted"), gte(transactions.date, from), lte(transactions.date, to)))
-      .groupBy(sql`1`),
-    openingTotal(ctx),
-    postedSignedBefore(ctx, from),
+  const current = totals(data, from, to)
+  const previous = totals(data, prevFrom, prevTo)
+  const [categoriesTop, historical, proj] = await Promise.all([
+    categoryTotals(ctx, data, from, to), project(ctx, data, from, to, "9999-12-31"),
+    project(ctx, data, today, endOfMonth(addMonths(today, 3)), today),
   ])
-
-  const monthlyMap = new Map(monthly.map((m) => [m.month, m]))
-  const series: { month: string; income: number; expense: number; net: number; balance: number }[] = []
-  let balance = opening + postedBeforeFrom
-  for (let m = startOfMonth(from); m <= to; m = addMonths(m, 1)) {
-    const key = monthKey(m)
-    const row = monthlyMap.get(key)
-    const income = Number(row?.income ?? 0)
-    const expense = Number(row?.expense ?? 0)
-    balance += income - expense
-    series.push({ month: key, income, expense, net: income - expense, balance })
-  }
-
-  // Forecast is computed separately from actuals: projected end-of-month balance for the next 3 months.
-  const forecastTo = endOfMonth(addMonths(today, 3))
-  const proj = await projection(ctx, today, forecastTo, today)
+  const series = monthlyTotals(data, from, to).map((r) => ({
+    ...r, balance: historical.days.filter((d) => monthKey(d.date) === r.month).at(-1)?.balance ?? 0,
+  }))
   const forecast = [0, 1, 2, 3].map((i) => {
     const end = endOfMonth(addMonths(today, i))
-    const day = proj.days.find((d) => d.date === end)
-    return { month: monthKey(end), balance: day?.balance ?? 0 }
+    return { month: monthKey(end), balance: proj.days.find((d) => d.date === end)?.balance ?? 0 }
   })
-
-  const change = (cur: number, prev: number) => (prev === 0 ? null : Math.round(((cur - prev) / prev) * 1000) / 10)
+  const change = (cur: number, prev: number) => prev === 0 ? null : Math.round(((cur - prev) / prev) * 1000) / 10
   return {
-    from,
-    to,
-    current,
-    previous: { ...previous, from: prevFrom, to: prevTo },
-    expenseChange: change(current.expense, previous.expense),
-    incomeChange: change(current.income, previous.income),
-    categories: categoriesTop,
-    series,
-    forecast,
+    from, to, current, previous: { ...previous, from: prevFrom, to: prevTo },
+    expenseChange: change(current.expense, previous.expense), incomeChange: change(current.income, previous.income),
+    categories: categoriesTop, series, forecast, warnings: [...data.fx.warnings],
   }
 }

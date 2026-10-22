@@ -5,11 +5,12 @@ import SpotlightCard from "@/components/reactbits/SpotlightCard"
 import { cn } from "@/lib/utils"
 
 /** The dashboard's lead card: a soft spotlight follows the pointer (React Bits SpotlightCard), in the app's colors. */
-export function BalanceHero({ children, className }: { children: React.ReactNode; className?: string }) {
+export function BalanceHero({ children, className, title }: { children: React.ReactNode; className?: string; title?: string }) {
   const { resolvedTheme } = useTheme()
   return (
     <SpotlightCard
       data-testid="actual-balance"
+      title={title}
       theme={resolvedTheme === "dark" ? "dark" : "light"}
       spotlightColor="var(--primary)"
       intensity={0.22}

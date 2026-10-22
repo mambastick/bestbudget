@@ -1,5 +1,8 @@
 "use client"
 
+import { CurrencySelect } from "@/components/app/currency-select"
+import type { Currency } from "@/lib/currencies"
+
 import { Copy, Crown, Link2, LogOut, MoreHorizontal, Trash2, UserMinus } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
@@ -52,7 +55,7 @@ export function HouseholdSettings({
   currentUserId,
   role,
 }: {
-  household: { name: string; timezone: string; currency: string }
+  household: { name: string; timezone: string; currency: string; version: number }
   members: Member[]
   invitations: Invitation[]
   currentUserId: string
@@ -61,6 +64,7 @@ export function HouseholdSettings({
   const router = useRouter()
   const { pending, run } = useAction()
   const [name, setName] = useState(household.name)
+  const [currency, setCurrency] = useState<Currency>(household.currency as Currency)
   const [timezone, setTimezone] = useState(household.timezone)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [leaveOpen, setLeaveOpen] = useState(false)
@@ -75,7 +79,7 @@ export function HouseholdSettings({
           className="grid grid-cols-1 gap-4"
           onSubmit={(e) => {
             e.preventDefault()
-            run(() => updateHouseholdAction({ name, timezone }), { success: "Настройки сохранены" })
+            run(() => updateHouseholdAction({ name, timezone, currency, version: household.version }), { success: "Настройки сохранены" })
           }}
         >
           <Field>
@@ -87,8 +91,13 @@ export function HouseholdSettings({
             {isOwner ? <TimezoneSelect id="hh-tz" value={timezone} onChange={setTimezone} /> : <Input id="hh-tz" value={timezone} disabled />}
             <p className="text-xs text-muted-foreground">Определяет «сегодня» для плановых операций и прогноза.</p>
           </Field>
+          <Field>
+            <FieldLabel htmlFor="hh-currency">Базовая валюта</FieldLabel>
+            <CurrencySelect id="hh-currency" value={currency} onChange={setCurrency} disabled={!isOwner} />
+            <p className="text-xs text-muted-foreground">При смене валюты лимиты бюджетов не пересчитываются: те же минорные единицы будут в новой валюте. Проверьте и задайте лимиты заново. Остатки и операции сохраняют валюту счёта.</p>
+          </Field>
           {isOwner ? (
-            <Button type="submit" className="justify-self-start" disabled={pending || (name === household.name && timezone === household.timezone)}>
+            <Button type="submit" className="justify-self-start" disabled={pending || (name === household.name && timezone === household.timezone && currency === household.currency)}>
               Сохранить
             </Button>
           ) : null}

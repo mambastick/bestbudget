@@ -12,7 +12,7 @@ export interface FlowItem {
 
 /**
  * Effect of an operation on the household's total balance.
- * Transfers between own accounts move money but do not change the total.
+ * Transfer legs and currency revaluation are handled by the account projection service.
  */
 export function signedAmount(item: Pick<FlowItem, "type" | "amount">): number {
   if (item.type === "income") return item.amount
@@ -78,7 +78,7 @@ export function sumPlanned(items: FlowItem[], from: IsoDate, to: IsoDate) {
 }
 
 /** Per-account balance delta of a posted operation. */
-export function accountDeltas(item: { type: FlowType; amount: number; accountId: string; toAccountId: string | null }): Array<[string, number]> {
+export function accountDeltas(item: { type: FlowType; amount: number; accountId: string; toAccountId: string | null; toAmount?: number | null }): Array<[string, number]> {
   switch (item.type) {
     case "income":
       return [[item.accountId, item.amount]]
@@ -87,7 +87,7 @@ export function accountDeltas(item: { type: FlowType; amount: number; accountId:
     case "transfer":
       return [
         [item.accountId, -item.amount],
-        [item.toAccountId!, item.amount],
+        [item.toAccountId!, item.toAmount ?? item.amount],
       ]
   }
 }

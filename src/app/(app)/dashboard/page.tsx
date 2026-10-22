@@ -1,3 +1,4 @@
+import { FxWarnings } from "@/components/app/fx-warnings"
 import { CalendarClock, Info, PieChart, Plus } from "lucide-react"
 import type { Metadata } from "next"
 import Link from "next/link"
@@ -42,6 +43,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="grid grid-cols-1 gap-6">
+      <FxWarnings warnings={d.warnings} />
       <PageHeader title="Обзор" description={`Финансы семьи · ${formatMonth(month)}`} actions={<MonthSwitcher month={month} today={today} basePath="/dashboard" />} />
 
       {empty ? (
@@ -54,13 +56,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       ) : null}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <BalanceHero className="lg:col-span-1">
+        <BalanceHero className="lg:col-span-1" title={d.valuationNote ?? undefined}>
           <div className="grid gap-1 p-5">
             <div className="text-sm text-muted-foreground">Фактический баланс</div>
             <div className="text-3xl font-semibold tracking-tight sm:text-4xl">
               <AnimatedMoney value={d.balance} currency={cur} tone={d.balance < 0 ? "expense" : "neutral"} />
             </div>
             <p className="text-xs text-muted-foreground">Все счета, только подтверждённые операции</p>
+            {d.valuationNote ? <p className="text-xs text-muted-foreground">{d.valuationNote}</p> : null}
           </div>
           <div className="grid grid-cols-1 gap-3 border-t p-5">
             <Metric label={`Прогноз на ${formatDay(d.monthDays.at(-1)?.date ?? today)}`} hint="Фактический баланс плюс ожидаемые доходы и минус запланированные расходы до конца месяца">

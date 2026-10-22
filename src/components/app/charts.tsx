@@ -2,6 +2,7 @@
 
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ReferenceLine, XAxis, YAxis } from "recharts"
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, type ChartConfig } from "@/components/ui/chart"
+import { useCatalog } from "./operations/catalog-context"
 import { formatMoney, formatMoneyCompact } from "@/lib/money"
 
 /**
@@ -12,6 +13,7 @@ import { formatMoney, formatMoneyCompact } from "@/lib/money"
 type TooltipRow = { name: string; value: number; color: string }
 
 function MoneyTooltip({ active, label, rows }: { active?: boolean; label?: React.ReactNode; rows: TooltipRow[] }) {
+  const { currency } = useCatalog()
   if (!active || rows.length === 0) return null
   return (
     <div className="grid min-w-40 gap-1.5 rounded-lg border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
@@ -20,7 +22,7 @@ function MoneyTooltip({ active, label, rows }: { active?: boolean; label?: React
         <div key={r.name} className="flex items-center gap-2">
           <span className="size-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: r.color }} />
           <span className="flex-1 text-muted-foreground">{r.name}</span>
-          <span className="tabular font-medium">{formatMoney(r.value)}</span>
+          <span className="tabular font-medium">{formatMoney(r.value, currency)}</span>
         </div>
       ))}
     </div>
@@ -49,13 +51,16 @@ const axisProps = {
 } as const
 
 /** Y axis for money: rubles-rounded ticks, no duplicates when all values are equal. */
-const yAxisProps = {
-  ...axisProps,
-  width: 56,
-  allowDecimals: false,
-  tickCount: 5,
-  domain: [(min: number) => Math.min(0, min), (max: number) => (max <= 0 ? 100_00 : max)] as [(v: number) => number, (v: number) => number],
-  tickFormatter: (v: number) => formatMoneyCompact(v),
+function useMoneyAxis() {
+  const { currency } = useCatalog()
+  return {
+    ...axisProps,
+    width: 56,
+    allowDecimals: false,
+    tickCount: 5,
+    domain: [(min: number) => Math.min(0, min), (max: number) => (max <= 0 ? 100_00 : max)] as [(v: number) => number, (v: number) => number],
+    tickFormatter: (v: number) => formatMoneyCompact(v, currency),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -66,12 +71,13 @@ const incomeExpenseConfig = {
 } satisfies ChartConfig
 
 export function IncomeExpenseChart({ data, className }: { data: { label: string; income: number; expense: number }[]; className?: string }) {
+  const moneyAxis = useMoneyAxis()
   return (
     <ChartContainer config={incomeExpenseConfig} className={className ?? "aspect-auto h-64 w-full"}>
       <BarChart data={data} barGap={2} margin={{ left: 4, right: 4, top: 8 }}>
         <CartesianGrid vertical={false} strokeOpacity={0.5} />
         <XAxis dataKey="label" {...axisProps} tickMargin={8} />
-        <YAxis {...yAxisProps} />
+        <YAxis {...moneyAxis} />
         <ChartTooltip
           cursor={{ fill: "var(--muted)", opacity: 0.5 }}
           content={(p: RechartsTooltipProps) => <MoneyTooltip active={p.active} label={p.label} rows={rowsFrom(p, incomeExpenseConfig)} />}
@@ -99,6 +105,7 @@ export function BalanceChart({
   data: { label: string; actual: number | null; forecast: number | null }[]
   className?: string
 }) {
+  const moneyAxis = useMoneyAxis()
   const values = data.flatMap((d) => [d.actual, d.forecast]).filter((v): v is number => v !== null)
   const hasNegative = values.some((v) => v < 0)
   const hasActual = data.some((d) => d.actual !== null)
@@ -108,7 +115,7 @@ export function BalanceChart({
       <LineChart data={data} margin={{ left: 4, right: 8, top: 8 }}>
         <CartesianGrid vertical={false} strokeOpacity={0.5} />
         <XAxis dataKey="label" {...axisProps} tickMargin={8} minTickGap={24} />
-        <YAxis {...yAxisProps} />
+        <YAxis {...moneyAxis} />
         {hasNegative ? <ReferenceLine y={0} stroke="var(--destructive)" strokeDasharray="4 4" /> : null}
         <ChartTooltip
           cursor={{ stroke: "var(--border)" }}
@@ -139,6 +146,7 @@ export function BalanceChart({
 const forecastConfig = { balance: { label: "Прогноз баланса", color: "var(--chart-1)" } } satisfies ChartConfig
 
 export function ForecastChart({ data, className }: { data: { label: string; balance: number }[]; className?: string }) {
+  const moneyAxis = useMoneyAxis()
   const hasNegative = data.some((d) => d.balance < 0)
   return (
     <ChartContainer config={forecastConfig} className={className ?? "aspect-auto h-56 w-full"}>
@@ -151,7 +159,7 @@ export function ForecastChart({ data, className }: { data: { label: string; bala
         </defs>
         <CartesianGrid vertical={false} strokeOpacity={0.5} />
         <XAxis dataKey="label" {...axisProps} tickMargin={8} minTickGap={32} />
-        <YAxis {...yAxisProps} />
+        <YAxis {...moneyAxis} />
         {hasNegative ? <ReferenceLine y={0} stroke="var(--destructive)" strokeDasharray="4 4" /> : null}
         <ChartTooltip
           cursor={{ stroke: "var(--border)" }}

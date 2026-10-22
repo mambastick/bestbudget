@@ -55,6 +55,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
                 title: r.rule.title,
                 description: r.rule.description,
                 amount: r.rule.amount,
+                toAmount: r.rule.toAmount,
                 categoryId: r.rule.categoryId,
                 accountId: r.rule.accountId,
                 toAccountId: r.rule.toAccountId,

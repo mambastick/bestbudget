@@ -3,6 +3,8 @@
 import { Archive, ArchiveRestore, ArrowLeftRight, Banknote, CreditCard, Landmark, MoreHorizontal, Pencil, PiggyBank, Plus, Trash2, Users, Wallet } from "lucide-react"
 import { useState } from "react"
 import { createAccountAction, deleteAccountAction, setAccountArchivedAction, updateAccountAction } from "@/app/actions/catalog"
+import { CurrencySelect } from "@/components/app/currency-select"
+import { useCatalog } from "@/components/app/operations/catalog-context"
 import { ConfirmDialog } from "@/components/app/confirm-dialog"
 import { Money } from "@/components/app/money"
 import { MoneyInput } from "@/components/app/money-input"
@@ -16,6 +18,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ACCOUNT_KIND_LABELS } from "@/domain/defaults"
 import { useAction } from "@/hooks/use-action"
+import type { Currency } from "@/lib/currencies"
 import { minorToInput, parseMoney } from "@/lib/money"
 
 type Kind = keyof typeof ACCOUNT_KIND_LABELS
@@ -24,6 +27,9 @@ export interface AccountItem {
   id: string
   name: string
   kind: Kind
+  currency: string
+  currencyLocked: boolean
+  version: number
   openingBalance: number
   balance: number
   operations: number
@@ -44,15 +50,15 @@ export function AccountsView({ accounts, canManage, currency }: { accounts: Acco
   const [editing, setEditing] = useState<AccountItem | "new" | null>(null)
   const active = accounts.filter((a) => !a.archived)
   const archived = accounts.filter((a) => a.archived)
-  const total = active.reduce((s, a) => s + a.balance, 0)
-  const debt = active.filter((a) => a.balance < 0).reduce((s, a) => s + a.balance, 0)
+  const total = active.filter((a) => a.currency === currency).reduce((s, a) => s + a.balance, 0)
+  const debt = active.filter((a) => a.currency === currency && a.balance < 0).reduce((s, a) => s + a.balance, 0)
 
   return (
     <div className="grid grid-cols-1 gap-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card size="sm">
           <CardHeader>
-            <CardDescription>Всего на счетах</CardDescription>
+            <CardDescription>На счетах в {currency}</CardDescription>
             <CardTitle className="text-2xl font-semibold">
               <Money value={total} currency={currency} tone={total < 0 ? "expense" : "neutral"} />
             </CardTitle>
@@ -84,7 +90,7 @@ export function AccountsView({ accounts, canManage, currency }: { accounts: Acco
 
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {active.map((a) => (
-          <AccountCard key={a.id} account={a} canManage={canManage} currency={currency} onEdit={() => setEditing(a)} />
+          <AccountCard key={a.id} account={a} canManage={canManage} onEdit={() => setEditing(a)} />
         ))}
       </ul>
 
@@ -93,7 +99,7 @@ export function AccountsView({ accounts, canManage, currency }: { accounts: Acco
           <h2 className="mb-2 px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">Архив</h2>
           <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {archived.map((a) => (
-              <AccountCard key={a.id} account={a} canManage={canManage} currency={currency} onEdit={() => setEditing(a)} />
+              <AccountCard key={a.id} account={a} canManage={canManage} onEdit={() => setEditing(a)} />
             ))}
           </ul>
         </section>
@@ -113,7 +119,7 @@ export function AccountsView({ accounts, canManage, currency }: { accounts: Acco
   )
 }
 
-function AccountCard({ account: a, canManage, currency, onEdit }: { account: AccountItem; canManage: boolean; currency: string; onEdit: () => void }) {
+function AccountCard({ account: a, canManage, onEdit }: { account: AccountItem; canManage: boolean; onEdit: () => void }) {
   const Icon = ICONS[a.kind]
   const { run } = useAction()
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -150,10 +156,10 @@ function AccountCard({ account: a, canManage, currency, onEdit }: { account: Acc
         ) : null}
       </div>
       <div className="mt-4 text-2xl font-semibold">
-        <Money value={a.balance} currency={currency} tone={a.balance < 0 ? "expense" : "neutral"} />
+        <Money value={a.balance} currency={a.currency} tone={a.balance < 0 ? "expense" : "neutral"} />
       </div>
       <div className="text-xs text-muted-foreground">
-        начальный остаток <Money value={a.openingBalance} currency={currency} />
+        начальный остаток <Money value={a.openingBalance} currency={a.currency} />
       </div>
       <ConfirmDialog
         open={confirmDelete}
@@ -177,20 +183,22 @@ function AccountDialog({ value, onClose }: { value: AccountItem | "new" | null; 
 }
 
 function AccountForm({ account, onClose }: { account: AccountItem | null; onClose: () => void }) {
+  const catalog = useCatalog()
+  const [currency, setCurrency] = useState<Currency>((account?.currency ?? catalog.currency) as Currency)
   const [name, setName] = useState(account?.name ?? "")
   const [kind, setKind] = useState<Kind>(account?.kind ?? "debit_card")
   const isCredit = kind === "credit_card"
   // Credit card debt is entered as a positive number and stored as a negative balance.
-  const [opening, setOpening] = useState(account ? minorToInput(Math.abs(account.openingBalance)) : "")
+  const [opening, setOpening] = useState(account ? minorToInput(Math.abs(account.openingBalance), account.currency) : "")
   const [negative, setNegative] = useState(account ? account.openingBalance < 0 : false)
   const { pending, run } = useAction()
 
   function submit(e: React.FormEvent) {
     e.preventDefault()
-    const amount = opening.trim() === "" ? 0 : parseMoney(opening)
+    const amount = opening.trim() === "" ? 0 : parseMoney(opening, currency)
     if (amount === null) return
     const openingBalance = isCredit || negative ? -amount : amount
-    const input = { name, kind, openingBalance }
+    const input = { name, kind, openingBalance, currency, version: account?.version }
     run<unknown>(() => (account ? updateAccountAction(account.id, input) : createAccountAction(input)), {
       success: account ? "Счёт сохранён" : "Счёт создан",
       onSuccess: onClose,
@@ -223,8 +231,13 @@ function AccountForm({ account, onClose }: { account: AccountItem | null; onClos
         </Select>
       </Field>
       <Field>
+        <FieldLabel htmlFor="acc-currency">Валюта счёта</FieldLabel>
+        <CurrencySelect id="acc-currency" value={currency} onChange={setCurrency} disabled={account?.currencyLocked} />
+        {account?.currencyLocked ? <p className="text-xs text-muted-foreground">Валюту нельзя менять после появления операций или расписаний.</p> : null}
+      </Field>
+      <Field>
         <FieldLabel htmlFor="acc-opening">{isCredit ? "Текущий долг по карте" : "Начальный остаток"}</FieldLabel>
-        <MoneyInput id="acc-opening" value={opening} onChange={setOpening} />
+        <MoneyInput currency={currency} id="acc-opening" value={opening} onChange={setOpening} />
         {!isCredit ? (
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input type="checkbox" checked={negative} onChange={(e) => setNegative(e.target.checked)} /> Отрицательный остаток (овердрафт)

@@ -15,6 +15,7 @@ const env = {
   APP_URL: `http://localhost:${PORT}`,
   BETTER_AUTH_SECRET: "e2e-secret-e2e-secret-e2e-secret-0123456789",
   SETUP_TOKEN,
+  FX_PROVIDER: "none",
   DB_POOL_MAX: "1",
   RATE_LIMIT_ENABLED: "false",
   PORT: String(PORT),
@@ -23,6 +24,7 @@ const env = {
 
 export default defineConfig({
   testDir: "e2e",
+  outputDir: process.env.E2E_OUTPUT_DIR ?? "work/playwright",
   fullyParallel: false,
   workers: 1,
   timeout: 90_000,

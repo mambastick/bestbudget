@@ -12,6 +12,7 @@ import { Segmented } from "@/components/app/segmented"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { formatDateFull, formatDay, formatWeekday, weekday, type IsoDate } from "@/lib/dates"
+import { currencySymbol } from "@/lib/currencies"
 import { formatMoneyShort } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
@@ -29,6 +30,9 @@ export interface CalendarEntry {
   type: "income" | "expense" | "transfer"
   status: "planned" | "posted" | "skipped"
   amount: number
+  currency: string
+  toAmount: number | null
+  toCurrency: string | null
   title: string
   date: IsoDate
   categoryIcon: string | null
@@ -186,6 +190,7 @@ function DayCell({
   onSelect: () => void
 }) {
   const open = useOpenEntry()
+  const { currency } = useCatalog()
   const negative = day.date >= today && day.balance < 0
   const isWeekend = weekday(day.date) >= 6
   const hidden = entries.length - MAX_CHIPS
@@ -219,7 +224,7 @@ function DayCell({
             className={cn("tabular hidden truncate pt-1 text-[10px] sm:block", negative ? "font-semibold text-destructive" : "text-muted-foreground/80")}
             title="Прогноз остатка на конец дня"
           >
-            {formatMoneyShort(day.balance)}
+            {formatMoneyShort(day.balance, currency)}
           </span>
         ) : null}
       </div>
@@ -236,7 +241,7 @@ function DayCell({
           ))}
         </div>
       ) : null}
-      {negative ? <span className="mt-auto truncate text-[10px] font-semibold text-destructive tabular sm:hidden">{formatMoneyShort(day.balance)}</span> : null}
+      {negative ? <span className="mt-auto truncate text-[10px] font-semibold text-destructive tabular sm:hidden">{formatMoneyShort(day.balance, currency)}</span> : null}
 
       {/* Larger screens: event chips, like meetings in a calendar. */}
       <div className="hidden min-w-0 flex-col gap-0.5 sm:flex">
@@ -265,7 +270,7 @@ function EventChip({ entry: e, overdue, onOpen }: { entry: CalendarEntry; overdu
     <button
       type="button"
       onClick={onOpen}
-      title={`${e.title}: ${sign}${formatMoneyShort(e.amount)} ₽${planned ? " (план)" : ""}`}
+      title={`${e.title}: ${sign}${formatMoneyShort(e.amount, e.currency)} ${currencySymbol(e.currency)}${planned ? " (план)" : ""}`}
       className={cn(
         "flex min-w-0 flex-col rounded-[5px] border-l-[3px] px-1.5 py-0.5 text-left text-[11px] leading-tight transition-[filter] hover:brightness-95 dark:hover:brightness-125",
         planned && "border border-l-[3px] border-dashed",
@@ -280,7 +285,7 @@ function EventChip({ entry: e, overdue, onOpen }: { entry: CalendarEntry; overdu
       <span className={cn("truncate font-medium", planned && "text-foreground/80")}>{e.title}</span>
       <span className={cn("tabular truncate", e.type === "income" ? "text-income" : "text-foreground/70")}>
         {sign}
-        {formatMoneyShort(e.amount)} ₽
+        {formatMoneyShort(e.amount, e.currency)} {currencySymbol(e.currency)}
       </span>
     </button>
   )
@@ -343,7 +348,6 @@ function Section({ title, entries }: { title: string; entries: CalendarEntry[] }
 
 function EntryRow({ entry: e, today }: { entry: CalendarEntry; today?: IsoDate }) {
   const open = useOpenEntry()
-  const { currency } = useCatalog()
   const color = entryColor(e)
   const overdue = today !== undefined && e.status === "planned" && e.date < today
   return (
@@ -364,7 +368,7 @@ function EntryRow({ entry: e, today }: { entry: CalendarEntry; today?: IsoDate }
         value={e.amount}
         kind={e.type === "transfer" ? undefined : e.type}
         tone={e.type === "income" ? "income" : "neutral"}
-        currency={currency}
+        currency={e.currency}
         className="text-sm font-medium"
       />
       {e.status === "planned" ? (

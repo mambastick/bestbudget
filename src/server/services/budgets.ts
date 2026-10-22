@@ -1,15 +1,16 @@
 import "server-only"
-import { and, asc, eq, gte, isNull, lte, sql } from "drizzle-orm"
+import { and, asc, eq, isNull } from "drizzle-orm"
 import { z } from "zod"
 import { getDb } from "@/db"
-import { categories, categoryBudgets, transactions } from "@/db/schema"
+import { categories, categoryBudgets } from "@/db/schema"
 import { endOfMonth, todayIn, type IsoDate } from "@/lib/dates"
 import { audit } from "../audit"
 import { assertCan, type HouseholdCtx } from "../context"
 import { notFound } from "../errors"
+import { loadFinance } from "./finance-data"
 import { virtualOccurrences } from "./recurring"
 
-export async function getBudgets(ctx: HouseholdCtx, monthStart: IsoDate) {
+export async function getBudgetReport(ctx: HouseholdCtx, monthStart: IsoDate) {
   assertCan(ctx, "finance.read")
   const monthEnd = endOfMonth(monthStart)
   const db = getDb()
@@ -26,31 +27,23 @@ export async function getBudgets(ctx: HouseholdCtx, monthStart: IsoDate) {
     .where(and(eq(categories.householdId, ctx.householdId), eq(categories.kind, "expense"), isNull(categories.archivedAt)))
     .orderBy(asc(categories.sortOrder), asc(categories.name))
 
-  const sums = await db
-    .select({
-      categoryId: transactions.categoryId,
-      spent: sql<string>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'posted'), 0)`,
-      planned: sql<string>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'planned'), 0)`,
-    })
-    .from(transactions)
-    .where(
-      and(
-        eq(transactions.householdId, ctx.householdId),
-        eq(transactions.type, "expense"),
-        gte(transactions.date, monthStart),
-        lte(transactions.date, monthEnd),
-      ),
-    )
-    .groupBy(transactions.categoryId)
-  const byCat = new Map(sums.map((s) => [s.categoryId, { spent: Number(s.spent), planned: Number(s.planned) }]))
+  const data = await loadFinance(ctx)
+  const byCat = new Map<string | null, { spent: number; planned: number }>()
+  for (const r of data.rows) {
+    if (r.type !== "expense" || r.date < monthStart || r.date > monthEnd) continue
+    const cur = byCat.get(r.categoryId) ?? { spent: 0, planned: 0 }
+    if (r.status === "posted") cur.spent += data.value(r)
+    else cur.planned += data.value(r)
+    byCat.set(r.categoryId, cur)
+  }
   for (const v of await virtualOccurrences(ctx, monthStart, monthEnd, todayIn(ctx.timezone))) {
     if (v.type !== "expense" || !v.categoryId) continue
     const cur = byCat.get(v.categoryId) ?? { spent: 0, planned: 0 }
-    cur.planned += v.amount
+    cur.planned += data.value(v)
     byCat.set(v.categoryId, cur)
   }
 
-  return cats.map((c) => {
+  const rows = cats.map((c) => {
     const s = byCat.get(c.id) ?? { spent: 0, planned: 0 }
     const limit = c.limit ?? null
     return {
@@ -62,6 +55,11 @@ export async function getBudgets(ctx: HouseholdCtx, monthStart: IsoDate) {
       percent: limit ? Math.round((s.spent / limit) * 100) : null,
     }
   })
+  return { rows, warnings: [...data.fx.warnings] }
+}
+
+export async function getBudgets(ctx: HouseholdCtx, monthStart: IsoDate) {
+  return (await getBudgetReport(ctx, monthStart)).rows
 }
 
 export const budgetInput = z.object({

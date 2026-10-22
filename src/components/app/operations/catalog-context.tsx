@@ -17,6 +17,7 @@ export interface CatalogAccount {
   id: string
   name: string
   kind: string
+  currency: string
   archived: boolean
 }
 

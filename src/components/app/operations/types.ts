@@ -8,6 +8,7 @@ export interface OperationRow {
   type: OperationType
   status: "planned" | "posted" | "skipped"
   amount: number
+  toAmount: number | null
   title: string
   description: string | null
   date: IsoDate
@@ -25,6 +26,7 @@ export interface RuleRow {
   title: string
   description: string | null
   amount: number
+  toAmount: number | null
   categoryId: string | null
   accountId: string
   toAccountId: string | null
