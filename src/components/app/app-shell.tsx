@@ -255,9 +255,9 @@ function Header({ title }: { title: string }) {
         <span className="truncate text-sm font-medium md:hidden">{title}</span>
         <div className="flex-1" />
         <AnimateIcon animateOnHover asChild>
-          <Button onClick={() => ops.openCreate()} className="hidden sm:inline-flex">
+          <Button onClick={() => ops.openCreate()} className="hidden sm:inline-flex" aria-keyshortcuts="N">
             <AnimatedPlus /> Операция
-            <kbd className="ml-1 hidden rounded border border-primary-foreground/30 px-1 text-[10px] font-normal opacity-80 lg:inline">N</kbd>
+            <kbd aria-hidden className="ml-1 hidden rounded border border-primary-foreground/30 px-1 text-[10px] font-normal opacity-80 lg:inline">N</kbd>
           </Button>
         </AnimateIcon>
       </header>

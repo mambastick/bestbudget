@@ -1,0 +1,134 @@
+{{- $secret := include "bestbudget.secretName" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bestbudget.fullname" . }}
+  labels:
+    {{- include "bestbudget.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "bestbudget.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: app
+  template:
+    metadata:
+      labels:
+        {{- include "bestbudget.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: app
+      annotations:
+        # Restart pods when configuration or generated secrets change.
+        checksum/config: {{ toJson (omit .Values "postgresql") | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: APP_URL
+              value: {{ required "appUrl is required, e.g. --set appUrl=https://budget.example.com" .Values.appUrl | quote }}
+            - name: TRUST_PROXY
+              value: {{ .Values.auth.trustProxy | quote }}
+            - name: AUTH_FORCE_LOCAL_LOGIN
+              value: {{ .Values.auth.forceLocalLogin | quote }}
+            {{- range $key := list "BETTER_AUTH_SECRET" "SETUP_TOKEN" "DATABASE_URL" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret }}
+                  key: {{ $key }}
+            {{- end }}
+            {{- range $key := list "ENCRYPTION_KEY" "OIDC_CLIENT_SECRET" "SMTP_URL" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret }}
+                  key: {{ $key }}
+                  optional: true
+            {{- end }}
+            {{- with .Values.oidc }}
+            {{- if .issuer }}
+            - name: OIDC_ISSUER
+              value: {{ .issuer | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ required "oidc.clientId is required when oidc.issuer is set" .clientId | quote }}
+            - name: OIDC_SCOPES
+              value: {{ .scopes | quote }}
+            - name: OIDC_DISPLAY_NAME
+              value: {{ .displayName | quote }}
+            - name: OIDC_ENABLED
+              value: {{ .enabled | quote }}
+            - name: OIDC_ALLOW_SIGNUP
+              value: {{ .allowSignup | quote }}
+            {{- with .redirectUri }}
+            - name: OIDC_REDIRECT_URI
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.smtp.from }}
+            - name: SMTP_FROM
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # Migrations run on start; give them time before liveness checks begin.
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          # Liveness does not depend on the database: a database outage must not restart the app.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: cache
+              mountPath: /app/.next/cache
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

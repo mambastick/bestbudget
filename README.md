@@ -46,6 +46,9 @@ openssl rand -hex 16      # → SETUP_TOKEN
 docker compose up -d
 ```
 
+По умолчанию используется готовый образ `ghcr.io/mambastick/bestbudget` нужной версии (`BESTBUDGET_VERSION` в `.env`).
+Собрать образ из исходников: `docker compose up -d --build`.
+
 1. Откройте `APP_URL` — приложение перенаправит на `/setup`.
 2. Введите `SETUP_TOKEN`, имя, e-mail и пароль — будет создан системный администратор.
 3. Создайте семейное пространство (базовые категории и основной счёт создаются автоматически).
@@ -59,6 +62,36 @@ docker compose up -d
 ```bash
 docker compose exec db pg_dump -U bestbudget bestbudget > backup.sql
 ```
+
+### Обновление
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Миграции применяются автоматически. Перед обновлением сделайте резервную копию.
+
+## Kubernetes (Helm)
+
+Чарт публикуется в GHCR как OCI-артефакт. Минимальная установка со встроенным PostgreSQL и Ingress:
+
+```bash
+helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.0-beta.1 \
+  --namespace bestbudget --create-namespace \
+  --set appUrl=https://budget.example.com \
+  --set ingress.enabled=true --set ingress.className=nginx --set ingress.tls.enabled=true
+```
+
+После установки `helm` выведет команду для получения `SETUP_TOKEN` — с ним откройте `https://budget.example.com/setup`.
+
+- Секреты (`BETTER_AUTH_SECRET`, `SETUP_TOKEN`, пароль PostgreSQL) генерируются при установке и сохраняются при `helm upgrade`.
+  Можно передать свой Secret: `--set existingSecret=bestbudget-secrets`.
+- Внешняя база: `--set postgresql.enabled=false --set externalDatabase.url=postgres://user:pass@host:5432/bestbudget`.
+- SSO: `oidc.issuer`, `oidc.clientId`, `oidc.clientSecret` (или настройка из интерфейса, если `oidc.issuer` пустой).
+- Под приложения запускается без root, с read-only файловой системой; readiness-проба проверяет базу, liveness — нет.
+- Все параметры — в [deploy/helm/bestbudget/values.yaml](deploy/helm/bestbudget/values.yaml).
+
+Из исходников: `helm install bestbudget deploy/helm/bestbudget --set appUrl=...`.
 
 ## Работа за reverse proxy
 
