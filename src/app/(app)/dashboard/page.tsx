@@ -1,3 +1,4 @@
+import { GoalsWidget } from "@/components/app/goals/goals-widget"
 import { FxWarnings } from "@/components/app/fx-warnings"
 import { CalendarClock, Info, PieChart, Plus } from "lucide-react"
 import type { Metadata } from "next"
@@ -116,6 +117,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </div>
         </div>
       ) : null}
+
+      <GoalsWidget ctx={ctx} />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
         <Card className="xl:col-span-3">
