@@ -16,5 +16,12 @@ export async function notificationSnapshot(ctx: HouseholdCtx, now: Date): Promis
     getBudgets(ctx, startOfMonth(today)),
     getHousehold(ctx),
   ])
-  return { name: household.name, householdId: ctx.householdId, currency: ctx.currency, payments, forecast: forecast.days, budgets }
+  return {
+    name: household.name,
+    householdId: ctx.householdId,
+    currency: ctx.currency,
+    payments,
+    forecast: forecast.days,
+    budgets,
+  }
 }
