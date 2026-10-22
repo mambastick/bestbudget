@@ -280,6 +280,8 @@ test("creates and funds a savings goal, with mobile layouts and a dashboard widg
   await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100")
   await expect(page.getByLabel("Достигнута", { exact: true })).toBeVisible()
   await page.goto("/goals")
+  await expect(page.getByRole("heading", { name: "Цели", exact: true })).toBeVisible()
+  await expect(page.getByTestId("goal-card")).toHaveCount(1)
   await expect(page.getByTestId("goal-card")).toContainText("Отпуск в Турции E2E")
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.screenshot({ path: "work/goals-list-375.png", fullPage: true, animations: "disabled" })
