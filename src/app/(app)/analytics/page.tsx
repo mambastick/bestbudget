@@ -53,7 +53,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="grid grid-cols-1 gap-6">
-      <FxWarnings warnings={a.warnings} />
+      <FxWarnings warnings={a.warnings} canManageRates={ctx.user.role === "admin"} />
       <PageHeader title="Аналитика" description={`Фактические операции · ${formatDateFull(a.from)} — ${formatDateFull(a.to)}`} />
       <AnalyticsPeriod period={period} from={range.from} to={range.to} today={today} />
 

@@ -3,7 +3,8 @@
 import { Plus, Repeat, Trash2 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { quoteConversionAction } from "@/app/actions/exchange-rates"
-import { currencyExponent } from "@/lib/currencies"
+import { formatExchangeRate, formatQuotedRate, formatRateSource } from "@/lib/fx-display"
+import type { ExchangeRate } from "@/lib/exchange-rates"
 import type { CatalogAccount } from "./catalog-context"
 import { createRulesAction, createTransactionAction, updateRuleAction, updateTransactionAction } from "@/app/actions/finance"
 import { CategoryIcon } from "@/components/app/category-icon"
@@ -138,7 +139,7 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
   const parsedAmount = parseMoney(s.amount, currency)
   const quoteDate = s.posted && !s.repeat && mode.kind !== "rule" && s.scope !== "future" ? s.date : today
   const quoteKey = `${parsedAmount}:${currency}:${toCurrency}:${quoteDate}`
-  const [quote, setQuote] = useState<{ key: string; amount: number | null; warnings: string[] } | null>(null)
+  const [quote, setQuote] = useState<{ key: string; amount: number | null; warnings: string[]; rates: ExchangeRate[] } | null>(null)
   useEffect(() => {
     if (!crossCurrency || !parsedAmount) return
     let active = true
@@ -152,7 +153,9 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
   const currentQuote = quote?.key === quoteKey ? quote : null
   const creditedInput = s.toAmount ?? (currentQuote?.amount ? minorToInput(currentQuote.amount, toCurrency) : "")
   const credited = crossCurrency ? parseMoney(creditedInput, toCurrency) : null
-  const effectiveRate = parsedAmount && credited ? (credited / 10 ** currencyExponent(toCurrency)) / (parsedAmount / 10 ** currencyExponent(currency)) : null
+  const effectiveRate = parsedAmount && credited ? formatExchangeRate(parsedAmount, credited, currency, toCurrency) : null
+  const referenceRate = currentQuote?.amount ? formatQuotedRate(currentQuote.rates, currency, toCurrency) : null
+  const rateSource = currentQuote ? formatRateSource(currentQuote.rates) : null
 
   const isRule = mode.kind === "rule"
   const isOccurrence = mode.kind === "transaction" && mode.row.recurringRuleId !== null
@@ -355,7 +358,8 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
       {crossCurrency ? <Field>
         <FieldLabel htmlFor="op-to-amount">Зачислено</FieldLabel>
         <MoneyInput id="op-to-amount" currency={toCurrency} value={creditedInput} onChange={(v) => set("toAmount", v)} aria-invalid={Boolean(errors.toAmount)} />
-        {effectiveRate ? <p className="text-xs text-muted-foreground">Эффективный курс: 1 {currency} = {new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 8 }).format(effectiveRate)} {toCurrency}</p> : null}
+        {referenceRate ? <p className="text-xs text-muted-foreground">{referenceRate}{rateSource ? ` · ${rateSource}` : ""}</p> : null}
+        {effectiveRate && (!referenceRate || effectiveRate !== referenceRate) ? <p className="text-xs text-muted-foreground">{effectiveRate} · по суммам перевода</p> : null}
         {currentQuote?.warnings.map((warning) => <p key={warning} className="text-xs text-muted-foreground">{warning}</p>)}
         {errors.toAmount ? <p className="text-sm text-destructive">{errors.toAmount}</p> : null}
       </Field> : null}

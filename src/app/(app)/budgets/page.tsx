@@ -23,7 +23,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
 
   return (
     <div className="grid grid-cols-1 gap-6">
-      <FxWarnings warnings={warnings} />
+      <FxWarnings warnings={warnings} canManageRates={ctx.user.role === "admin"} />
       <PageHeader
         title="Бюджеты"
         description={`Месячные лимиты по категориям расходов · ${formatMonth(month)}`}

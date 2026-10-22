@@ -9,6 +9,7 @@ import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { useAction } from "@/hooks/use-action"
 import type { Currency } from "@/lib/currencies"
+import { formatDateFull } from "@/lib/dates"
 import type { ExchangeRate } from "@/lib/exchange-rates"
 
 export function ExchangeRatesSettings({ rates, today, provider }: { rates: ExchangeRate[]; today: string; provider: "cbr" | "none" }) {
@@ -31,7 +32,7 @@ export function ExchangeRatesSettings({ rates, today, provider }: { rates: Excha
       </form>
       <ul className="mt-6 divide-y text-sm">
         {rates.map((rate) => <li key={`${rate.currency}:${rate.date}:${rate.source}`} className="flex flex-wrap justify-between gap-2 py-2">
-          <span>{rate.date} · {rate.currency} · {rate.source === "manual" ? "ручной" : "ЦБ"}</span>
+          <span>{formatDateFull(rate.date)} · {rate.currency} · {rate.source === "manual" ? "ручной" : "ЦБ"}</span>
           <span className="tabular">{rate.rateToRub.replace(/0+$/, "").replace(/\.$/, "").replace(".", ",")} ₽</span>
         </li>)}
         {!rates.length ? <li className="py-3 text-muted-foreground">Курсов пока нет. Обновите их или введите вручную.</li> : null}

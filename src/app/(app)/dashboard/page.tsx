@@ -43,7 +43,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="grid grid-cols-1 gap-6">
-      <FxWarnings warnings={d.warnings} />
+      <FxWarnings warnings={d.warnings} canManageRates={ctx.user.role === "admin"} />
       <PageHeader title="Обзор" description={`Финансы семьи · ${formatMonth(month)}`} actions={<MonthSwitcher month={month} today={today} basePath="/dashboard" />} />
 
       {empty ? (
@@ -64,6 +64,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </div>
             <p className="text-xs text-muted-foreground">Все счета, только подтверждённые операции</p>
             {d.valuationNote ? <p className="text-xs text-muted-foreground">{d.valuationNote}</p> : null}
+            {d.staleRateNotes.map((note) => <p key={note} className="text-xs text-muted-foreground">{note}</p>)}
           </div>
           <div className="grid grid-cols-1 gap-3 border-t p-5">
             <Metric label={`Прогноз на ${formatDay(d.monthDays.at(-1)?.date ?? today)}`} hint="Фактический баланс плюс ожидаемые доходы и минус запланированные расходы до конца месяца">

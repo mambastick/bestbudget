@@ -58,7 +58,9 @@ describe("multi-currency finance", () => {
     const dash = await getDashboard(ctx, "2026-10-01")
     expect(dash.monthExpense).toBe(1100_00)
     expect(dash.balance).toBe(8800_00)
-    expect(dash.warnings.join(" ")).toMatch(/курс от 2026-10-01/)
+    expect(dash.warnings).toEqual([])
+    expect(dash.staleRateNotes).toEqual([])
+    expect(dash.valuationNote).toContain("1 валютный счёт")
     const november = await getDashboard(ctx, "2026-11-01")
     expect(november.plannedExpense).toBe(1000_00)
     expect(november.forecastEndOfMonth).toBe(7800_00)
@@ -67,6 +69,18 @@ describe("multi-currency finance", () => {
     expect((await getAnalytics(ctx, "2026-10-01", "2026-10-31")).current.expense).toBe(1100_00)
     expect((await getCalendarMonth(ctx, "2026-11-01")).days.at(-1)?.balance).toBe(7800_00)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+  it("deduplicates missing historical rates by currency while keeping current stale quotes in the balance card", async () => {
+    const { ctx, mainAccount } = await setupHousehold()
+    const eur = await createAccount(ctx, { name: "EUR", kind: "cash", currency: "EUR", openingBalance: 100_00 })
+    await createAccount(ctx, { name: "EUR reserve", kind: "savings", currency: "EUR", openingBalance: 50_00 })
+    for (const date of ["2026-09-14", "2026-09-15"]) {
+      await createTransaction(ctx, { type: "transfer", amount: 100_00, toAmount: 1_00, accountId: mainAccount, toAccountId: eur.id, date, status: "posted" })
+    }
+    const dash = await getDashboard(ctx, "2026-09-01")
+    expect(dash.warnings).toEqual(["Нет курса EUR."])
+    expect(dash.staleRateNotes).toEqual(["EUR: курс от 1 октября (ручной)"])
+    expect(dash.valuationNote).toBe("Включая 2 валютных счёта · оценка на 1 октября 2026")
   })
   it("carries both amounts through recurring, virtual and confirmed transfers", async () => {
     const { ctx, mainAccount } = await setupHousehold()
@@ -118,7 +132,7 @@ describe("multi-currency finance", () => {
     await createAccount(ctx, { name: "BHD", kind: "cash", currency: "BHD", openingBalance: 1000 })
     const dash = await getDashboard(ctx, "2026-11-01")
     expect(dash.balance).toBe(0)
-    expect(dash.warnings.join(" ")).toMatch(/Итоги неполные.*BHD/)
+    expect(dash.warnings.join(" ")).toMatch(/Нет курса BHD/)
     expect((await quoteConversion(1000, "BHD", "RUB", "2026-11-01")).amount).toBeNull()
     const fx = createConverter([], "RUB")
     expect(fx.convert(1234, "RUB", "2026-11-01")).toBe(1234)
@@ -137,7 +151,8 @@ describe("offline cache and manual rates", () => {
     expect(await refreshCbrRates("2026-10-23", true)).toBe(false)
     const result = await quoteConversion(100, "JPY", "RUB", "2026-10-23")
     expect(result.amount).toBe(6012)
-    expect(result.warnings.join(" ")).toMatch(/2026-10-22/)
+    expect(result.warnings).toEqual([])
+    expect(result.rates).toContainEqual(expect.objectContaining({ currency: "JPY", date: "2026-10-22" }))
     provider.value = "none"
   })
   it("lazily requests historical destination and opening-balance valuation dates", async () => {

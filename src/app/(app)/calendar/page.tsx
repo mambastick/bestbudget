@@ -19,7 +19,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="grid grid-cols-1 gap-6">
-      <FxWarnings warnings={data.warnings} />
+      <FxWarnings warnings={data.warnings} canManageRates={ctx.user.role === "admin"} />
       <PageHeader
         title="Календарь"
         description="Фактические и запланированные операции по дням, прогноз остатка"

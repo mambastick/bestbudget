@@ -189,11 +189,10 @@ export function createConverter(rates: ExchangeRate[], base: string) {
     const from = rate(currency, date)
     const to = rate(base, date)
     if (!from || !to) {
-      warnings.add(`Итоги неполные: нет курса ${!from ? currency : base} на ${date}. Введите ручной курс в администрировании.`)
+      for (const missing of [!from ? currency : null, !to ? base : null]) {
+        if (missing) warnings.add(`Нет курса ${missing}.`)
+      }
       return 0
-    }
-    for (const r of [from, to]) {
-      if (r.currency !== "RUB" && r.date < date) warnings.add(`${r.currency}: курс от ${r.date} (${r.source === "manual" ? "ручной" : "ЦБ"}).`)
     }
     return convertMinor(amount, currency, base, from.rateToRub, to.rateToRub)
   }
@@ -229,7 +228,8 @@ export async function quoteConversion(amount: number, from: string, to: string, 
   isoDate.parse(date)
   const at = date > today ? today : date
   const rates = await loadRates([{ currency: from, date: at }, { currency: to, date: at }])
-  if (from !== to && (!selectRate(rates, from, at) || !selectRate(rates, to, at))) return { amount: null, warnings: ["Нет курса. Укажите сумму зачисления вручную; для отчётов добавьте курс в администрировании."] }
+  const selectedRates = [...new Set([from, to])].flatMap((c) => selectRate(rates, c, at) ?? [])
+  if (from !== to && (!selectRate(rates, from, at) || !selectRate(rates, to, at))) return { amount: null, rates: selectedRates, warnings: ["Нет курса. Укажите сумму зачисления вручную; для отчётов добавьте курс в администрировании."] }
   const fx = createConverter(rates, to)
-  return { amount: fx.convert(amount, from, at), warnings: [...fx.warnings] }
+  return { amount: fx.convert(amount, from, at), rates: selectedRates, warnings: [...fx.warnings] }
 }

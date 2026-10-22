@@ -4,7 +4,7 @@ import { getDb } from "@/db"
 import { categories } from "@/db/schema"
 import { effectiveDate, type FlowItem } from "@/domain/forecast"
 import { addDays, addMonths, diffDays, endOfMonth, maxDate, monthKey, startOfMonth, todayIn, type IsoDate } from "@/lib/dates"
-import { selectRate } from "@/lib/exchange-rates"
+import { balanceValuation } from "@/lib/fx-display"
 import { assertCan, type HouseholdCtx } from "../context"
 import { applyMovement, loadFinance, pastValuationDates, type FinanceData } from "./finance-data"
 import { ensureMaterialized, virtualOccurrences, type VirtualOccurrence } from "./recurring"
@@ -132,15 +132,14 @@ export async function getDashboard(ctx: HouseholdCtx, month: IsoDate) {
     })),
   ].sort((a, b) => a.date.localeCompare(b.date)).slice(0, 10)
   const foreign = data.accounts.filter((a) => a.currency !== ctx.currency)
-  const usedRates = [...new Set([...foreign.map((a) => a.currency), ctx.currency])].filter((c) => c !== "RUB").map((c) => selectRate(data.rates, c, today)).filter((r) => r !== null)
-  const valuationNote = foreign.length ? `Включая ${foreign.length} валютных счетов по курсу ${usedRates.some((r) => r.source === "manual") ? "ЦБ / ручному" : "ЦБ"} на ${usedRates.map((r) => r.date).sort()[0] ?? "неизвестную дату"}` : null
+  const valuation = balanceValuation(data.rates, foreign.map((a) => a.currency), ctx.currency, today)
   return {
     today, monthStart, balance: data.balance, monthIncome: actual.income, monthExpense: actual.expense,
     plannedIncome: planned.income, plannedExpense: planned.expense,
     forecastEndOfMonth: monthProjection.days.at(-1)?.balance ?? data.balance,
     availableAfterObligations: data.balance - plannedObligations, obligationsUntil,
     monthDays: monthProjection.days, trend: monthlyTotals(data, addMonths(monthStart, -5), monthEnd), byCategory,
-    forecast: forecast.days, upcoming, warnings: [...data.fx.warnings], valuationNote,
+    forecast: forecast.days, upcoming, warnings: [...data.fx.warnings], valuationNote: valuation.note, staleRateNotes: valuation.stale,
   }
 }
 
