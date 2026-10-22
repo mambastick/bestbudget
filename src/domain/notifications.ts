@@ -39,6 +39,7 @@ export interface NoticeSnapshot {
     status: string
     title: string
     amount: number
+    currency: string
     accountName: string
   }[]
   forecast: { date: string; balance: number }[]
@@ -60,7 +61,7 @@ export function noticesFor(s: NoticeSnapshot, p: Preferences, today: string): No
   const notices: Notice[] = []
   for (const t of s.payments) {
     if (t.status !== "planned" || t.type === "income") continue
-    const amount = formatMoney(t.amount, s.currency)
+    const amount = formatMoney(t.amount, t.currency)
     if (t.date < today && p.overdue) {
       notices.push({
         kind: "overdue",

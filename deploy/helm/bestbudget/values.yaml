@@ -55,6 +55,7 @@ smtp:
 
 # Exchange rates: cbr (Bank of Russia + DB cache) or none (manual rates only).
 fxProvider: cbr
+
 # Payment reminders. Empty transport credentials use encrypted database settings.
 notifications:
   jobsEnabled: true

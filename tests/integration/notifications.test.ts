@@ -3,6 +3,8 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import webpush from "web-push"
 import { closeDb, getDb } from "@/db"
 import {
+  applicationSettings,
+  exchangeRates,
   householdMembers,
   notificationDeliveries,
   notificationSettings,
@@ -13,9 +15,11 @@ import {
 } from "@/db/schema"
 import { preferencesInput } from "@/domain/notifications"
 import { encryptSecret } from "@/lib/crypto"
+import { formatMoney } from "@/lib/money"
 import { POST as webhook } from "@/app/api/telegram/webhook/route"
 import { runNotificationJob } from "@/server/jobs/notifications"
 import { deliverOnce, sendPushNotice } from "@/server/notifications/delivery"
+import { notificationSnapshot } from "@/server/notifications/snapshot"
 import {
   bindTelegram,
   confirmTelegramPayment,
@@ -28,6 +32,8 @@ import {
 import { DeliveryError, telegramApi } from "@/server/notifications/telegram-api"
 import { allowedPushEndpoint, getPreferences, savePreferences, subscribePush } from "@/server/services/notifications"
 import { setBudget } from "@/server/services/budgets"
+import { createAccount } from "@/server/services/catalog"
+import { resolveHouseholdCtx, updateHousehold } from "@/server/services/households"
 import {
   configureTelegramTransport,
   telegramConfig,
@@ -52,6 +58,7 @@ beforeEach(async () => {
   fetchMock.mockClear()
   vi.mocked(webpush.sendNotification).mockClear()
   // Other service suites share this database; isolate notification transport state.
+  await getDb().delete(applicationSettings).where(eq(applicationSettings.key, "notifications.telegram.rate"))
   await getDb().delete(notificationDeliveries)
   await getDb().delete(telegramUpdates)
   await getDb().delete(telegramLinks)
@@ -87,6 +94,59 @@ async function fixture() {
 }
 const noon = new Date("2026-10-23T09:00:00Z")
 describe("notification pipeline", () => {
+  it.each([
+    { currency: "RUB" as const, limit: 1000000, spent: 1150000, balance: -1150000 },
+    { currency: "EUR" as const, limit: 8000, spent: 9200, balance: -9200 },
+  ])("sends USD payments and converted forecasts, budgets and balance in $currency", async (base) => {
+    vi.useFakeTimers({ toFake: ["Date"], now: noon })
+    try {
+      await getDb().insert(exchangeRates).values([
+        { currency: "USD", date: "2026-10-23", rateToRub: "100", source: "manual" },
+        { currency: "EUR", date: "2026-10-23", rateToRub: "125", source: "manual" },
+      ])
+      const h = await setupHousehold()
+      await updateHousehold(h.ctx, { name: h.household.name, currency: base.currency, version: 1 })
+      const ctx = (await resolveHouseholdCtx(h.owner.id, h.household.id))!
+      const usd = await createAccount(ctx, { name: "USD", kind: "cash", currency: "USD", openingBalance: 0 })
+      const payment = {
+        type: "expense" as const,
+        title: "Валютный платёж",
+        accountId: usd.id,
+        categoryId: h.cat("Продукты"),
+      }
+      await createTransaction(ctx, { ...payment, amount: 10000, status: "planned", date: "2026-10-24" })
+      await createTransaction(ctx, { ...payment, amount: 11500, status: "posted", date: "2026-10-23" })
+      await setBudget(ctx, { categoryId: h.cat("Продукты"), amount: base.limit })
+      await getDb().insert(telegramLinks).values({ userId: h.owner.id, chatId: "810" })
+      await savePreferences(ctx, preferencesInput.parse({ telegram: true }))
+      const snapshot = await notificationSnapshot(ctx, noon)
+      expect(snapshot.currency).toBe(base.currency)
+      expect(snapshot.payments.find((row) => row.status === "planned")).toMatchObject({ amount: 10000, currency: "USD" })
+      expect(snapshot.budgets.find((row) => row.id === h.cat("Продукты"))).toMatchObject({ limit: base.limit, spent: base.spent })
+      const gap = snapshot.forecast.find((day) => day.balance < 0)!
+      expect(gap.balance).toBe(base.balance)
+      const sent = () => fetchMock.mock.calls
+        .filter(([url]) => url.endsWith("sendMessage"))
+        .map(([, options]) => JSON.parse(String(options?.body)) as { text: string })
+      await runNotificationJob(noon)
+      const text = sent().map((message) => message.text).join("\n").replace(/\u00a0/g, " ")
+      expect(text).toContain("100 $ со счёта USD")
+      expect(text).toContain(formatMoney(gap.balance, base.currency).replace(/\u00a0/g, " "))
+      expect(text).toContain("Бюджет „Продукты“ превышен на 15%")
+      for (const [index, command] of ["/today", "/balance"].entries()) {
+        await handleTelegramUpdate({
+          update_id: 900 + index,
+          message: { text: command, from: { id: 810 }, chat: { id: 810, type: "private" } },
+        }, "123:test", "987")
+      }
+      expect(sent().at(-2)!.text.replace(/\u00a0/g, " ")).toContain("100 $ со счёта USD")
+      expect(sent().at(-1)!.text).toContain(formatMoney(base.balance, base.currency))
+    } finally {
+      await getDb().delete(exchangeRates).where(eq(exchangeRates.date, "2026-10-23"))
+      await getDb().delete(applicationSettings).where(eq(applicationSettings.key, "notifications.telegram.rate"))
+      vi.useRealTimers()
+    }
+  })
   it("runs twice, sends once, and sends to two devices independently", async () => {
     const h = await fixture()
     const p = await getPreferences(h.ctx)

@@ -4,7 +4,7 @@ import { isQuiet, noticesFor, parsePaymentCallback, parseTelegramUpdate, prefere
 const id = "987a5387-e12e-4e12-b689-74d163bfbe84"
 const snapshot: NoticeSnapshot = {
   householdId: "family", currency: "RUB",
-  payments: [{ id, version: 2, date: "2026-10-24", type: "expense", status: "planned", title: "Ипотека", amount: 4500000, accountName: "Сбер" }],
+  payments: [{ id, version: 2, date: "2026-10-24", type: "expense", status: "planned", title: "Ипотека", amount: 4500000, currency: "RUB", accountName: "Сбер" }],
   forecast: [{ date: "2026-10-28", balance: -1230000 }],
   budgets: [{ id: "food", name: "Продукты", limit: 100000, spent: 115000 }],
 }
@@ -29,6 +29,22 @@ describe("notification selection", () => {
     const exact = { ...snapshot, budgets: [{ id: "food", name: "Продукты", limit: 100001, spent: 115001 }] }
     expect(noticesFor(exact, p, "2026-10-23").some((n) => n.kind === "budget")).toBe(false)
     expect(noticesFor({ ...snapshot, payments: snapshot.payments.map((t) => ({ ...t, status: "posted" })) }, p, "2026-10-23").some((n) => n.kind === "due")).toBe(false)
+  })
+  it("keeps payment minor units in the account currency and forecasts in the base currency", () => {
+    const foreign = {
+      ...snapshot,
+      currency: "EUR",
+      payments: snapshot.payments.map((payment) => ({ ...payment, amount: 10000, currency: "USD" })),
+    }
+    const notices = noticesFor(foreign, p, "2026-10-23")
+    expect(notices[0]!.text.replace(/\u00a0/g, " ")).toContain("100 $")
+    expect(notices[1]!.text.replace(/\u00a0/g, " ")).toContain("−12 300 €")
+    expect(noticesFor(foreign, p, "2026-10-26")[0]!.text.replace(/\u00a0/g, " ")).toContain("100 $")
+    const yen = { ...foreign, payments: foreign.payments.map((payment) => ({ ...payment, amount: 100, currency: "JPY" })) }
+    expect(noticesFor(yen, p, "2026-10-23")[0]!.text.replace(/\u00a0/g, " ")).toContain("100 ¥")
+    const digest = scheduledNotices(foreign, { ...p, digest: true }, "Europe/Moscow", new Date("2026-10-23T09:00:00Z"))
+    expect(digest[0]!.text.replace(/\u00a0/g, " ")).toContain("100 $")
+    expect(digest[0]!.text.replace(/\u00a0/g, " ")).toContain("−12 300 €")
   })
   it("honors crossing and daytime quiet hours and disabled quiet hours", () => {
     expect(isQuiet("23:59", "22:00", "08:00")).toBe(true)
