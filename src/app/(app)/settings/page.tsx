@@ -1,0 +1,70 @@
+import type { Metadata } from "next"
+import { CategoriesSettings } from "@/components/app/settings/categories-settings"
+import { HouseholdSettings } from "@/components/app/settings/household-settings"
+import { ProfileSettings } from "@/components/app/settings/profile-settings"
+import { NavTabs } from "@/components/app/nav-tabs"
+import { PageHeader } from "@/components/app/page-header"
+import { can } from "@/domain/permissions"
+import { requireHousehold } from "@/server/session"
+import { listCategories } from "@/server/services/catalog"
+import { getHousehold, listInvitations, listMembers } from "@/server/services/households"
+import { getAuthMethods } from "@/server/services/settings"
+import { getLoginProviders } from "@/server/services/users"
+
+export const metadata: Metadata = { title: "Настройки" }
+
+const TABS = [
+  { key: "household", label: "Семья" },
+  { key: "categories", label: "Категории" },
+  { key: "profile", label: "Профиль и безопасность" },
+] as const
+
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const ctx = await requireHousehold()
+  const requested = (await searchParams).tab
+  const tab = TABS.find((t) => t.key === requested)?.key ?? "household"
+
+  let content: React.ReactNode
+  if (tab === "household") {
+    const [household, members, invitations] = await Promise.all([
+      getHousehold(ctx),
+      listMembers(ctx),
+      can(ctx.role, "invitations.manage") ? listInvitations(ctx) : Promise.resolve([]),
+    ])
+    content = (
+      <HouseholdSettings
+        household={{ name: household.name, timezone: household.timezone, currency: household.currency }}
+        members={members.map((m) => ({ ...m, joinedAt: m.joinedAt.toISOString() }))}
+        invitations={invitations.map((i) => ({ ...i, expiresAt: i.expiresAt.toISOString(), createdAt: i.createdAt.toISOString() }))}
+        currentUserId={ctx.userId}
+        role={ctx.role}
+      />
+    )
+  } else if (tab === "categories") {
+    const categories = await listCategories(ctx, { includeArchived: true })
+    content = (
+      <CategoriesSettings
+        categories={categories.map((c) => ({ id: c.id, kind: c.kind, name: c.name, icon: c.icon, color: c.color, archived: c.archivedAt !== null }))}
+        canManage={can(ctx.role, "catalog.manage")}
+      />
+    )
+  } else {
+    const [providers, methods] = await Promise.all([getLoginProviders(ctx.userId), getAuthMethods()])
+    content = (
+      <ProfileSettings
+        user={{ name: ctx.user.name, email: ctx.user.email }}
+        hasPassword={providers.includes("credential")}
+        localEnabled={methods.local}
+        sso={methods.oidc ? { name: methods.oidc.displayName, linked: providers.includes("oidc") } : null}
+      />
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-6">
+      <PageHeader title="Настройки" />
+      <NavTabs tabs={TABS.map((t) => ({ ...t, href: `/settings?tab=${t.key}` }))} active={tab} />
+      {content}
+    </div>
+  )
+}

@@ -1,0 +1,15 @@
+apiVersion: v2
+name: bestbudget
+description: Self-hosted family budget — income, expenses, recurring payments and cash-flow forecast
+type: application
+version: 1.0.0-beta.1
+appVersion: "1.0.0-beta.1"
+home: https://github.com/mambastick/bestbudget
+sources:
+  - https://github.com/mambastick/bestbudget
+keywords:
+  - budget
+  - finance
+  - self-hosted
+maintainers:
+  - name: mambastick

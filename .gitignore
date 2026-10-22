@@ -30,3 +30,11 @@ yarn-error.log*
 
 # object/database local data
 .data/
+
+# runtime
+/dist-scripts/
+/test-results/
+/playwright-report/
+
+# local tooling
+.claude/

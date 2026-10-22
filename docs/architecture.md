@@ -1,72 +1,117 @@
-# BestBudget Architecture
+# Архитектура BestBudget
 
-BestBudget currently uses a single Vite/React codebase at the repository root.
-The source tree is intentionally consolidated under `src/` instead of separate
-`frontend/` and `backend/` packages.
+Один веб-сервис на Next.js (App Router) и PostgreSQL. Никакой дополнительной инфраструктуры (очередей, кэшей, воркеров) не требуется.
 
-## Runtime Shape
+```text
+src/
+├── app/                 # маршруты Next.js
+│   ├── (auth)/          # вход, первичная настройка, приглашения, регистрация, сброс пароля
+│   ├── (app)/           # приложение: обзор, операции, календарь, бюджеты, аналитика, счета, настройки, администрирование
+│   ├── actions/         # server actions — тонкий слой: сессия → контекст → сервис → revalidate
+│   └── api/             # /api/auth/* (Better Auth), /api/health
+├── components/          # UI: ui/ — shadcn/ui (Base UI), app/ — компоненты приложения
+├── db/                  # схема Drizzle, клиент, мигратор
+├── domain/              # чистая бизнес-логика без I/O: расписания, прогноз, права, справочники
+├── lib/                 # деньги, даты, env, шифрование, Better Auth
+└── server/              # серверная логика: контекст и проверка прав, сервисы, аудит
+drizzle/                 # SQL-миграции
+scripts/                 # миграции, CLI администратора, локальная БД (PGlite)
+tests/integration/       # интеграционные тесты сервисов на реальной схеме
+e2e/                     # Playwright
+```
 
-- `src/`: React 19, Vite, TypeScript, Tailwind CSS v4, shadcn/ui, and local
-  domain state for the current MVP.
-- `src/domain/`: typed entities, selectors, local persistence, presets for
-  currencies and categories.
-- `src/components/app/`: application shell, screens, dialogs, and form
-  composition built from shadcn/ui primitives.
-- `src/components/reactbits/`: small ReactBits-style animation wrappers for
-  non-critical visual emphasis.
-- `deploy/dev/`: Docker Compose that builds a dev image and mounts the working
-  tree for local hot reload.
-- `deploy/prod/`: Docker Compose that pulls a registry image and serves the
-  production build through nginx.
-- `.vscode/mcp.json` and `.mcp.json`: MCP definitions for VS Code/Codex.
+## Слои и изоляция данных
 
-## Persistence Boundary
+- **Server actions** (`src/app/actions`) получают пользователя из сессии и активное семейное пространство из cookie `bb_household`.
+  Членство каждый раз проверяется в БД (`resolveHouseholdCtx`) — подделанная cookie просто не даёт доступа.
+- **Сервисы** (`src/server/services`) принимают `HouseholdCtx` и проверяют права (`assertCan`). Каждый запрос к финансовым данным
+  содержит `household_id = ctx.householdId`; запись по чужому идентификатору — «не найдена».
+- **База данных** дополнительно гарантирует изоляцию составными внешними ключами `(household_id, category_id)`,
+  `(household_id, account_id)`: операция не может сослаться на счёт или категорию другой семьи даже при ошибке в коде.
+- **Права в семье** — `src/domain/permissions.ts`: участник ведёт операции (включая регулярные), администратор дополнительно управляет
+  категориями, счетами, бюджетами и приглашениями, владелец — участниками и настройками пространства.
+- **Системный администратор** (`users.role = 'admin'`) управляет пользователями и авторизацией, но видит у пространств только метаданные.
+  Имперсонация Better Auth отключена.
 
-The current implementation stores users, sessions, workspaces, categories,
-transactions, budgets, liabilities, documents, and invitations in browser
-`localStorage` under one versioned key. This gives each registered local account
-its own password-protected profile in the browser while keeping the MVP runnable
-without external services.
+## Модель данных
 
-A server-side BFF/API, PostgreSQL, object storage, SSO, OCR, banking imports,
-and audit logs remain future production work. They should be added behind the
-existing domain boundaries rather than by moving UI code back into a split
-monorepo.
+| Таблица | Назначение |
+|---|---|
+| `users`, `sessions`, `auth_accounts`, `verifications`, `rate_limits` | Better Auth (UUID, admin-плагин: роль, блокировка) |
+| `households`, `household_members`, `invitations` | семейные пространства, роли, одноразовые приглашения (хранится только SHA-256 токена) |
+| `financial_accounts` | счета: тип, начальный остаток, архив |
+| `categories` | категории доходов/расходов: иконка, цвет, архив |
+| `transactions` | операции: тип, статус, сумма, дата, счёт(а), категория, автор, версия |
+| `recurring_rules` | расписания регулярных операций |
+| `category_budgets` | месячные лимиты по категориям |
+| `application_settings`, `oidc_provider_settings` | настройки приложения и SSO (секрет зашифрован) |
+| `audit_logs` | журнал изменений: кто, когда, что изменилось |
 
-## Access Model
+- **Деньги** — `BIGINT` в копейках, в коде — целые числа (`src/lib/money.ts`). Валюта хранится у пространства и счёта (по умолчанию RUB);
+  конвертация валют не реализована.
+- **Даты операций** — SQL `date` (календарный день в часовом поясе пространства, по умолчанию Europe/Moscow). «Сегодня» вычисляется
+  в часовом поясе пространства.
+- **Конкурентные изменения** — у операций и расписаний есть `version`; обновление выполняется условием `version = <прочитанная>`, иначе
+  пользователь получает сообщение о конфликте. Приглашение принимается под `SELECT … FOR UPDATE`, поэтому токен одноразовый и при гонке.
+- **История** — `created_by`/`updated_by`/`updated_at` в строках и `audit_logs` с изменёнными полями.
+- **Удаление** — категории и счета с историей удалить нельзя, только архивировать; операции расписания при «удалении» помечаются
+  пропущенными.
 
-- A user registers with name, email, and password.
-- A workspace owner/admin can configure an OIDC SSO provider for the active
-  workspace. The current SPA supports Keycloak, authentik, and generic OIDC
-  providers through Authorization Code + PKCE.
-- After login, the user creates one or more workspaces.
-- A workspace can be `individual` or `shared`.
-- The active workspace is selected from the sidebar brand dropdown.
-- Shared workspaces contain member records and invited users.
-- Workspace roles are enforced by a local RBAC matrix in the UI and all
-  state-changing handlers: `owner` and `admin` can manage workspace data,
-  members, and SSO; `member` can manage transactions, liabilities, and
-  documents; `observer` is read-only.
+## Регулярные операции
 
-## SSO Boundary
+Расписание (`recurring_rules`) материализуется в обычные строки `transactions` со статусом `planned` на 62 дня вперёд. Строка хранит
+`occurrence_date` — исходный слот расписания; уникальный индекс `(recurring_rule_id, occurrence_date)` и `INSERT … ON CONFLICT DO NOTHING`
+делают генерацию идемпотентной, а блокировка строки расписания сериализует параллельные запуски и редактирование. Генерация запускается
+при открытии обзора, операций и календаря — отдельный планировщик не нужен.
 
-SSO in the frontend MVP is a browser-only OIDC integration. The app performs
-PKCE redirect/login, exchanges the authorization code with the IdP, reads
-identity claims, creates a local SSO user/session, and maps IdP groups/roles to
-workspace roles. Access tokens and ID tokens are not persisted in
-`localStorage`.
+Даты дальше горизонта (например, календарь через полгода) рассчитываются «виртуально» из расписания и попадают в прогноз; при действии
+с такой датой строка создаётся по требованию.
 
-Because the data store is still browser `localStorage`, RBAC is an application
-guardrail and UX contract, not a production security boundary. A backend/BFF is
-still required for server-enforced authorization, SAML ACS/signature validation,
-token refresh/revocation, audit logs, document access control, and tenant
-isolation.
+- **Подтверждение** переводит строку в `posted`, можно указать фактическую сумму и дату — слот расписания не меняется.
+- **Перенос / изменение одной** — правка строки; связь с расписанием сохраняется.
+- **Изменение всех следующих** — правка расписания с даты `effectiveFrom`: неподтверждённые операции с этой даты пересоздаются,
+  подтверждённые остаются как были.
+- **Остановка** — дата окончания; неподтверждённые будущие строки удаляются.
+- **29–31 число** — если дня нет в месяце, используется последний день месяца; в длинных месяцах расписание возвращается к своему дню
+  (`src/domain/recurrence.ts`).
+- Создание расписания задним числом не порождает просроченных операций: генерация начинается с даты создания (`generate_from`).
 
-## MVP Boundary
+## Баланс и прогноз
 
-The current frontend MVP focuses on functional flows: registration/login,
-workspace creation and switching, currency selection, category templates,
-transactions, budgets, calendar events, liabilities, documents, family members,
-invitations, OIDC SSO bootstrap, and local RBAC enforcement. Production-grade
-auth, encryption, document storage, audit trails, and server-side authorization
-remain backend work.
+- **Фактический баланс** = сумма начальных остатков счетов + все выполненные операции (доход +, расход −, перевод не меняет общую сумму).
+- **Прогноз на день D** (`src/domain/forecast.ts`): для прошедших дней — только факт; начиная с сегодняшнего дня добавляются плановые операции.
+  Просроченные плановые операции (дата прошла, но не подтверждены) считаются ожидаемыми и учитываются в прогнозе на сегодня.
+- **Доступно после обязательных платежей** = фактический баланс − все запланированные расходы до конца месяца, без учёта ещё не полученных
+  доходов. Это консервативная оценка: сколько можно тратить сейчас, даже если зарплата задержится.
+- **Кассовый разрыв** — день, на конец которого прогноз отрицательный; подсвечивается в календаре и на обзоре.
+- **Аналитика** строится только по выполненным операциям, прогноз показывается отдельным блоком.
+
+## Счета и кредитные карты
+
+Перевод — одна строка с `account_id` и `to_account_id`: со счёта списания уходит сумма, на счёт зачисления приходит та же сумма, общий баланс
+не меняется, в доходы и расходы перевод не попадает. Кредитная карта — счёт с отрицательным остатком (долгом): покупки записываются расходом
+с карты (учитываются один раз), погашение — переводом с дебетового счёта. Учёт процентов и графиков погашения — задел на будущее.
+
+## Авторизация
+
+- **Better Auth**: e-mail и пароль (scrypt), сессии в БД в HTTP-only cookie, ограничение частоты попыток (хранится в БД), admin-плагин.
+- **OIDC** — generic OAuth-плагин с discovery, PKCE и проверкой ID-токена по JWKS. Конфигурация берётся из окружения (приоритет) или из БД.
+  Экземпляр Better Auth пересоздаётся при изменении настроек (проверка не реже раза в 5 секунд), перезапуск не нужен.
+- **Регистрация закрыта**: хук создания пользователя разрешает его только при первичной настройке, по действующему приглашению
+  (для SSO — по HTTP-only cookie с токеном приглашения), при включённой публичной регистрации или авто-создании SSO-пользователей.
+- **Связывание SSO** — только явное, из активной сессии (`disableImplicitLinking`).
+- **Защита от потери доступа** — `getAuthMethods()` всегда оставляет хотя бы вход по паролю, если SSO недоступен; отключение пароля требует
+  привязанного SSO у самого администратора; `AUTH_FORCE_LOCAL_LOGIN` и CLI — аварийный доступ.
+
+## Тестирование
+
+- `src/**/*.test.ts` — чистая логика: расписания (включая 29–31 и високосные годы), прогноз, деньги, даты.
+- `tests/integration` — сервисы на реальных миграциях в in-memory PostgreSQL (PGlite через сетевой протокол): балансы, идемпотентность,
+  временные доходы, план/факт, прогноз будущих месяцев, переводы и кредитные карты, приглашения (включая гонку), изоляция семей, права ролей,
+  оптимистическая блокировка, ограничения БД.
+- `e2e/acceptance.spec.ts` — сценарий готовности первой версии в браузере на production-сборке.
+
+## Задел на будущее
+
+Схема и слои рассчитаны на расширение без переделки: валюта уже есть у счёта и пространства; импорт CSV/выписок ляжет в сервис операций;
+уведомления о ближайших платежах — поверх `listInRange`; цели и кредиты — новые таблицы, ссылающиеся на `financial_accounts`.

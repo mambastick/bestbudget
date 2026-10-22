@@ -19,4 +19,41 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
       - run: pnpm build
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: checks
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.27.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: checks
+    steps:
+      - uses: actions/checkout@v5
+      - name: Docker Compose smoke test (build, start, persistence)
+        run: ./scripts/compose-smoke.sh
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=200
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+      - run: helm lint deploy/helm/bestbudget --strict --set appUrl=https://budget.example.com
+      - run: helm template bb deploy/helm/bestbudget --set appUrl=https://budget.example.com --set ingress.enabled=true > /dev/null

@@ -1,7 +1,6 @@
 "use client"
 
-import { Progress as ProgressPrimitive } from "@base-ui/react/progress"
-
+import { Progress as ProgressPrimitive } from "@animate-ui/react/primitives/base-ui/progress"
 import { cn } from "@/lib/utils"
 
 function Progress({
@@ -45,7 +44,7 @@ function ProgressIndicator({
   return (
     <ProgressPrimitive.Indicator
       data-slot="progress-indicator"
-      className={cn("h-full bg-primary transition-all", className)}
+      className={cn("h-full bg-primary", className)}
       {...props}
     />
   )

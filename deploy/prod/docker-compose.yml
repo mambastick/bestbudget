@@ -1,9 +1,0 @@
-name: bestbudget-prod
-
-services:
-  app:
-    image: "${BESTBUDGET_IMAGE:-ghcr.io/mambastick/bestbudget:latest}"
-    container_name: bestbudget-prod
-    restart: unless-stopped
-    ports:
-      - "${APP_PORT:-8080}:80"

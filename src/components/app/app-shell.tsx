@@ -1,24 +1,26 @@
-import {
-  BanknoteIcon,
-  BellIcon,
-  ChevronDownIcon,
-  LogOutIcon,
-  PiggyBankIcon,
-  PlusIcon,
-  SearchIcon,
-  SettingsIcon,
-  UserPlusIcon,
-} from "lucide-react"
-import { type ReactNode } from "react"
+"use client"
 
-import { navItems } from "@/components/app/nav"
-import {
-  readonlyReason,
-  roleLabels,
-  type WorkspacePermissions,
-} from "@/components/app/permissions"
+import { AnimateIcon } from "@animate-ui/react/icons"
+import { Check, ChevronsUpDown, PiggyBank, Plus } from "lucide-react"
+import { CalendarDays } from "@/components/animate-ui/icons/calendar-days"
+import { ChartLine } from "@/components/animate-ui/icons/chart-line"
+import { Gauge } from "@/components/animate-ui/icons/gauge"
+import { LayoutDashboard } from "@/components/animate-ui/icons/layout-dashboard"
+import { List } from "@/components/animate-ui/icons/list"
+import { LogOut } from "@/components/animate-ui/icons/log-out"
+import { Moon } from "@/components/animate-ui/icons/moon"
+import { Plus as AnimatedPlus } from "@/components/animate-ui/icons/plus"
+import { Settings } from "@/components/animate-ui/icons/settings"
+import { ShieldCheck } from "@/components/animate-ui/icons/shield-check"
+import { Sun } from "@/components/animate-ui/icons/sun"
+import { Wallet } from "@/components/animate-ui/icons/wallet"
+import Link from "next/link"
+import { usePathname, useRouter } from "next/navigation"
+import { useTheme } from "next-themes"
+import { useEffect } from "react"
+import { switchHouseholdAction } from "@/app/actions/household"
+import { useOperations } from "@/components/app/operations/operations-provider"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -29,14 +31,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -46,238 +46,251 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { getInitials } from "@/domain/format"
-import type { User, View, Workspace, WorkspaceMember } from "@/domain/types"
+import { ROLE_LABELS, type HouseholdRole } from "@/domain/permissions"
+import { useAction } from "@/hooks/use-action"
+import { authClient } from "@/lib/auth-client"
+import { APP_VERSION, IS_PRERELEASE } from "@/lib/version"
 
-const searchPlaceholders: Record<View, string> = {
-  overview: "Найти операцию или категорию",
-  transactions: "Найти операцию, счет или категорию",
-  budgets: "Найти категорию или лимит",
-  calendar: "Найти операцию или платеж",
-  liabilities: "Найти кредит или платеж",
-  documents: "Найти документ",
-  family: "Найти участника",
-  settings: "Найти",
+const NAV = [
+  { href: "/dashboard", label: "Обзор", icon: LayoutDashboard },
+  { href: "/transactions", label: "Операции", icon: List },
+  { href: "/calendar", label: "Календарь", icon: CalendarDays },
+  { href: "/budgets", label: "Бюджеты", icon: Gauge },
+  { href: "/analytics", label: "Аналитика", icon: ChartLine },
+  { href: "/accounts", label: "Счета", icon: Wallet },
+  { href: "/settings", label: "Настройки", icon: Settings },
+]
+
+export interface ShellProps {
+  user: { name: string; email: string; isAdmin: boolean }
+  households: { id: string; name: string; role: HouseholdRole }[]
+  activeHouseholdId: string
+  children: React.ReactNode
 }
 
-export function AppShell({
-  user,
-  workspaces,
-  activeWorkspace,
-  currentMember,
-  permissions,
-  activeView,
-  searchQuery,
-  children,
-  onNavigate,
-  onSearchChange,
-  onWorkspaceChange,
-  onCreateWorkspace,
-  onOpenDialog,
-  onOpenNotifications,
-  onLogout,
-}: {
-  user: User
-  workspaces: Workspace[]
-  activeWorkspace: Workspace | null
-  currentMember: WorkspaceMember | null
-  permissions: WorkspacePermissions
-  activeView: View
-  searchQuery: string
-  children: ReactNode
-  onNavigate: (view: View) => void
-  onSearchChange: (value: string) => void
-  onWorkspaceChange: (workspaceId: string) => void
-  onCreateWorkspace: () => void
-  onOpenDialog: (dialog: "transaction" | "budget" | "invite") => void
-  onOpenNotifications: () => void
-  onLogout: () => void
-}) {
-  const hasWorkspace = activeWorkspace !== null
-  const inviteDisabled = hasWorkspace && !permissions.manageMembers
-  const budgetDisabled = hasWorkspace && !permissions.manageBudgets
-  const transactionDisabled = hasWorkspace && !permissions.createTransactions
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? "")
+    .join("")
+}
 
+export function AppShell({ user, households, activeHouseholdId, children }: ShellProps) {
   return (
     <SidebarProvider>
-      <Sidebar collapsible="icon">
-        <SidebarHeader>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <DropdownMenu>
-                <DropdownMenuTrigger render={<SidebarMenuButton size="lg" />}>
-                  <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                    <BanknoteIcon />
-                  </div>
-                  <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold">BestBudget</span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      {activeWorkspace?.name ?? "Бюджет не создан"}
-                    </span>
-                  </div>
-                  <ChevronDownIcon />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-64" align="start">
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel>Мои бюджеты</DropdownMenuLabel>
-                    {workspaces.map((workspace) => (
-                      <DropdownMenuItem
-                        key={workspace.id}
-                        onClick={() => onWorkspaceChange(workspace.id)}
-                      >
-                        <BanknoteIcon />
-                        <span className="truncate">{workspace.name}</span>
-                        {workspace.id === activeWorkspace?.id ? (
-                          <Badge variant="outline" className="ml-auto">
-                            выбран
-                          </Badge>
-                        ) : null}
-                      </DropdownMenuItem>
-                    ))}
-                    {workspaces.length ? <DropdownMenuSeparator /> : null}
-                    <DropdownMenuItem onClick={onCreateWorkspace}>
-                      <PlusIcon />
-                      Создать бюджет
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupLabel>Навигация</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <ShellNavigation activeView={activeView} onNavigate={onNavigate} />
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-        <SidebarFooter>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <DropdownMenu>
-                <DropdownMenuTrigger render={<SidebarMenuButton size="lg" />}>
-                  <Avatar className="size-8">
-                    <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
-                  </Avatar>
-                  <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-medium">{user.name}</span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      {user.email}
-                    </span>
-                  </div>
-                  {currentMember ? (
-                    <Badge variant="outline" className="shrink-0">
-                      {roleLabels[currentMember.role]}
-                    </Badge>
-                  ) : null}
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-56" side="top" align="start">
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel>Аккаунт</DropdownMenuLabel>
-                    <DropdownMenuItem onClick={() => onNavigate("settings")}>
-                      <SettingsIcon />
-                      Настройки аккаунта
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" onClick={onLogout}>
-                    <LogOutIcon />
-                    Выйти
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarFooter>
-      </Sidebar>
-      <SidebarInset>
-        <header className="sticky top-0 z-20 flex min-h-14 flex-wrap items-center gap-2 border-b bg-background/90 px-3 py-2 backdrop-blur sm:flex-nowrap sm:gap-3 sm:px-4 sm:py-0">
-          <SidebarTrigger
-            className="md:hidden"
-            aria-label="Открыть навигацию"
-          />
-          <div className="relative order-2 min-w-0 flex-[1_1_100%] sm:order-none sm:flex-1">
-            <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="h-9 max-w-none pl-8 sm:max-w-xl"
-              value={searchQuery}
-              onChange={(event) => onSearchChange(event.target.value)}
-              placeholder={searchPlaceholders[activeView]}
-            />
-          </div>
-          <Button
-            variant="outline"
-            size="icon"
-            aria-label="Уведомления"
-            onClick={onOpenNotifications}
-          >
-            <BellIcon />
-          </Button>
-          <Button
-            variant="outline"
-            className="hidden sm:inline-flex"
-            onClick={() => onOpenDialog("invite")}
-            disabled={inviteDisabled}
-            title={inviteDisabled ? readonlyReason : undefined}
-          >
-            <UserPlusIcon data-icon="inline-start" />
-            Пригласить
-          </Button>
-          <Button
-            variant="outline"
-            className="hidden md:inline-flex"
-            onClick={() => onOpenDialog("budget")}
-            disabled={budgetDisabled}
-            title={budgetDisabled ? readonlyReason : undefined}
-          >
-            <PiggyBankIcon data-icon="inline-start" />
-            Бюджет
-          </Button>
-          <Button
-            className="px-2 sm:px-2.5"
-            aria-label="Добавить операцию"
-            onClick={() => onOpenDialog("transaction")}
-            disabled={transactionDisabled}
-            title={transactionDisabled ? readonlyReason : undefined}
-          >
-            <PlusIcon data-icon="inline-start" />
-            <span className="hidden sm:inline">Операция</span>
-          </Button>
-        </header>
-        {children}
+      <AppSidebar user={user} households={households} activeHouseholdId={activeHouseholdId} />
+      <SidebarInset className="min-w-0">
+        <Header title={households.find((h) => h.id === activeHouseholdId)?.name ?? "BestBudget"} />
+        <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-4 pb-24 sm:px-6 sm:pt-6 md:pb-10">{children}</main>
       </SidebarInset>
+      <RefreshOnFocus />
     </SidebarProvider>
   )
 }
 
-function ShellNavigation({
-  activeView,
-  onNavigate,
-}: {
-  activeView: View
-  onNavigate: (view: View) => void
-}) {
+function AppSidebar({ user, households, activeHouseholdId }: Omit<ShellProps, "children">) {
+  const pathname = usePathname()
   const { setOpenMobile } = useSidebar()
+  const active = households.find((h) => h.id === activeHouseholdId)
+  const { run } = useAction()
+  const router = useRouter()
 
   return (
+    <Sidebar collapsible="icon" variant="inset">
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<SidebarMenuButton size="lg" className="data-popup-open:bg-sidebar-accent" />}>
+                <span className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                  <PiggyBank className="size-4" />
+                </span>
+                <span className="grid flex-1 text-left text-sm leading-tight">
+                  <span className="truncate font-semibold">{active?.name ?? "BestBudget"}</span>
+                  <span className="truncate text-xs text-muted-foreground">{active ? ROLE_LABELS[active.role] : ""}</span>
+                </span>
+                <ChevronsUpDown className="ml-auto size-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-64" align="start">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>Семейные пространства</DropdownMenuLabel>
+                  {households.map((h) => (
+                    <DropdownMenuItem
+                      key={h.id}
+                      onClick={() => h.id !== activeHouseholdId && run(() => switchHouseholdAction(h.id), { onSuccess: () => router.refresh() })}
+                    >
+                      <span className="flex-1 truncate">{h.name}</span>
+                      {h.id === activeHouseholdId ? <Check className="size-4" /> : null}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem render={<Link href="/onboarding?new=1" />}>
+                  <Plus /> Новое пространство
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {NAV.map((item) => (
+                <AnimateIcon key={item.href} animateOnHover asChild>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={pathname.startsWith(item.href)}
+                    tooltip={item.label}
+                    render={<Link href={item.href} onClick={() => setOpenMobile(false)} />}
+                  >
+                    <item.icon />
+                    <span>{item.label}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                </AnimateIcon>
+              ))}
+              {user.isAdmin ? (
+                <AnimateIcon animateOnHover asChild>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={pathname.startsWith("/admin")}
+                    tooltip="Администрирование"
+                    render={<Link href="/admin" onClick={() => setOpenMobile(false)} />}
+                  >
+                    <ShieldCheck />
+                    <span>Администрирование</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                </AnimateIcon>
+              ) : null}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+      <SidebarFooter>
+        <UserMenu user={user} />
+        <div className="px-2 text-[11px] text-muted-foreground group-data-[collapsible=icon]:hidden">
+          BestBudget v{APP_VERSION}
+          {IS_PRERELEASE ? <span className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">бета</span> : null}
+        </div>
+      </SidebarFooter>
+    </Sidebar>
+  )
+}
+
+function UserMenu({ user }: { user: ShellProps["user"] }) {
+  const router = useRouter()
+  const { resolvedTheme, setTheme } = useTheme()
+  return (
     <SidebarMenu>
-      {navItems.map((item) => (
-        <SidebarMenuItem key={item.view}>
-          <SidebarMenuButton
-            isActive={activeView === item.view}
-            tooltip={item.label}
-            onClick={() => {
-              onNavigate(item.view)
-              setOpenMobile(false)
-            }}
-          >
-            <item.icon />
-            <span>{item.label}</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      ))}
+      <SidebarMenuItem>
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<SidebarMenuButton size="lg" className="data-popup-open:bg-sidebar-accent" />}>
+            <Avatar className="size-8 rounded-lg">
+              <AvatarFallback className="rounded-lg">{initials(user.name)}</AvatarFallback>
+            </Avatar>
+            <span className="grid flex-1 text-left text-sm leading-tight">
+              <span className="truncate font-medium">{user.name}</span>
+              <span className="truncate text-xs text-muted-foreground">{user.email}</span>
+            </span>
+            <ChevronsUpDown className="ml-auto size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-60" side="top" align="start">
+            <AnimateIcon animateOnHover asChild>
+              <DropdownMenuItem render={<Link href="/settings?tab=profile" />}>
+                <Settings /> Профиль и безопасность
+              </DropdownMenuItem>
+            </AnimateIcon>
+            <AnimateIcon animateOnHover asChild>
+              <DropdownMenuItem onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
+                {resolvedTheme === "dark" ? <Sun /> : <Moon />}
+                {resolvedTheme === "dark" ? "Светлая тема" : "Тёмная тема"}
+              </DropdownMenuItem>
+            </AnimateIcon>
+            <DropdownMenuSeparator />
+            <AnimateIcon animateOnHover asChild>
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={async () => {
+                await authClient.signOut()
+                router.replace("/login")
+                router.refresh()
+              }}
+            >
+              <LogOut /> Выйти
+            </DropdownMenuItem>
+            </AnimateIcon>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarMenuItem>
     </SidebarMenu>
   )
+}
+
+function Header({ title }: { title: string }) {
+  const ops = useOperations()
+
+  // "N" (or "Т" on the Russian layout) opens a new operation from anywhere, except while typing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return
+      if (document.querySelector("[role=dialog]")) return
+      if (e.code === "KeyN") {
+        e.preventDefault()
+        ops.openCreate()
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [ops])
+  return (
+    <>
+      <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:rounded-t-xl">
+        <SidebarTrigger className="-ml-1" />
+        <span className="truncate text-sm font-medium md:hidden">{title}</span>
+        <div className="flex-1" />
+        <AnimateIcon animateOnHover asChild>
+          <Button onClick={() => ops.openCreate()} className="hidden sm:inline-flex" aria-keyshortcuts="N">
+            <AnimatedPlus /> Операция
+            <kbd aria-hidden className="ml-1 hidden rounded border border-primary-foreground/30 px-1 text-[10px] font-normal opacity-80 lg:inline">N</kbd>
+          </Button>
+        </AnimateIcon>
+      </header>
+      {/* Mobile: thumb-reachable quick add. */}
+      <Button
+        size="icon-lg"
+        onClick={() => ops.openCreate()}
+        aria-label="Добавить операцию"
+        className="fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-30 size-14 rounded-full shadow-lg sm:hidden [&_svg]:size-6!"
+      >
+        <Plus />
+      </Button>
+    </>
+  )
+}
+
+/** Shared budgets change from several devices: refetch server data when the tab regains focus. */
+function RefreshOnFocus() {
+  const router = useRouter()
+  useEffect(() => {
+    let last = Date.now()
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && Date.now() - last > 5_000) {
+        last = Date.now()
+        router.refresh()
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    window.addEventListener("focus", onVisible)
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible)
+      window.removeEventListener("focus", onVisible)
+    }
+  }, [router])
+  return null
 }

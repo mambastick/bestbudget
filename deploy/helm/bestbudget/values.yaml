@@ -1,0 +1,122 @@
+# Default values for BestBudget.
+
+image:
+  repository: ghcr.io/mambastick/bestbudget
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+# REQUIRED. Public URL users open in the browser, e.g. https://budget.example.com.
+# Used for cookies, CSRF origin checks, invitation links and the SSO callback.
+appUrl: ""
+
+auth:
+  # Session secret (BETTER_AUTH_SECRET). Generated on install and kept across upgrades when empty.
+  secret: ""
+  # Key for secrets stored in the database (OIDC client secret). Optional; derived from `secret` when empty.
+  encryptionKey: ""
+  # One-time token for creating the first administrator at /setup. Generated when empty — see NOTES.
+  setupToken: ""
+  # Emergency access: force e-mail/password login on.
+  forceLocalLogin: false
+  # Trust X-Forwarded-For from the ingress controller (client IPs for rate limiting and sessions).
+  trustProxy: true
+
+# Use an existing Secret instead of the generated one. Expected keys:
+# BETTER_AUTH_SECRET, SETUP_TOKEN, DATABASE_URL, and optionally ENCRYPTION_KEY, OIDC_CLIENT_SECRET, SMTP_URL.
+# When set, auth.*, oidc.clientSecret, smtp.url and the database URL are taken from it.
+existingSecret: ""
+
+# SSO via OpenID Connect. Values here take priority over the admin UI.
+# Leave issuer empty to configure SSO in the admin UI instead.
+oidc:
+  issuer: ""
+  clientId: ""
+  clientSecret: ""
+  scopes: "openid profile email"
+  displayName: "SSO"
+  # Default: <appUrl>/api/auth/callback/oidc
+  redirectUri: ""
+  enabled: true
+  # Create accounts on first SSO login (otherwise an invitation is required).
+  allowSignup: false
+
+# Optional e-mail for self-service password reset.
+smtp:
+  url: ""
+  from: ""
+
+# Extra environment variables for the app container.
+extraEnv: []
+
+# Bundled single-instance PostgreSQL. Disable to use an external database.
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "17-alpine"
+    pullPolicy: IfNotPresent
+  database: bestbudget
+  username: bestbudget
+  # Generated on install and kept across upgrades when empty.
+  password: ""
+  persistence:
+    size: 5Gi
+    storageClass: ""
+    accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+externalDatabase:
+  # postgres://user:password@host:5432/dbname — used when postgresql.enabled=false.
+  url: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # Defaults to the host of appUrl.
+  host: ""
+  tls:
+    enabled: false
+    secretName: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 768Mi
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]

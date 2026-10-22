@@ -1,0 +1,21 @@
+BestBudget {{ .Chart.AppVersion }} is installed.
+
+{{- if .Values.ingress.enabled }}
+Open: {{ .Values.appUrl }}
+{{- else }}
+No ingress is enabled. Try it locally:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "bestbudget.fullname" . }} 3000:{{ .Values.service.port }}
+Note: appUrl ({{ .Values.appUrl }}) must match the address in the browser.
+{{- end }}
+
+First start: open /setup and create the administrator with the setup token:
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "bestbudget.secretName" . }} -o jsonpath='{.data.SETUP_TOKEN}' | base64 -d; echo
+
+Emergency CLI (reset a password, re-enable password login, grant admin):
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "bestbudget.fullname" . }} -- node dist-scripts/admin.mjs list-admins
+
+{{- if .Values.postgresql.enabled }}
+
+Backup of the bundled PostgreSQL:
+  kubectl -n {{ .Release.Namespace }} exec {{ include "bestbudget.postgresql.fullname" . }}-0 -- pg_dump -U {{ .Values.postgresql.username }} {{ .Values.postgresql.database }} > backup.sql
+{{- end }}
