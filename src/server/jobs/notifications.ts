@@ -1,5 +1,5 @@
 import "server-only"
-import { and, eq, like, lt, ne } from "drizzle-orm"
+import { and, eq, like, lt, ne, or } from "drizzle-orm"
 import { getDb } from "@/db"
 import { notificationDeliveries, notificationPreferences, notificationSettings, pushSubscriptions, telegramLinks, users } from "@/db/schema"
 import { preferencesInput, scheduledNotices, type Notice } from "@/domain/notifications"
@@ -38,7 +38,7 @@ export async function runNotificationJob(now = new Date()) {
         const currentKey = `digest:${p.householdId}:${todayIn(ctx.timezone, now)}${suffix}`
         const delivered = await db.select({ key: notificationDeliveries.dedupeKey, budgetKeys: notificationDeliveries.budgetKeys }).from(notificationDeliveries)
           .where(and(eq(notificationDeliveries.userId, p.userId), eq(notificationDeliveries.householdId, p.householdId), eq(notificationDeliveries.channel, channel),
-            ne(notificationDeliveries.status, "failed"), ne(notificationDeliveries.dedupeKey, currentKey),
+            or(eq(notificationDeliveries.status, "sent"), eq(notificationDeliveries.status, "unknown"), eq(notificationDeliveries.status, "sending")), ne(notificationDeliveries.dedupeKey, currentKey),
             suffix ? like(notificationDeliveries.dedupeKey, `%${suffix}`) : undefined))
         const suppressed = new Set(delivered.flatMap((d) => [...d.budgetKeys, d.key.replace(/:device:.*$/, "")]))
         return scheduledNotices(snapshot, preferences, ctx.timezone, now, suppressed)

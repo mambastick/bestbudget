@@ -112,6 +112,21 @@ describe("notification pipeline", () => {
     expect(await getDb().select().from(telegramLinks).where(eq(telegramLinks.userId, h.owner.id))).toHaveLength(1)
   })
 
+  it("retries a rejected standalone budget warning instead of suppressing it as already delivered", async () => {
+    const h = await fixture()
+    await savePreferences(h.ctx, { ...await getPreferences(h.ctx), due: false, overdue: false, budget: true })
+    await setBudget(h.ctx, { categoryId: h.cat("Продукты"), amount: 100000 })
+    await createTransaction(h.ctx, { type: "expense", amount: 115000, categoryId: h.cat("Продукты"), accountId: h.mainAccount, status: "posted", date: "2026-10-23" })
+    fetchMock.mockResolvedValueOnce(Response.json({ ok: true, result: { id: 987, username: "test_bot" } }))
+    fetchMock.mockResolvedValueOnce(Response.json({ ok: true, result: true }))
+    fetchMock.mockResolvedValueOnce(Response.json({ ok: false, error_code: 429 }, { status: 429 }))
+    await runNotificationJob(noon)
+    const rows = () => getDb().select().from(notificationDeliveries).where(eq(notificationDeliveries.userId, h.owner.id))
+    expect((await rows())[0]).toMatchObject({ status: "retry", kind: "budget", attempts: 1 })
+    await runNotificationJob(new Date(noon.getTime() + 180000))
+    expect((await rows())[0]).toMatchObject({ status: "sent", attempts: 2 })
+  })
+
   it("revoked members and banned users receive nothing; preferences cascade with membership", async () => {
     const h = await fixture()
     await getDb().delete(householdMembers).where(and(eq(householdMembers.householdId, h.ctx.householdId), eq(householdMembers.userId, h.owner.id)))
