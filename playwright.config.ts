@@ -22,6 +22,8 @@ const env = {
   HOSTNAME: "127.0.0.1",
 }
 
+export { env as E2E_ENV }
+
 export default defineConfig({
   testDir: "e2e",
   outputDir: process.env.E2E_OUTPUT_DIR ?? "work/playwright",
