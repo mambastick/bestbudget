@@ -23,8 +23,9 @@ export function ExchangeRatesSettings({ rates, today, provider }: { rates: Excha
         run(() => saveManualRateAction({ currency, date, rateToRub }), { success: "Ручной курс сохранён" })
       }}>
         <Field><FieldLabel htmlFor="fx-date">Дата курса</FieldLabel><Input id="fx-date" type="date" required max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-        <Button type="button" variant="outline" disabled={pending || provider === "none"} onClick={() => run(() => refreshExchangeRatesAction(date), { success: "Курсы обновлены" })}>Обновить курсы</Button>
         <Field><FieldLabel htmlFor="fx-currency">Валюта</FieldLabel><CurrencySelect id="fx-currency" value={currency} onChange={setCurrency} /></Field>
+        <Button type="button" variant="outline" disabled={pending || provider === "none" || currency === "RUB"} onClick={() => run(() => refreshExchangeRatesAction(date, currency), { success: "Курсы обновлены" })}>Обновить курсы</Button>
+        <p className="text-xs text-muted-foreground">За прошедшую дату загружается история выбранной валюты за предшествующие 14 дней; за сегодня — все свежие курсы.</p>
         <Field><FieldLabel htmlFor="fx-rate">Рублей за 1 {currency}</FieldLabel><Input id="fx-rate" inputMode="decimal" required value={rateToRub} onChange={(e) => setRate(e.target.value)} placeholder="Например, 95,1234" /></Field>
         <Button type="submit" disabled={pending || currency === "RUB"}>Сохранить ручной курс</Button>
       </form>

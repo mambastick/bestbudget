@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
-import { convertMinor, parseCbrXml, rateUnits, selectRate, type ExchangeRate } from "./exchange-rates"
+import { CBR_CURRENCY_IDS, convertMinor, parseCbrHistoryXml, parseCbrXml, rateUnits, selectRate, type ExchangeRate } from "./exchange-rates"
 
 const fixture = readFileSync(new URL("../../tests/fixtures/cbr-daily.xml", import.meta.url))
 
@@ -26,6 +26,27 @@ describe("CBR daily XML", () => {
     expect(() => parseCbrXml(fixture.toString().replace("22.10.2026", "31.02.2026"))).toThrow()
     expect(() => rateUnits("Infinity")).toThrow()
     expect(() => rateUnits("0")).toThrow()
+  })
+})
+
+describe("CBR dynamic XML", () => {
+  it("uses edition IDs present in the real daily fixture", () => {
+    const xml = new TextDecoder("windows-1251").decode(readFileSync(new URL("../../tests/fixtures/cbr-daily-2026-10-22.xml", import.meta.url)))
+    const ids = Object.fromEntries([...xml.matchAll(/<Valute ID="([^"]+)">([\s\S]*?)<\/Valute>/g)].map((match) => [
+      /<CharCode>([^<]+)<\/CharCode>/.exec(match[2]!)![1]!, match[1]!,
+    ]))
+    expect(ids).toMatchObject(CBR_CURRENCY_IDS)
+  })
+  it("parses real records, nominals and a confirmed empty holiday response", () => {
+    const bytes = readFileSync(new URL("../../tests/fixtures/cbr-history-jpy.xml", import.meta.url))
+    const rates = parseCbrHistoryXml(bytes, "JPY", "2026-10-20", "2026-10-23")
+    expect(rates).toHaveLength(4)
+    expect(rates[0]).toMatchObject({ currency: "JPY", date: "2026-10-20", rateToRub: "0.5246680000" })
+    const holidays = readFileSync(new URL("../../tests/fixtures/cbr-holidays-2026.xml", import.meta.url))
+    expect(parseCbrHistoryXml(holidays, "USD", "2026-01-01", "2026-01-11")).toEqual([])
+    expect(() => parseCbrHistoryXml(holidays, "EUR", "2026-01-01", "2026-01-11")).toThrow()
+    expect(() => parseCbrHistoryXml(holidays, "USD", "2026-01-01", "2026-01-12")).toThrow()
+    expect(() => parseCbrHistoryXml(new TextDecoder().decode(holidays).replace("</ValCurs>", "<Record></ValCurs>"), "USD", "2026-01-01", "2026-01-11")).toThrow()
   })
 })
 

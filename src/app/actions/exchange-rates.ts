@@ -1,18 +1,24 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import { todayIn } from "@/lib/dates"
+import { addDays, todayIn } from "@/lib/dates"
+import { CURRENCY_CODES, type Currency } from "@/lib/currencies"
+import { z } from "zod"
 import { audit } from "@/server/audit"
 import { AppError, runAction } from "@/server/errors"
 import { actionHousehold, actionSystemAdmin } from "@/server/session"
-import { quoteConversion, refreshCbrRates, saveManualRate } from "@/server/services/exchange-rates"
+import { quoteConversion, refreshCbrHistory, refreshCbrRates, saveManualRate } from "@/server/services/exchange-rates"
 
-export async function refreshExchangeRatesAction(date: string) {
+export async function refreshExchangeRatesAction(date: string, currency: Currency) {
   return runAction(async () => {
     const admin = await actionSystemAdmin()
     if (date > todayIn("Europe/Moscow")) throw new AppError("Выберите сегодняшнюю или прошедшую дату")
-    if (!await refreshCbrRates(date, true)) throw new AppError("ЦБ недоступен или FX_PROVIDER=none. Сохранённые курсы продолжают действовать.")
-    await audit({ action: "exchange_rate.refresh", entityType: "exchange_rate", actorId: admin.id, meta: { date } })
+    z.enum(CURRENCY_CODES).parse(currency)
+    const refreshed = date === todayIn("Europe/Moscow")
+      ? await refreshCbrRates(date, true)
+      : currency !== "RUB" && await refreshCbrHistory(currency, addDays(date, -14), date, true)
+    if (!refreshed) throw new AppError("ЦБ недоступен или FX_PROVIDER=none. Сохранённые курсы продолжают действовать.")
+    await audit({ action: "exchange_rate.refresh", entityType: "exchange_rate", actorId: admin.id, meta: { date, currency } })
     revalidatePath("/", "layout")
   })
 }

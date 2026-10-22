@@ -144,16 +144,19 @@ describe("offline cache and manual rates", () => {
     const { ctx, mainAccount } = await setupHousehold()
     const usd = await createAccount(ctx, { name: "USD", currency: "USD", kind: "savings", openingBalance: 100_00 })
     await createTransaction(ctx, { type: "transfer", amount: 100_00, toAmount: 1_00, accountId: mainAccount, toAccountId: usd.id, date: "2026-09-15", status: "posted" })
-    const xml = readFileSync(new URL("../fixtures/cbr-daily.xml", import.meta.url), "utf8").replace("22.10.2026", "15.09.2026")
-    fetchMock.mockClear().mockResolvedValueOnce(new Response(xml))
+    fetchMock.mockClear().mockImplementation(async (url: string) => {
+      const params = new URL(url).searchParams
+      const from = params.get("date_req1")!.replaceAll("/", ".")
+      const to = params.get("date_req2")!.replaceAll("/", ".")
+      return new Response(`<ValCurs ID="R01235" DateRange1="${from}" DateRange2="${to}"><Record Date="${to}" Id="R01235"><Nominal>1</Nominal><Value>95,1234</Value></Record></ValCurs>`)
+    })
     provider.value = "cbr"
     try {
       const data = await loadFinance(ctx)
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("date_req=15/09/2026"), expect.anything())
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("date_req2=15/09/2026"), expect.anything())
       expect(data.convert(100_00, "USD", "2026-09-15")).toBe(951_234)
-      fetchMock.mockResolvedValueOnce(new Response(xml.replace("15.09.2026", "14.09.2026")))
       const earlier = await loadFinance(ctx, ["2026-09-14"])
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("date_req=14/09/2026"), expect.anything())
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("date_req2=14/09/2026"), expect.anything())
       expect(earlier.convert(100_00, "USD", "2026-09-14")).toBe(951_234)
     } finally {
       provider.value = "none"

@@ -376,6 +376,19 @@ export const exchangeRates = pgTable("exchange_rates", {
   check("exchange_rates_positive_ck", sql`${t.rateToRub} > 0`),
 ])
 
+/** Successful CBR queries also cache ranges with no publications, independently of rate rows. */
+export const exchangeRateFetches = pgTable("exchange_rate_fetches", {
+  currency: text("currency").notNull(),
+  fromDate: date("from_date", { mode: "string" }).notNull(),
+  toDate: date("to_date", { mode: "string" }).notNull(),
+  checkedAt: timestamp("checked_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Confirmed past/current ranges are permanent; not-yet-arrived dates expire. */
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+}, (t) => [
+  primaryKey({ columns: [t.currency, t.fromDate, t.toDate] }),
+  check("exchange_rate_fetches_range_ck", sql`${t.fromDate} <= ${t.toDate}`),
+])
+
 export const categoryBudgets = pgTable(
   "category_budgets",
   {

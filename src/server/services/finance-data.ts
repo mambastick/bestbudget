@@ -6,7 +6,12 @@ import { addDays, todayIn } from "@/lib/dates"
 import type { HouseholdCtx } from "../context"
 import { createConverter, loadRates } from "./exchange-rates"
 
-/** SQL groups before conversion; query count is independent of the number of operations. */
+/**
+ * Opening balances, current account valuations and projections need the same complete household ledger.
+ * For a family-sized history we deliberately aggregate it once in SQL instead of maintaining mutable rollups.
+ * Grouping bounds the data transferred; query count is independent of operation count. The existing
+ * transactions_household_status_date_idx (household_id, status, date), created in 0000, scopes this scan.
+ */
 export async function loadFinance(ctx: HouseholdCtx, valuationDates: string[] = []) {
   const db = getDb()
   const today = todayIn(ctx.timezone)
