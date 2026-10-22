@@ -2,6 +2,8 @@ import { CalendarClock, Info, PieChart, Plus } from "lucide-react"
 import type { Metadata } from "next"
 import Link from "next/link"
 import { LinkButton } from "@/components/app/link-button"
+import { AnimatedMoney } from "@/components/app/animated-money"
+import { BalanceHero } from "@/components/app/balance-hero"
 import { BalanceChart, CategoryDonut, ForecastChart, IncomeExpenseChart } from "@/components/app/charts"
 import { EmptyState } from "@/components/app/empty-state"
 import { Money } from "@/components/app/money"
@@ -52,15 +54,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       ) : null}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-1" data-testid="actual-balance">
-          <CardHeader>
-            <CardDescription>Фактический баланс</CardDescription>
-            <CardTitle className="text-4xl font-semibold tracking-tight">
-              <Money value={d.balance} currency={cur} tone={d.balance < 0 ? "expense" : "neutral"} />
-            </CardTitle>
+        <BalanceHero className="lg:col-span-1">
+          <div className="grid gap-1 p-5">
+            <div className="text-sm text-muted-foreground">Фактический баланс</div>
+            <div className="text-3xl font-semibold tracking-tight sm:text-4xl">
+              <AnimatedMoney value={d.balance} currency={cur} tone={d.balance < 0 ? "expense" : "neutral"} />
+            </div>
             <p className="text-xs text-muted-foreground">Все счета, только подтверждённые операции</p>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-3 border-t pt-4">
+          </div>
+          <div className="grid grid-cols-1 gap-3 border-t p-5">
             <Metric label={`Прогноз на ${formatDay(d.monthDays.at(-1)?.date ?? today)}`} hint="Фактический баланс плюс ожидаемые доходы и минус запланированные расходы до конца месяца">
               <Money value={d.forecastEndOfMonth} currency={cur} tone={d.forecastEndOfMonth < 0 ? "expense" : "neutral"} />
             </Metric>
@@ -70,8 +72,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             >
               <Money value={d.availableAfterObligations} currency={cur} tone={d.availableAfterObligations < 0 ? "expense" : "income"} />
             </Metric>
-          </CardContent>
-        </Card>
+          </div>
+        </BalanceHero>
 
         <div className="grid grid-cols-2 gap-4 lg:col-span-2">
           <StatCard label="Доходы за месяц" sub="факт" value={d.monthIncome} kind="income" currency={cur} />
@@ -183,7 +185,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
 function Metric({ label, hint, children }: { label: string; hint: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-3 text-sm">
+    <div className="grid gap-0.5 text-sm">
       <span className="flex items-center gap-1 text-muted-foreground">
         {label}
         <Tooltip>
@@ -193,7 +195,7 @@ function Metric({ label, hint, children }: { label: string; hint: string; childr
           <TooltipContent className="max-w-64">{hint}</TooltipContent>
         </Tooltip>
       </span>
-      <span className="text-base font-semibold">{children}</span>
+      <span className="text-lg font-semibold">{children}</span>
     </div>
   )
 }
@@ -223,7 +225,7 @@ function StatCard({
           <span className="block text-xs text-muted-foreground/80">{sub}</span>
         </CardDescription>
         <CardTitle className="text-xl font-semibold sm:text-2xl">
-          <Money value={value} currency={currency} tone={planned ? "neutral" : kind} />
+          <AnimatedMoney value={value} currency={currency} tone={planned ? "neutral" : kind} />
         </CardTitle>
       </CardHeader>
     </Card>

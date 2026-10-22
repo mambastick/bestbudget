@@ -25,7 +25,7 @@ export function AnalyticsPeriod({ period, from, to, today }: { period: string; f
         onChange={(v) => go(v === "custom" ? { period: v, from, to } : { period: v })}
         options={[...OPTIONS]}
         size="sm"
-        className="overflow-x-auto sm:w-auto"
+        className="sm:w-auto"
       />
       {period === "custom" ? (
         <div className="grid grid-cols-2 gap-2 sm:flex">

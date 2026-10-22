@@ -1,14 +1,13 @@
 import { ListOrdered, Repeat } from "lucide-react"
 import type { Metadata } from "next"
-import Link from "next/link"
 import { LinkButton } from "@/components/app/link-button"
 import { EmptyState } from "@/components/app/empty-state"
+import { NavTabs } from "@/components/app/nav-tabs"
 import { QuickAddButton } from "@/components/app/operations/quick-add-button"
 import { RulesList } from "@/components/app/operations/rules-list"
 import { TransactionFilters } from "@/components/app/operations/transaction-filters"
 import { TransactionList } from "@/components/app/operations/transaction-list"
 import { PageHeader } from "@/components/app/page-header"
-import { cn } from "@/lib/utils"
 import { requireHousehold } from "@/server/session"
 import { ensureMaterialized, listRules } from "@/server/services/recurring"
 import { listTransactions, transactionFilters } from "@/server/services/transactions"
@@ -25,20 +24,13 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
   await ensureMaterialized(ctx.householdId, todayIn(ctx.timezone))
 
   const tabs = (
-    <div className="inline-flex rounded-lg bg-muted p-1 text-sm">
-      {[
+    <NavTabs
+      active={tab}
+      tabs={[
         { key: "list", label: "Операции", href: "/transactions" },
         { key: "rules", label: "Регулярные", href: "/transactions?tab=rules" },
-      ].map((t) => (
-        <Link
-          key={t.key}
-          href={t.href}
-          className={cn("rounded-md px-3 py-1.5 font-medium text-muted-foreground transition-colors", tab === t.key && "bg-background text-foreground shadow-sm")}
-        >
-          {t.label}
-        </Link>
-      ))}
-    </div>
+      ]}
+    />
   )
 
   if (tab === "rules") {

@@ -124,7 +124,7 @@ function AccountCard({ account: a, canManage, currency, onEdit }: { account: Acc
           <Icon className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate font-medium">{a.name}</div>
+          <div className="line-clamp-2 font-medium break-words">{a.name}</div>
           <div className="text-xs text-muted-foreground">
             {ACCOUNT_KIND_LABELS[a.kind]} · {a.operations} опер.
           </div>

@@ -23,7 +23,8 @@ Better Auth · Recharts · Zod · Vitest · Playwright · Docker Compose.
 - **Аналитика** за период с сравнением с предыдущим, крупнейшие категории, динамика накоплений; прогноз — отдельно.
 - **Администрирование:** пользователи (блокировка, роли, сброс пароля, завершение сеансов), пространства без доступа к их финансам, способы
   входа, SSO, журнал системных событий.
-- Светлая и тёмная темы, адаптивный интерфейс, русская локализация.
+- Светлая и тёмная темы, адаптивный интерфейс, русская локализация; анимации на [Animate UI](https://animate-ui.com) (Motion) и
+  [React Bits](https://reactbits.dev).
 
 ## Быстрый старт (Docker Compose)
 
@@ -153,6 +154,7 @@ pnpm dev
 | `pnpm test:e2e` | сквозной сценарий в браузере (Playwright, production-сборка). Локальный Chromium: `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium` |
 | `pnpm typecheck`, `pnpm lint` | проверки |
 | `pnpm db:generate` | создать миграцию после изменения `src/db/schema.ts` |
+| `pnpm db:seed-demo <e-mail>` | заполнить первое пространство пользователя демо-данными (только для разработки) |
 | `pnpm build` | production-сборка (`.next/standalone`) и консольные скрипты (`dist-scripts`) |
 
 Устройство приложения, модель данных и решения — в [docs/architecture.md](docs/architecture.md).

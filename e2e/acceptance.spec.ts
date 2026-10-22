@@ -23,7 +23,7 @@ async function addOperation(
   await page.getByRole("button", { name: "Операция", exact: true }).first().click()
   const dialog = page.getByRole("dialog")
   await expect(dialog.getByText("Новая операция")).toBeVisible()
-  if (op.type) await dialog.getByRole("button", { name: op.type, exact: true }).click()
+  if (op.type) await dialog.getByRole("radio", { name: op.type, exact: true }).click()
   await dialog.getByLabel("Сумма").fill(op.amount)
   await chooseOption(page, "Выберите категорию", op.category)
   if (op.title) await dialog.getByLabel("Название").fill(op.title)

@@ -1,22 +1,19 @@
 "use client"
 
-import {
-  BarChart3,
-  CalendarDays,
-  Check,
-  ChevronsUpDown,
-  LayoutDashboard,
-  ListOrdered,
-  LogOut,
-  Moon,
-  PiggyBank,
-  Plus,
-  Settings,
-  ShieldCheck,
-  Sun,
-  Target,
-  Wallet,
-} from "lucide-react"
+import { AnimateIcon } from "@animate-ui/react/icons"
+import { Check, ChevronsUpDown, PiggyBank, Plus } from "lucide-react"
+import { CalendarDays } from "@/components/animate-ui/icons/calendar-days"
+import { ChartLine } from "@/components/animate-ui/icons/chart-line"
+import { Gauge } from "@/components/animate-ui/icons/gauge"
+import { LayoutDashboard } from "@/components/animate-ui/icons/layout-dashboard"
+import { List } from "@/components/animate-ui/icons/list"
+import { LogOut } from "@/components/animate-ui/icons/log-out"
+import { Moon } from "@/components/animate-ui/icons/moon"
+import { Plus as AnimatedPlus } from "@/components/animate-ui/icons/plus"
+import { Settings } from "@/components/animate-ui/icons/settings"
+import { ShieldCheck } from "@/components/animate-ui/icons/shield-check"
+import { Sun } from "@/components/animate-ui/icons/sun"
+import { Wallet } from "@/components/animate-ui/icons/wallet"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
@@ -55,10 +52,10 @@ import { authClient } from "@/lib/auth-client"
 
 const NAV = [
   { href: "/dashboard", label: "Обзор", icon: LayoutDashboard },
-  { href: "/transactions", label: "Операции", icon: ListOrdered },
+  { href: "/transactions", label: "Операции", icon: List },
   { href: "/calendar", label: "Календарь", icon: CalendarDays },
-  { href: "/budgets", label: "Бюджеты", icon: Target },
-  { href: "/analytics", label: "Аналитика", icon: BarChart3 },
+  { href: "/budgets", label: "Бюджеты", icon: Gauge },
+  { href: "/analytics", label: "Аналитика", icon: ChartLine },
   { href: "/accounts", label: "Счета", icon: Wallet },
   { href: "/settings", label: "Настройки", icon: Settings },
 ]
@@ -141,7 +138,8 @@ function AppSidebar({ user, households, activeHouseholdId }: Omit<ShellProps, "c
           <SidebarGroupContent>
             <SidebarMenu>
               {NAV.map((item) => (
-                <SidebarMenuItem key={item.href}>
+                <AnimateIcon key={item.href} animateOnHover asChild>
+                <SidebarMenuItem>
                   <SidebarMenuButton
                     isActive={pathname.startsWith(item.href)}
                     tooltip={item.label}
@@ -151,8 +149,10 @@ function AppSidebar({ user, households, activeHouseholdId }: Omit<ShellProps, "c
                     <span>{item.label}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
+                </AnimateIcon>
               ))}
               {user.isAdmin ? (
+                <AnimateIcon animateOnHover asChild>
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     isActive={pathname.startsWith("/admin")}
@@ -163,6 +163,7 @@ function AppSidebar({ user, households, activeHouseholdId }: Omit<ShellProps, "c
                     <span>Администрирование</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
+                </AnimateIcon>
               ) : null}
             </SidebarMenu>
           </SidebarGroupContent>
@@ -193,14 +194,19 @@ function UserMenu({ user }: { user: ShellProps["user"] }) {
             <ChevronsUpDown className="ml-auto size-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-60" side="top" align="start">
-            <DropdownMenuItem render={<Link href="/settings?tab=profile" />}>
-              <Settings /> Профиль и безопасность
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
-              {resolvedTheme === "dark" ? <Sun /> : <Moon />}
-              {resolvedTheme === "dark" ? "Светлая тема" : "Тёмная тема"}
-            </DropdownMenuItem>
+            <AnimateIcon animateOnHover asChild>
+              <DropdownMenuItem render={<Link href="/settings?tab=profile" />}>
+                <Settings /> Профиль и безопасность
+              </DropdownMenuItem>
+            </AnimateIcon>
+            <AnimateIcon animateOnHover asChild>
+              <DropdownMenuItem onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
+                {resolvedTheme === "dark" ? <Sun /> : <Moon />}
+                {resolvedTheme === "dark" ? "Светлая тема" : "Тёмная тема"}
+              </DropdownMenuItem>
+            </AnimateIcon>
             <DropdownMenuSeparator />
+            <AnimateIcon animateOnHover asChild>
             <DropdownMenuItem
               variant="destructive"
               onClick={async () => {
@@ -211,6 +217,7 @@ function UserMenu({ user }: { user: ShellProps["user"] }) {
             >
               <LogOut /> Выйти
             </DropdownMenuItem>
+            </AnimateIcon>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>
@@ -226,9 +233,11 @@ function Header({ title }: { title: string }) {
         <SidebarTrigger className="-ml-1" />
         <span className="truncate text-sm font-medium md:hidden">{title}</span>
         <div className="flex-1" />
-        <Button onClick={() => ops.openCreate()} className="hidden sm:inline-flex">
-          <Plus /> Операция
-        </Button>
+        <AnimateIcon animateOnHover asChild>
+          <Button onClick={() => ops.openCreate()} className="hidden sm:inline-flex">
+            <AnimatedPlus /> Операция
+          </Button>
+        </AnimateIcon>
       </header>
       {/* Mobile: thumb-reachable quick add. */}
       <Button

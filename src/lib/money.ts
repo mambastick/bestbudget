@@ -34,7 +34,7 @@ export function formatMoneyCompact(minor: number): string {
   return new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 }).format(minor / 100)
 }
 
-/** Formats minor units for an editable input: 1234550 → "12345,50". */
+/** Formats minor units for an editable input: 1234550 → "12345,50" (grouping is added by the input). */
 export function minorToInput(minor: number): string {
   const abs = Math.abs(minor)
   const rub = Math.floor(abs / 100)
@@ -47,7 +47,7 @@ export function minorToInput(minor: number): string {
  * Returns null for anything that is not a valid non-negative amount with at most two decimals.
  */
 export function parseMoney(input: string): number | null {
-  const normalized = input.replace(/[\s\u00a0\u202f₽]/g, "").replace(",", ".")
+  const normalized = input.replace(/[\s\u00a0\u2009\u202f₽]/g, "").replace(",", ".")
   if (!/^\d+(\.\d{0,2})?$/.test(normalized)) return null
   const [whole = "0", frac = ""] = normalized.split(".")
   const minor = Number(whole) * 100 + Number(frac.padEnd(2, "0"))

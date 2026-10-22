@@ -1,8 +1,8 @@
 import type { Metadata } from "next"
-import Link from "next/link"
 import { AuthSettingsForm } from "@/components/app/admin/auth-settings"
 import { OidcSettingsForm } from "@/components/app/admin/oidc-settings"
 import { UsersTable } from "@/components/app/admin/users-table"
+import { NavTabs } from "@/components/app/nav-tabs"
 import { PageHeader } from "@/components/app/page-header"
 import { Section } from "@/components/app/settings/section"
 import { Badge } from "@/components/ui/badge"
@@ -10,7 +10,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatDateTime } from "@/lib/dates"
 import { env } from "@/lib/env"
 import { smtpEnabled } from "@/lib/mail"
-import { cn } from "@/lib/utils"
 import { requireSystemAdmin } from "@/server/session"
 import { defaultRedirectUri, getAppSettings, getAuthMethods, getOidcConfig } from "@/server/services/settings"
 import { listHouseholdsForAdmin, listSystemEvents, listUsersForAdmin } from "@/server/services/users"
@@ -147,20 +146,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
           </>
         }
       />
-      <nav className="flex gap-1 overflow-x-auto border-b">
-        {TABS.map((t) => (
-          <Link
-            key={t.key}
-            href={`/admin?tab=${t.key}`}
-            className={cn(
-              "-mb-px border-b-2 border-transparent px-3 py-2 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground",
-              tab === t.key && "border-primary text-foreground",
-            )}
-          >
-            {t.label}
-          </Link>
-        ))}
-      </nav>
+      <NavTabs tabs={TABS.map((t) => ({ ...t, href: `/admin?tab=${t.key}` }))} active={tab} />
       {content}
     </div>
   )

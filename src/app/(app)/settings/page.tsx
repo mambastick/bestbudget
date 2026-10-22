@@ -1,11 +1,10 @@
 import type { Metadata } from "next"
-import Link from "next/link"
 import { CategoriesSettings } from "@/components/app/settings/categories-settings"
 import { HouseholdSettings } from "@/components/app/settings/household-settings"
 import { ProfileSettings } from "@/components/app/settings/profile-settings"
+import { NavTabs } from "@/components/app/nav-tabs"
 import { PageHeader } from "@/components/app/page-header"
 import { can } from "@/domain/permissions"
-import { cn } from "@/lib/utils"
 import { requireHousehold } from "@/server/session"
 import { listCategories } from "@/server/services/catalog"
 import { getHousehold, listInvitations, listMembers } from "@/server/services/households"
@@ -64,20 +63,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   return (
     <div className="grid grid-cols-1 gap-6">
       <PageHeader title="Настройки" />
-      <nav className="flex gap-1 overflow-x-auto border-b">
-        {TABS.map((t) => (
-          <Link
-            key={t.key}
-            href={`/settings?tab=${t.key}`}
-            className={cn(
-              "-mb-px border-b-2 border-transparent px-3 py-2 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground",
-              tab === t.key && "border-primary text-foreground",
-            )}
-          >
-            {t.label}
-          </Link>
-        ))}
-      </nav>
+      <NavTabs tabs={TABS.map((t) => ({ ...t, href: `/settings?tab=${t.key}` }))} active={tab} />
       {content}
     </div>
   )
