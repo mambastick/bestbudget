@@ -16,7 +16,7 @@ import { disconnectTelegram } from "@/server/services/notifications"
 import { telegramConfig } from "@/server/services/notification-settings"
 import { actualBalance } from "@/server/services/reports"
 import { confirmTransaction, getTransaction, listInRange } from "@/server/services/transactions"
-import { telegramApi } from "./telegram-api"
+import { DeliveryError, telegramApi } from "./telegram-api"
 
 function signature(nonce: string) {
   return createHmac("sha256", env().BETTER_AUTH_SECRET).update(`telegram-link:${nonce}`).digest().subarray(0, 16).toString("base64url")
@@ -84,7 +84,12 @@ export async function handleTelegramUpdate(raw: unknown, token: string, botId: s
       try { await confirmTelegramPayment(link.userId, cb.data); text = "✅ Платёж подтверждён" }
       catch (e) { text = e instanceof AppError ? e.message : "Не удалось подтвердить платёж. Откройте приложение." }
     }
-    await telegramApi(token, "answerCallbackQuery", { callback_query_id: cb.id, text, show_alert: true })
+    try { await telegramApi(token, "answerCallbackQuery", { callback_query_id: cb.id, text, show_alert: true }) }
+    catch (e) {
+      // Minute-based polling can outlive Telegram's callback popup; still acknowledge the actual result.
+      if (!(e instanceof DeliveryError) || e.code !== "telegram_400") throw e
+      await reply(text)
+    }
     return
   }
   const [command, arg] = (m?.text ?? "").trim().split(/\s+/)

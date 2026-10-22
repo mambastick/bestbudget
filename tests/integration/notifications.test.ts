@@ -179,6 +179,16 @@ describe("notification pipeline", () => {
     await expect(confirmTelegramPayment(h.owner.id, `pay:${h.row.id}:1`)).rejects.toThrow(/уже/)
     await expect(confirmTelegramPayment((await createUser()).id, `pay:${h.row.id}:1`)).rejects.toThrow()
   })
+  it("acknowledges a confirmed payment even when Telegram's callback popup has expired", async () => {
+    const h = await fixture()
+    await getDb().update(telegramLinks).set({ chatId: "700" }).where(eq(telegramLinks.userId, h.owner.id))
+    fetchMock.mockResolvedValueOnce(Response.json({ ok: false, error_code: 400 }, { status: 400 }))
+    await handleTelegramUpdate({ update_id: 88, callback_query: { id: "expired", from: { id: 700 }, data: `pay:${h.row.id}:1`, message: { chat: { id: 700, type: "private" } } } }, "test-token", "987")
+    expect(await getTransaction(h.ctx, h.row.id)).toMatchObject({ status: "posted", version: 2 })
+    const sent = fetchMock.mock.calls.find(([url]) => url.endsWith("sendMessage"))
+    expect(JSON.parse(String(sent?.[1]?.body))).toMatchObject({ chat_id: "700", text: "✅ Платёж подтверждён" })
+  })
+
   it("signs, expires and atomically consumes link tokens without exposing stored tokens", async () => {
     const user = await createUser()
     const token = signLinkToken("A".repeat(32))
