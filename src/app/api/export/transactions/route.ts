@@ -24,7 +24,7 @@ export async function GET(request: Request) {
 
   const rows = await exportTransactions(ctx, parsed.data)
   const csv = toCsv([
-    ["Дата", "Тип", "Статус", "Название", "Категория", "Счёт", "Счёт зачисления", "Сумма", "Валюта", "Зачислено", "Валюта зачисления", "Описание", "Автор"],
+    ["Дата", "Тип", "Статус", "Название", "Категория", "Счёт", "Счёт зачисления", "Сумма", "Валюта", "Зачислено", "Валюта зачисления", "Описание", "Автор", "ID операции"],
     ...rows.map((r) => [
       r.date,
       TYPE[r.type],
@@ -39,6 +39,7 @@ export async function GET(request: Request) {
       r.toCurrency ?? "",
       r.description ?? "",
       r.authorName ?? "",
+      r.id,
     ]),
   ])
   const filename = `bestbudget-operations-${todayIn(ctx.timezone)}.csv`

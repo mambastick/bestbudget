@@ -15,4 +15,7 @@ describe("toCsv", () => {
     expect(csvAmount(-150_050)).toBe("-1500,50")
     expect(csvAmount(5)).toBe("0,05")
   })
+  it("preserves literal quote prefixes for unambiguous own-export round trips", () => {
+    expect(toCsv([["'=formula", "''@text"]])).toBe("\ufeff''=formula;'''@text\r\n")
+  })
 })
