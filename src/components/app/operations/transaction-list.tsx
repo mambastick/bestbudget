@@ -1,5 +1,6 @@
 "use client"
 
+import { useTranslations, useLocale } from "next-intl"
 import { Repeat } from "lucide-react"
 import { CategoryIcon } from "@/components/app/category-icon"
 import { Money } from "@/components/app/money"
@@ -23,6 +24,8 @@ export type ListRow = OperationRow & {
 
 /** Operations grouped by day with a net total per day. */
 export function TransactionList({ rows, today }: { rows: ListRow[]; today: IsoDate }) {
+  const t = useTranslations("transactions")
+  const locale = useLocale()
   const groups = new Map<string, ListRow[]>()
   for (const r of rows) groups.set(r.date, [...(groups.get(r.date) ?? []), r])
   const { currency, accounts } = useCatalog()
@@ -35,7 +38,7 @@ export function TransactionList({ rows, today }: { rows: ListRow[]; today: IsoDa
           <section key={date}>
             <div className="mb-1.5 flex items-baseline justify-between px-1 text-xs text-muted-foreground">
               <span className="font-medium tracking-wide uppercase">
-                {date === today ? "Сегодня" : formatDay(date)} · {formatWeekday(date)}
+                {date === today ? t("today") : formatDay(date, locale)} · {formatWeekday(date, locale)}
               </span>
               {net !== 0 && items.every((i) => accounts.find((a) => a.id === i.accountId)?.currency === currency) ? <Money value={net} currency={currency} tone="neutral" className="text-xs" /> : null}
             </div>
@@ -52,13 +55,15 @@ export function TransactionList({ rows, today }: { rows: ListRow[]; today: IsoDa
 }
 
 export function TransactionItem({ row, today }: { row: ListRow; today: IsoDate }) {
+  const t = useTranslations("transactions")
+  const locale = useLocale()
   const ops = useOperations()
   const { accounts } = useCatalog()
   const currency = accounts.find((a) => a.id === row.accountId)!.currency
   const toCurrency = accounts.find((a) => a.id === row.toAccountId)?.currency
   const planned = row.status === "planned"
   const subtitle =
-    row.loanId ? `тело ${formatMoney(row.loanPrincipal ?? 0, currency)} + проценты ${formatMoney(row.loanInterest ?? 0, currency)}` : row.type === "transfer" ? `${row.accountName} → ${row.toAccountName}` : [row.categoryName, row.accountName].filter(Boolean).join(" · ")
+    row.loanId ? t("loanSplit", { principal: formatMoney(row.loanPrincipal ?? 0, currency, { locale }), interest: formatMoney(row.loanInterest ?? 0, currency, { locale }) }) : row.type === "transfer" ? `${row.accountName} → ${row.toAccountName}` : [row.categoryName, row.accountName].filter(Boolean).join(" · ")
   return (
     <li className={cn("flex items-center gap-3 px-3 py-2.5 sm:px-4", row.status === "skipped" && "opacity-50")}>
       <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => ops.openEdit(row)}>
@@ -66,7 +71,7 @@ export function TransactionItem({ row, today }: { row: ListRow; today: IsoDate }
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
             <span className="truncate text-sm font-medium">{row.title}</span>
-            {row.recurringRuleId ? <Repeat className="size-3 shrink-0 text-muted-foreground" aria-label="Регулярная" /> : null}
+            {row.recurringRuleId ? <Repeat className="size-3 shrink-0 text-muted-foreground" aria-label={t("recurringLabel")} /> : null}
           </span>
           <span className="block truncate text-xs text-muted-foreground">
             {subtitle}
@@ -85,11 +90,11 @@ export function TransactionItem({ row, today }: { row: ListRow; today: IsoDate }
         {row.toAmount && toCurrency ? <span className="text-xs text-muted-foreground">→ <Money value={row.toAmount} currency={toCurrency} /></span> : null}
         {planned ? (
           <Badge variant={row.date < today ? "destructive" : "outline"} className="h-4 px-1.5 text-[10px]">
-            {row.date < today ? "просрочено" : "план"}
+            {row.date < today ? t("overdue") : t("planned")}
           </Badge>
         ) : row.status === "skipped" ? (
           <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
-            пропущено
+            {t("skipped")}
           </Badge>
         ) : null}
       </div>

@@ -10,7 +10,7 @@ import { notFound } from "../errors"
 import { loadFinance } from "./finance-data"
 import { virtualOccurrences } from "./recurring"
 
-export async function getBudgetReport(ctx: HouseholdCtx, monthStart: IsoDate) {
+export async function getBudgetReport(ctx: HouseholdCtx, monthStart: IsoDate, locale = "ru") {
   assertCan(ctx, "finance.read")
   const monthEnd = endOfMonth(monthStart)
   const db = getDb()
@@ -27,7 +27,7 @@ export async function getBudgetReport(ctx: HouseholdCtx, monthStart: IsoDate) {
     .where(and(eq(categories.householdId, ctx.householdId), eq(categories.kind, "expense"), isNull(categories.archivedAt)))
     .orderBy(asc(categories.sortOrder), asc(categories.name))
 
-  const data = await loadFinance(ctx)
+  const data = await loadFinance(ctx, [], locale)
   const byCat = new Map<string | null, { spent: number; planned: number }>()
   for (const r of data.rows) {
     if (r.type !== "expense" || r.date < monthStart || r.date > monthEnd) continue

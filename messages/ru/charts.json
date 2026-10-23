@@ -1,0 +1,8 @@
+{
+  "income": "Доходы",
+  "expense": "Расходы",
+  "actualBalance": "Фактический баланс",
+  "forecast": "Прогноз",
+  "balanceForecast": "Прогноз баланса",
+  "other": "Другое"
+}

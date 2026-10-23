@@ -1,5 +1,6 @@
 "use client"
 
+import { useTranslations } from "next-intl"
 import { Download, Search, X } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
@@ -14,6 +15,7 @@ const ALL = "__all"
 
 /** Filters live in the URL so results are server-rendered, shareable and survive reloads. */
 export function TransactionFilters() {
+  const t = useTranslations("transactions")
   const router = useRouter()
   const pathname = usePathname()
   const params = useSearchParams()
@@ -62,37 +64,37 @@ export function TransactionFilters() {
     <div className="grid grid-cols-1 gap-2">
       <div className="relative">
         <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск по названию, описанию или категории" className="pl-8" aria-label="Поиск" />
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("searchPlaceholder")} className="pl-8" aria-label={t("search")} />
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-        {select("type", "Все типы", [
-          { value: "expense", label: "Расходы" },
-          { value: "income", label: "Доходы" },
-          { value: "transfer", label: "Переводы" },
+      <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+        {select("type", t("allTypes"), [
+          { value: "expense", label: t("expenses") },
+          { value: "income", label: t("incomePlural") },
+          { value: "transfer", label: t("transfers") },
         ])}
-        {select("status", "Факт и план", [
-          { value: "posted", label: "Выполненные" },
-          { value: "planned", label: "Запланированные" },
-          { value: "skipped", label: "Пропущенные" },
+        {select("status", t("actualAndPlanned"), [
+          { value: "posted", label: t("postedPlural") },
+          { value: "planned", label: t("plannedPlural") },
+          { value: "skipped", label: t("skippedPlural") },
         ])}
         {select(
           "categoryId",
-          "Все категории",
-          visibleCategories.map((c) => ({ value: c.id, label: c.archived ? `${c.name} (архив)` : c.name })),
+          t("allCategories"),
+          visibleCategories.map((c) => ({ value: c.id, label: c.archived ? t("archivedName", { name: c.name }) : c.name })),
         )}
         {select(
           "accountId",
-          "Все счета",
+          t("allAccounts"),
           accounts.map((a) => ({ value: a.id, label: a.name })),
         )}
-        <DateField value={params.get("from")} onChange={(v) => update({ from: v })} today={today} placeholder="С даты" clearable className="sm:w-44" />
-        <DateField value={params.get("to")} onChange={(v) => update({ to: v })} today={today} placeholder="По дату" clearable className="sm:w-44" />
+        <DateField value={params.get("from")} onChange={(v) => update({ from: v })} today={today} placeholder={t("fromDate")} clearable className="sm:w-44" />
+        <DateField value={params.get("to")} onChange={(v) => update({ to: v })} today={today} placeholder={t("toDate")} clearable className="sm:w-44" />
         <a
           href={`/api/export/transactions?${params.toString()}`}
           download
-          className={cn(buttonVariants({ variant: "outline" }), "col-span-2 sm:col-span-1 sm:ml-auto")}
+          className={cn(buttonVariants({ variant: "outline" }), "sm:ml-auto")}
         >
-          <Download /> Экспорт CSV
+          <Download /> {t("exportCsv")}
         </a>
         {active ? (
           <Button
@@ -102,7 +104,7 @@ export function TransactionFilters() {
               router.replace(pathname)
             }}
           >
-            <X /> Сбросить
+            <X /> {t("reset")}
           </Button>
         ) : null}
       </div>

@@ -1,5 +1,6 @@
 "use client"
 
+import { useTranslations, useLocale } from "next-intl"
 import { Plus, Repeat, Trash2 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { quoteConversionAction } from "@/app/actions/exchange-rates"
@@ -24,14 +25,14 @@ import { describeSchedule } from "@/domain/recurrence"
 import { formatDateFull, type IsoDate } from "@/lib/dates"
 import { minorToInput, parseMoney } from "@/lib/money"
 import { useCatalog } from "./catalog-context"
-import { FREQUENCY_LABELS, type OperationRow, type OperationType, type RuleRow } from "./types"
+import { FREQUENCIES, type OperationRow, type OperationType, type RuleRow } from "./types"
 
 export type OperationDialogMode =
   | { kind: "create"; type?: OperationType; date?: IsoDate }
   | { kind: "transaction"; row: OperationRow; rule: RuleRow | null }
   | { kind: "rule"; rule: RuleRow }
 
-type Frequency = keyof typeof FREQUENCY_LABELS
+type Frequency = (typeof FREQUENCIES)[number]
 
 interface FormState {
   type: OperationType
@@ -53,7 +54,7 @@ interface FormState {
   scope: "one" | "future"
 }
 
-function initialState(mode: OperationDialogMode, today: IsoDate, defaultAccount: string | null, accounts: CatalogAccount[]): FormState {
+function initialState(mode: OperationDialogMode, today: IsoDate, defaultAccount: string | null, accounts: CatalogAccount[], locale: string): FormState {
   const base: FormState = {
     type: "expense",
     amount: "",
@@ -82,8 +83,8 @@ function initialState(mode: OperationDialogMode, today: IsoDate, defaultAccount:
     return {
       ...base,
       type: r.type,
-      amount: minorToInput(r.amount, accounts.find((a) => a.id === r.accountId)!.currency),
-      toAmount: r.toAmount ? minorToInput(r.toAmount, accounts.find((a) => a.id === r.toAccountId)!.currency) : null,
+      amount: minorToInput(r.amount, accounts.find((a) => a.id === r.accountId)!.currency, locale),
+      toAmount: r.toAmount ? minorToInput(r.toAmount, accounts.find((a) => a.id === r.toAccountId)!.currency, locale) : null,
       categoryId: r.categoryId,
       accountId: r.accountId,
       toAccountId: r.toAccountId,
@@ -97,8 +98,8 @@ function initialState(mode: OperationDialogMode, today: IsoDate, defaultAccount:
   return {
     ...base,
     type: rule.type,
-    amount: minorToInput(rule.amount, accounts.find((a) => a.id === rule.accountId)!.currency),
-    toAmount: rule.toAmount ? minorToInput(rule.toAmount, accounts.find((a) => a.id === rule.toAccountId)!.currency) : null,
+    amount: minorToInput(rule.amount, accounts.find((a) => a.id === rule.accountId)!.currency, locale),
+    toAmount: rule.toAmount ? minorToInput(rule.toAmount, accounts.find((a) => a.id === rule.toAccountId)!.currency, locale) : null,
     categoryId: rule.categoryId,
     accountId: rule.accountId,
     toAccountId: rule.toAccountId,
@@ -126,9 +127,11 @@ export function OperationDialog({ mode, open, onOpenChange }: { mode: OperationD
 }
 
 function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: () => void }) {
+  const t = useTranslations("transactions")
+  const locale = useLocale()
   const { categories, accounts, today } = useCatalog()
   const activeAccounts = accounts.filter((a) => !a.archived && a.kind !== "loan")
-  const [s, setS] = useState<FormState>(() => initialState(mode, today, activeAccounts[0]?.id ?? null, accounts))
+  const [s, setS] = useState<FormState>(() => initialState(mode, today, activeAccounts[0]?.id ?? null, accounts, locale))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const { pending, run } = useAction()
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setS((prev) => ({ ...prev, [key]: value }))
@@ -151,11 +154,11 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
     return () => { active = false; clearTimeout(timer) }
   }, [parsedAmount, currency, toCurrency, quoteDate, quoteKey, crossCurrency])
   const currentQuote = quote?.key === quoteKey ? quote : null
-  const creditedInput = s.toAmount ?? (currentQuote?.amount ? minorToInput(currentQuote.amount, toCurrency) : "")
+  const creditedInput = s.toAmount ?? (currentQuote?.amount ? minorToInput(currentQuote.amount, toCurrency, locale) : "")
   const credited = crossCurrency ? parseMoney(creditedInput, toCurrency) : null
-  const effectiveRate = parsedAmount && credited ? formatExchangeRate(parsedAmount, credited, currency, toCurrency) : null
-  const referenceRate = currentQuote?.amount ? formatQuotedRate(currentQuote.rates, currency, toCurrency) : null
-  const rateSource = currentQuote ? formatRateSource(currentQuote.rates) : null
+  const effectiveRate = parsedAmount && credited ? formatExchangeRate(parsedAmount, credited, currency, toCurrency, locale) : null
+  const referenceRate = currentQuote?.amount ? formatQuotedRate(currentQuote.rates, currency, toCurrency, locale) : null
+  const rateSource = currentQuote ? formatRateSource(currentQuote.rates, locale) : null
 
   const isRule = mode.kind === "rule"
   const isOccurrence = mode.kind === "transaction" && mode.row.recurringRuleId !== null
@@ -168,7 +171,7 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
   const category = categories.find((c) => c.id === s.categoryId)
 
   const title =
-    mode.kind === "create" ? "Новая операция" : mode.kind === "rule" ? "Регулярная операция" : isOccurrence ? "Операция из расписания" : "Операция"
+    mode.kind === "create" ? t("newTitle") : mode.kind === "rule" ? t("recurringTitle") : isOccurrence ? t("occurrenceTitle") : t("transaction")
 
   function changeType(type: OperationType) {
     setS((prev) => ({ ...prev, type, categoryId: null, toAccountId: null }))
@@ -189,13 +192,13 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
     e.preventDefault()
     const amount = parseMoney(s.amount, currency)
     const fieldErrors: Record<string, string> = {}
-    if (crossCurrency && !credited) fieldErrors.toAmount = "Укажите сумму зачисления"
-    if (!amount) fieldErrors.amount = "Укажите сумму"
-    if (s.type !== "transfer" && !s.categoryId) fieldErrors.categoryId = "Выберите категорию"
-    if (!s.accountId) fieldErrors.accountId = "Выберите счёт"
-    if (s.type === "transfer" && !s.toAccountId) fieldErrors.toAccountId = "Выберите счёт зачисления"
+    if (crossCurrency && !credited) fieldErrors.toAmount = t("enterCredited")
+    if (!amount) fieldErrors.amount = t("enterAmount")
+    if (s.type !== "transfer" && !s.categoryId) fieldErrors.categoryId = t("selectCategory")
+    if (!s.accountId) fieldErrors.accountId = t("selectAccount")
+    if (s.type === "transfer" && !s.toAccountId) fieldErrors.toAccountId = t("selectDestination")
     const extra = s.extra.map((x) => ({ dayOfMonth: Number(x.dayOfMonth), amount: parseMoney(x.amount, currency) ?? 0 }))
-    if (showSchedule && extra.some((x) => !x.amount || !(x.dayOfMonth >= 1 && x.dayOfMonth <= 31))) fieldErrors.extra = "Проверьте дополнительные начисления"
+    if (showSchedule && extra.some((x) => !x.amount || !(x.dayOfMonth >= 1 && x.dayOfMonth <= 31))) fieldErrors.extra = t("checkExtra")
     setErrors(fieldErrors)
     if (Object.keys(fieldErrors).length > 0 || !amount || !s.accountId) return
 
@@ -220,19 +223,19 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
 
     if (mode.kind === "create" && s.repeat) {
       run(() => createRulesAction({ rule: { ...fields, ...schedule }, extra: s.frequency === "monthly" ? extra : [] }), {
-        success: "Регулярная операция создана",
+        success: t("recurringCreated"),
         onSuccess: onDone,
         onError,
       })
     } else if (mode.kind === "create") {
       run(() => createTransactionAction({ ...fields, date: s.date, status: s.posted ? "posted" : "planned" }), {
-        success: "Операция добавлена",
+        success: t("created"),
         onSuccess: onDone,
         onError,
       })
     } else if (mode.kind === "rule") {
       run(() => updateRuleAction(mode.rule.id, { rule: { ...fields, ...schedule }, version: mode.rule.version }), {
-        success: "Расписание обновлено",
+        success: t("scheduleUpdated"),
         onSuccess: onDone,
         onError,
       })
@@ -245,12 +248,12 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
             version: r.version,
             effectiveFrom: mode.row.occurrenceDate ?? mode.row.date,
           }),
-        { success: "Изменения применены ко всем следующим операциям", onSuccess: onDone, onError },
+        { success: t("futureUpdated"), onSuccess: onDone, onError },
       )
     } else if (mode.kind === "transaction") {
       run(
         () => updateTransactionAction(mode.row.id, { ...fields, date: s.date, status: s.posted ? "posted" : "planned", version: mode.row.version }),
-        { success: "Операция сохранена", onSuccess: onDone, onError },
+        { success: t("saved"), onSuccess: onDone, onError },
       )
     }
   }
@@ -260,10 +263,10 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
         {isRule ? (
-          <DialogDescription>Изменения применятся к будущим неподтверждённым операциям, начиная с сегодняшнего дня.</DialogDescription>
+          <DialogDescription>{t("ruleEditHint")}</DialogDescription>
         ) : isOccurrence && mode.kind === "transaction" ? (
           <DialogDescription>
-            Плановая дата по расписанию: {formatDateFull(mode.row.occurrenceDate ?? mode.row.date)}
+            {t("scheduledDate", { date: formatDateFull(mode.row.occurrenceDate ?? mode.row.date, locale) })}
           </DialogDescription>
         ) : null}
       </DialogHeader>
@@ -274,8 +277,8 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
           onChange={(v) => set("scope", v)}
           size="sm"
           options={[
-            { value: "one", label: "Только эту" },
-            { value: "future", label: "Эту и все следующие" },
+            { value: "one", label: t("onlyThis") },
+            { value: "future", label: t("thisAndFuture") },
           ]}
         />
       ) : null}
@@ -285,15 +288,15 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
           value={s.type}
           onChange={changeType}
           options={[
-            { value: "expense", label: "Расход" },
-            { value: "income", label: "Доход" },
-            { value: "transfer", label: "Перевод" },
+            { value: "expense", label: t("expense") },
+            { value: "income", label: t("income") },
+            { value: "transfer", label: t("transfer") },
           ]}
         />
       ) : null}
 
       <Field>
-        <FieldLabel htmlFor="op-amount">Сумма</FieldLabel>
+        <FieldLabel htmlFor="op-amount">{t("amount")}</FieldLabel>
         <MoneyInput
           currency={currency}
           id="op-amount"
@@ -308,14 +311,14 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
 
       {s.type !== "transfer" ? (
         <Field>
-          <FieldLabel>Категория</FieldLabel>
+          <FieldLabel>{t("category")}</FieldLabel>
           <Select
             value={s.categoryId}
             onValueChange={(v) => set("categoryId", v as string | null)}
             items={kindCategories.map((c) => ({ value: c.id, label: c.name }))}
           >
             <SelectTrigger className="w-full" aria-invalid={Boolean(errors.categoryId)}>
-              <SelectValue placeholder="Выберите категорию">
+              <SelectValue placeholder={t("selectCategory")}>
                 {category ? (
                   <span className="flex items-center gap-2">
                     <CategoryIcon icon={category.icon} color={category.color} className="size-5 rounded-md [&_svg]:size-3" />
@@ -339,12 +342,12 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
 
       <div className={s.type === "transfer" ? "grid grid-cols-1 gap-4 sm:grid-cols-2" : "grid grid-cols-1 gap-4"}>
         <Field>
-          <FieldLabel>{s.type === "transfer" ? "Со счёта" : "Счёт"}</FieldLabel>
+          <FieldLabel>{s.type === "transfer" ? t("sourceAccount") : t("account")}</FieldLabel>
           <AccountSelect value={s.accountId} onChange={(v) => setS((prev) => ({ ...prev, accountId: v, toAmount: null }))} accounts={selectableAccounts} invalid={Boolean(errors.accountId)} />
         </Field>
         {s.type === "transfer" ? (
           <Field>
-            <FieldLabel>На счёт</FieldLabel>
+            <FieldLabel>{t("destinationAccount")}</FieldLabel>
             <AccountSelect
               value={s.toAccountId}
               onChange={(v) => setS((prev) => ({ ...prev, toAccountId: v, toAmount: null }))}
@@ -356,41 +359,41 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
       </div>
 
       {crossCurrency ? <Field>
-        <FieldLabel htmlFor="op-to-amount">Зачислено</FieldLabel>
+        <FieldLabel htmlFor="op-to-amount">{t("credited")}</FieldLabel>
         <MoneyInput id="op-to-amount" currency={toCurrency} value={creditedInput} onChange={(v) => set("toAmount", v)} aria-invalid={Boolean(errors.toAmount)} />
         {referenceRate ? <p className="text-xs text-muted-foreground">{referenceRate}{rateSource ? ` · ${rateSource}` : ""}</p> : null}
-        {effectiveRate && (!referenceRate || effectiveRate !== referenceRate) ? <p className="text-xs text-muted-foreground">{effectiveRate} · по суммам перевода</p> : null}
+        {effectiveRate && (!referenceRate || effectiveRate !== referenceRate) ? <p className="text-xs text-muted-foreground">{t("effectiveRate", { rate: effectiveRate })}</p> : null}
         {currentQuote?.warnings.map((warning) => <p key={warning} className="text-xs text-muted-foreground">{warning}</p>)}
         {errors.toAmount ? <p className="text-sm text-destructive">{errors.toAmount}</p> : null}
       </Field> : null}
 
       {!editingFuture ? (
         <Field>
-          <FieldLabel>{showSchedule ? "Дата начала" : "Дата"}</FieldLabel>
+          <FieldLabel>{showSchedule ? t("startDate") : t("date")}</FieldLabel>
           <DateField value={s.date} onChange={changeDate} today={today} />
         </Field>
       ) : null}
 
       <Field>
-        <FieldLabel htmlFor="op-title">Название</FieldLabel>
+        <FieldLabel htmlFor="op-title">{t("name")}</FieldLabel>
         <Input
           id="op-title"
           value={s.title}
           maxLength={120}
           onChange={(e) => set("title", e.target.value)}
-          placeholder={category?.name ?? (s.type === "transfer" ? "Перевод" : "Например, «Продукты на неделю»")}
+          placeholder={category?.name ?? (s.type === "transfer" ? t("transfer") : t("nameExample"))}
         />
       </Field>
 
       <Field>
-        <FieldLabel htmlFor="op-desc">Описание</FieldLabel>
-        <Textarea id="op-desc" value={s.description} maxLength={1000} rows={2} onChange={(e) => set("description", e.target.value)} placeholder="Необязательно" />
+        <FieldLabel htmlFor="op-desc">{t("notes")}</FieldLabel>
+        <Textarea id="op-desc" value={s.description} maxLength={1000} rows={2} onChange={(e) => set("description", e.target.value)} placeholder={t("optional")} />
       </Field>
 
       {mode.kind === "create" ? (
         <label className="flex items-center justify-between gap-3 rounded-lg border p-3">
           <span className="flex items-center gap-2 text-sm font-medium">
-            <Repeat className="size-4 text-muted-foreground" /> Повторять регулярно
+            <Repeat className="size-4 text-muted-foreground" /> {t("repeat")}
           </span>
           <Switch checked={s.repeat} onCheckedChange={(v) => set("repeat", v)} />
         </label>
@@ -401,9 +404,9 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
       {!showSchedule && !editingFuture ? (
         <label className="flex items-center justify-between gap-3 rounded-lg border p-3">
           <span className="text-sm">
-            <span className="font-medium">Уже выполнена</span>
+            <span className="font-medium">{t("alreadyPosted")}</span>
             <span className="block text-muted-foreground">
-              {s.posted ? "Учитывается в фактическом балансе" : "Запланирована: учитывается только в прогнозе"}
+              {s.posted ? t("postedHint") : t("plannedHint")}
             </span>
           </span>
           <Switch checked={s.posted} onCheckedChange={(v) => set("posted", v)} />
@@ -412,10 +415,10 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDone}>
-          Отмена
+          {t("cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? "Сохранение…" : mode.kind === "create" ? "Добавить" : "Сохранить"}
+          {pending ? t("saving") : mode.kind === "create" ? t("add") : t("save")}
         </Button>
       </DialogFooter>
     </form>
@@ -433,10 +436,11 @@ function AccountSelect({
   accounts: { id: string; name: string; currency: string }[]
   invalid?: boolean
 }) {
+  const t = useTranslations("transactions")
   return (
     <Select value={value} onValueChange={(v) => onChange(v as string | null)} items={accounts.map((a) => ({ value: a.id, label: `${a.name} · ${a.currency}` }))}>
       <SelectTrigger className="w-full" aria-invalid={invalid}>
-        <SelectValue placeholder="Выберите счёт" />
+        <SelectValue placeholder={t("selectAccount")} />
       </SelectTrigger>
       <SelectContent>
         {accounts.map((a) => (
@@ -464,6 +468,8 @@ function ScheduleFields({
   allowExtra: boolean
   currency: string
 }) {
+  const t = useTranslations("transactions")
+  const locale = useLocale()
   const monthly = s.frequency === "monthly"
   const dayBased = monthly || s.frequency === "yearly"
   const summary = describeSchedule({
@@ -471,31 +477,31 @@ function ScheduleFields({
     interval: Math.max(1, Number(s.interval) || 1),
     dayOfMonth: dayBased ? Number(s.dayOfMonth) || null : null,
     startDate: s.date,
-  })
+  }, locale)
   return (
     <div className="grid grid-cols-1 gap-4 rounded-lg border bg-muted/30 p-3">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
         <Field>
-          <FieldLabel>Периодичность</FieldLabel>
+          <FieldLabel>{t("frequency")}</FieldLabel>
           <Select
             value={s.frequency}
             onValueChange={(v) => v && set("frequency", v as Frequency)}
-            items={Object.entries(FREQUENCY_LABELS).map(([value, label]) => ({ value, label }))}
+            items={FREQUENCIES.map((value) => ({ value, label: t(`frequencies.${value}`) }))}
           >
             <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {Object.entries(FREQUENCY_LABELS).map(([value, label]) => (
+              {FREQUENCIES.map((value) => (
                 <SelectItem key={value} value={value}>
-                  {label}
+                  {t(`frequencies.${value}`)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </Field>
         <Field>
-          <FieldLabel htmlFor="op-interval">Каждые</FieldLabel>
+          <FieldLabel htmlFor="op-interval">{t("every")}</FieldLabel>
           <Input
             id="op-interval"
             type="number"
@@ -510,9 +516,9 @@ function ScheduleFields({
 
       {dayBased ? (
         <Field>
-          <FieldLabel htmlFor="op-day">День месяца</FieldLabel>
+          <FieldLabel htmlFor="op-day">{t("dayOfMonth")}</FieldLabel>
           <Input id="op-day" type="number" min={1} max={31} value={s.dayOfMonth} onChange={(e) => set("dayOfMonth", e.target.value)} />
-          <p className="text-xs text-muted-foreground">Если в месяце меньше дней — в последний день месяца.</p>
+          <p className="text-xs text-muted-foreground">{t("shortMonthHint")}</p>
         </Field>
       ) : null}
 
@@ -521,7 +527,7 @@ function ScheduleFields({
           {s.extra.map((x, i) => (
             <div key={i} className="grid grid-cols-[5rem_1fr_auto] items-end gap-2">
               <Field>
-                <Label className="text-xs">День</Label>
+                <Label className="text-xs">{t("day")}</Label>
                 <Input
                   type="number"
                   min={1}
@@ -531,10 +537,10 @@ function ScheduleFields({
                 />
               </Field>
               <Field>
-                <Label className="text-xs">Сумма</Label>
+                <Label className="text-xs">{t("amount")}</Label>
                 <MoneyInput currency={currency} value={x.amount} onChange={(v) => set("extra", s.extra.map((y, j) => (j === i ? { ...y, amount: v } : y)))} />
               </Field>
-              <Button type="button" variant="ghost" size="icon" aria-label="Удалить начисление" onClick={() => set("extra", s.extra.filter((_, j) => j !== i))}>
+              <Button type="button" variant="ghost" size="icon" aria-label={t("removeExtra")} onClick={() => set("extra", s.extra.filter((_, j) => j !== i))}>
                 <Trash2 />
               </Button>
             </div>
@@ -547,23 +553,21 @@ function ScheduleFields({
             className="justify-self-start"
             onClick={() => set("extra", [...s.extra, { dayOfMonth: "20", amount: "" }])}
           >
-            <Plus /> Ещё начисление в месяце
+            <Plus /> {t("addExtra")}
           </Button>
           {s.extra.length > 0 ? (
-            <p className="text-xs text-muted-foreground">Например, аванс 20-го и зарплата 5-го — с разными суммами.</p>
+            <p className="text-xs text-muted-foreground">{t("extraExample")}</p>
           ) : null}
         </div>
       ) : null}
 
       <Field>
-        <FieldLabel>Дата окончания</FieldLabel>
-        <DateField value={s.endDate} onChange={(v) => set("endDate", v)} today={today} placeholder="Бессрочно" quick={false} clearable />
+        <FieldLabel>{t("endDate")}</FieldLabel>
+        <DateField value={s.endDate} onChange={(v) => set("endDate", v)} today={today} placeholder={t("noEndDate")} quick={false} clearable />
       </Field>
 
       <p className="text-sm text-muted-foreground">
-        {summary}
-        {s.endDate ? `, до ${formatDateFull(s.endDate)}` : ""}. Операции создаются как запланированные — подтвердите их, когда они фактически
-        произойдут.
+        {t("scheduleHint", { schedule: summary, hasEnd: s.endDate ? "yes" : "no", date: s.endDate ? formatDateFull(s.endDate, locale) : "" })}
       </p>
     </div>
   )

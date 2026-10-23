@@ -1,5 +1,6 @@
 "use client"
 
+import { useTranslations, useLocale } from "next-intl"
 import { MoreHorizontal, Pencil, Square, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { deleteRuleAction, stopRuleAction } from "@/app/actions/finance"
@@ -26,13 +27,13 @@ export interface RuleListItem {
   nextDate: string | null
 }
 
-const SECTIONS = [
-  { type: "income", title: "Доходы" },
-  { type: "expense", title: "Обязательные платежи и расходы" },
-  { type: "transfer", title: "Переводы" },
-] as const
-
 export function RulesList({ rules }: { rules: RuleListItem[] }) {
+  const t = useTranslations("recurring")
+  const SECTIONS = [
+    { type: "income", title: t("income") },
+    { type: "expense", title: t("expense") },
+    { type: "transfer", title: t("transfer") },
+  ] as const
   const { currency, accounts } = useCatalog()
   return (
     <div className="grid grid-cols-1 gap-6">
@@ -48,7 +49,7 @@ export function RulesList({ rules }: { rules: RuleListItem[] }) {
               <span className="font-medium tracking-wide uppercase">{section.title}</span>
               {monthlyTotal > 0 && items.every((r) => accounts.find((a) => a.id === r.rule.accountId)?.currency === currency) ? (
                 <span>
-                  ежемесячно: <Money value={monthlyTotal} currency={currency} className="font-medium text-foreground" />
+                  {t.rich("monthlyAmount", { amount: () => <Money value={monthlyTotal} currency={currency} className="font-medium text-foreground" /> })}
                 </span>
               ) : null}
             </div>
@@ -65,6 +66,8 @@ export function RulesList({ rules }: { rules: RuleListItem[] }) {
 }
 
 function RuleItem({ item }: { item: RuleListItem }) {
+  const t = useTranslations("recurring")
+  const locale = useLocale()
   const { rule } = item
   const ops = useOperations()
   const { accounts, today } = useCatalog()
@@ -81,14 +84,14 @@ function RuleItem({ item }: { item: RuleListItem }) {
             <span className="truncate text-sm font-medium">{rule.title}</span>
             {item.finished ? (
               <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">
-                завершена
+                {t("finished")}
               </Badge>
             ) : null}
           </span>
           <span className="block truncate text-xs text-muted-foreground">
-            {describeSchedule(rule)}
-            {rule.endDate ? ` · до ${formatDateFull(rule.endDate)}` : ""}
-            {item.nextDate ? ` · следующая ${formatDay(item.nextDate)}` : ""}
+            {describeSchedule(rule, locale)}
+            {rule.endDate ? t("until", { date: formatDateFull(rule.endDate, locale) }) : ""}
+            {item.nextDate ? t("nextDate", { date: formatDay(item.nextDate, locale) }) : ""}
           </span>
         </span>
       </button>
@@ -100,38 +103,38 @@ function RuleItem({ item }: { item: RuleListItem }) {
         className="text-sm font-semibold"
       />
       <DropdownMenu>
-        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Действия" />}>
+        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("actions")} />}>
           <MoreHorizontal />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuItem onClick={() => ops.openRule(rule)}>
-            <Pencil /> Изменить расписание
+            <Pencil /> {t("editSchedule")}
           </DropdownMenuItem>
           {!item.finished ? (
             <DropdownMenuItem onClick={() => setConfirm("stop")}>
-              <Square /> Остановить с сегодняшнего дня
+              <Square /> {t("stopToday")}
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={() => setConfirm("delete")}>
-            <Trash2 /> Удалить расписание
+            <Trash2 /> {t("deleteSchedule")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <ConfirmDialog
         open={confirm === "stop"}
         onOpenChange={(o) => !o && setConfirm(null)}
-        title="Остановить регулярную операцию?"
-        description={`Будущие неподтверждённые операции после ${formatDateFull(today)} будут удалены. Выполненные останутся в истории.`}
-        confirmLabel="Остановить"
-        onConfirm={() => run(() => stopRuleAction(rule.id), { success: "Регулярная операция остановлена" })}
+        title={t("stopTitle")}
+        description={t("stopDescription", { date: formatDateFull(today, locale) })}
+        confirmLabel={t("stop")}
+        onConfirm={() => run(() => stopRuleAction(rule.id), { success: t("stopped") })}
       />
       <ConfirmDialog
         open={confirm === "delete"}
         onOpenChange={(o) => !o && setConfirm(null)}
-        title="Удалить расписание?"
-        description="Все запланированные операции расписания будут удалены. Подтверждённые операции сохранятся в истории."
-        onConfirm={() => run(() => deleteRuleAction(rule.id), { success: "Расписание удалено" })}
+        title={t("deleteTitle")}
+        description={t("deleteDescription")}
+        onConfirm={() => run(() => deleteRuleAction(rule.id), { success: t("deleted") })}
       />
     </li>
   )

@@ -1,5 +1,6 @@
 "use client"
 
+import { useLocale, useTranslations } from "next-intl"
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ReferenceLine, XAxis, YAxis } from "recharts"
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, type ChartConfig } from "@/components/ui/chart"
 import { useCatalog } from "./operations/catalog-context"
@@ -12,7 +13,8 @@ import { formatMoney, formatMoneyCompact } from "@/lib/money"
 
 type TooltipRow = { name: string; value: number; color: string }
 
-function MoneyTooltip({ active, label, rows }: { active?: boolean; label?: React.ReactNode; rows: TooltipRow[] }) {
+function MoneyTooltip({ active, label, rows, currency: displayCurrency }: { active?: boolean; label?: React.ReactNode; rows: TooltipRow[]; currency?: string }) {
+  const locale = useLocale()
   const { currency } = useCatalog()
   if (!active || rows.length === 0) return null
   return (
@@ -22,7 +24,7 @@ function MoneyTooltip({ active, label, rows }: { active?: boolean; label?: React
         <div key={r.name} className="flex items-center gap-2">
           <span className="size-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: r.color }} />
           <span className="flex-1 text-muted-foreground">{r.name}</span>
-          <span className="tabular font-medium">{formatMoney(r.value, currency)}</span>
+          <span className="tabular font-medium">{formatMoney(r.value, displayCurrency ?? currency, { locale })}</span>
         </div>
       ))}
     </div>
@@ -52,6 +54,7 @@ const axisProps = {
 
 /** Y axis for money: rubles-rounded ticks, no duplicates when all values are equal. */
 function useMoneyAxis() {
+  const locale = useLocale()
   const { currency } = useCatalog()
   return {
     ...axisProps,
@@ -59,18 +62,18 @@ function useMoneyAxis() {
     allowDecimals: false,
     tickCount: 5,
     domain: [(min: number) => Math.min(0, min), (max: number) => (max <= 0 ? 100_00 : max)] as [(v: number) => number, (v: number) => number],
-    tickFormatter: (v: number) => formatMoneyCompact(v, currency),
+    tickFormatter: (v: number) => formatMoneyCompact(v, currency, locale),
   }
 }
 
 // ---------------------------------------------------------------------------
 
-const incomeExpenseConfig = {
-  income: { label: "Доходы", color: "var(--chart-3)" },
-  expense: { label: "Расходы", color: "var(--chart-2)" },
-} satisfies ChartConfig
-
 export function IncomeExpenseChart({ data, className }: { data: { label: string; income: number; expense: number }[]; className?: string }) {
+  const t = useTranslations("charts")
+  const incomeExpenseConfig = {
+    income: { label: t("income"), color: "var(--chart-3)" },
+    expense: { label: t("expense"), color: "var(--chart-2)" },
+  } satisfies ChartConfig
   const moneyAxis = useMoneyAxis()
   return (
     <ChartContainer config={incomeExpenseConfig} className={className ?? "aspect-auto h-64 w-full"}>
@@ -92,11 +95,6 @@ export function IncomeExpenseChart({ data, className }: { data: { label: string;
 
 // ---------------------------------------------------------------------------
 
-const balanceConfig = {
-  actual: { label: "Фактический баланс", color: "var(--chart-1)" },
-  forecast: { label: "Прогноз", color: "var(--chart-1)" },
-} satisfies ChartConfig
-
 /** Daily balance: solid line for actual days, dashed for the forecast. Zero line when the balance dips below it. */
 export function BalanceChart({
   data,
@@ -105,6 +103,11 @@ export function BalanceChart({
   data: { label: string; actual: number | null; forecast: number | null }[]
   className?: string
 }) {
+  const t = useTranslations("charts")
+  const balanceConfig = {
+    actual: { label: t("actualBalance"), color: "var(--chart-1)" },
+    forecast: { label: t("forecast"), color: "var(--chart-1)" },
+  } satisfies ChartConfig
   const moneyAxis = useMoneyAxis()
   const values = data.flatMap((d) => [d.actual, d.forecast]).filter((v): v is number => v !== null)
   const hasNegative = values.some((v) => v < 0)
@@ -143,9 +146,9 @@ export function BalanceChart({
 
 // ---------------------------------------------------------------------------
 
-const forecastConfig = { balance: { label: "Прогноз баланса", color: "var(--chart-1)" } } satisfies ChartConfig
-
 export function ForecastChart({ data, className }: { data: { label: string; balance: number }[]; className?: string }) {
+  const t = useTranslations("charts")
+  const forecastConfig = { balance: { label: t("balanceForecast"), color: "var(--chart-1)" } } satisfies ChartConfig
   const moneyAxis = useMoneyAxis()
   const hasNegative = data.some((d) => d.balance < 0)
   return (
@@ -175,12 +178,14 @@ export function ForecastChart({ data, className }: { data: { label: string; bala
 
 /**
  * Spending by category. Each slice keeps its category's own color (color follows the entity);
- * beyond six categories the rest fold into "Другое". The list beside it doubles as the table view.
+ * beyond six categories the rest fold into "Other". The list beside it doubles as the table view.
  */
 export function CategoryDonut({ data, currency = "RUB" }: { data: { name: string; total: number; color: string }[]; currency?: string }) {
+  const t = useTranslations("charts")
+  const locale = useLocale()
   const top = data.slice(0, 6)
   const rest = data.slice(6).reduce((s, d) => s + d.total, 0)
-  const slices = rest > 0 ? [...top, { name: "Другое", total: rest, color: "#94a3b8" }] : top
+  const slices = rest > 0 ? [...top, { name: t("other"), total: rest, color: "#94a3b8" }] : top
   const total = slices.reduce((s, d) => s + d.total, 0)
   const config: ChartConfig = Object.fromEntries(slices.map((s, i) => [`c${i}`, { label: s.name, color: s.color }]))
   return (
@@ -192,7 +197,7 @@ export function CategoryDonut({ data, currency = "RUB" }: { data: { name: string
               const item = p.payload?.[0]
               if (!p.active || !item) return null
               const slice = item.payload as { name: string; total: number; color: string }
-              return <MoneyTooltip active label={slice.name} rows={[{ name: `${Math.round((slice.total / total) * 100)}%`, value: slice.total, color: slice.color }]} />
+              return <MoneyTooltip active currency={currency} label={slice.name} rows={[{ name: new Intl.NumberFormat(locale, { style: "percent" }).format(slice.total / total), value: slice.total, color: slice.color }]} />
             }}
           />
           <Pie data={slices} dataKey="total" nameKey="name" innerRadius="62%" outerRadius="100%" paddingAngle={1} stroke="var(--card)" strokeWidth={2} isAnimationActive={false}>
@@ -207,8 +212,8 @@ export function CategoryDonut({ data, currency = "RUB" }: { data: { name: string
           <li key={s.name} className="flex items-center gap-2">
             <span className="size-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: s.color }} />
             <span className="min-w-0 flex-1 truncate xl:overflow-visible xl:whitespace-normal xl:break-words xl:text-clip">{s.name}</span>
-            <span className="shrink-0 tabular text-muted-foreground">{Math.round((s.total / total) * 100)}%</span>
-            <span className="shrink-0 tabular text-right font-medium">{formatMoney(s.total, currency)}</span>
+            <span className="shrink-0 tabular text-muted-foreground">{new Intl.NumberFormat(locale, { style: "percent" }).format(s.total / total)}</span>
+            <span className="shrink-0 tabular text-right font-medium">{formatMoney(s.total, currency, { locale })}</span>
           </li>
         ))}
       </ul>

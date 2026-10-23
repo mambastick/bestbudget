@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server"
 import { ListOrdered, Repeat } from "lucide-react"
 import type { Metadata } from "next"
 import { LinkButton } from "@/components/app/link-button"
@@ -14,11 +15,15 @@ import { ensureMaterialized, listRules } from "@/server/services/recurring"
 import { listTransactions, transactionFilters } from "@/server/services/transactions"
 import { todayIn } from "@/lib/dates"
 
-export const metadata: Metadata = { title: "Операции" }
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("transactions")
+  return { title: t("title") }
+}
 
 type SearchParams = Record<string, string | string[] | undefined>
 
 export default async function TransactionsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const t = await getTranslations("transactions")
   const ctx = await requireHousehold()
   const sp = await searchParams
   const tab = sp.tab === "rules" ? "rules" : "list"
@@ -29,9 +34,9 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
     <NavTabs
       active={tab}
       tabs={[
-        { key: "list", label: "Операции", href: "/transactions" },
-        { key: "rules", label: "Регулярные", href: "/transactions?tab=rules" },
-        { key: "import", label: "Импорт выписки", href: "/transactions/import" },
+        { key: "list", label: t("title"), href: "/transactions" },
+        { key: "rules", label: t("recurring"), href: "/transactions?tab=rules" },
+        { key: "import", label: t("importStatement"), href: "/transactions/import" },
       ]}
     />
   )
@@ -40,14 +45,14 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
     const rules = await listRules(ctx)
     return (
       <div className="grid grid-cols-1 gap-6">
-        <PageHeader title="Операции" description="Доходы, расходы и переводы" />
+        <PageHeader title={t("title")} description={t("description")} />
         {tabs}
         {rules.length === 0 ? (
           <EmptyState
             icon={Repeat}
-            title="Регулярных операций пока нет"
-            description="Добавьте зарплату, ипотеку, кредиты, ЖКХ и подписки — включите «Повторять регулярно» при создании операции."
-            action={<QuickAddButton label="Добавить регулярную" />}
+            title={t("noRecurring")}
+            description={t("noRecurringHint")}
+            action={<QuickAddButton label={t("addRecurring")} />}
           />
         ) : (
           <RulesList
@@ -95,15 +100,15 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
 
   return (
     <div className="grid grid-cols-1 gap-6">
-      <PageHeader title="Операции" description="Доходы, расходы и переводы" />
+      <PageHeader title={t("title")} description={t("description")} />
       {tabs}
       <TransactionFilters />
       {rows.length === 0 ? (
         <EmptyState
           icon={ListOrdered}
-          title={filtered ? "Ничего не найдено" : "Операций пока нет"}
-          description={filtered ? "Измените условия поиска или сбросьте фильтры." : "Добавьте первый доход или расход."}
-          action={filtered ? undefined : <QuickAddButton label="Добавить операцию" />}
+          title={filtered ? t("noResults") : t("noTransactions")}
+          description={filtered ? t("noResultsHint") : t("noTransactionsHint")}
+          action={filtered ? undefined : <QuickAddButton label={t("addTransaction")} />}
         />
       ) : (
         <TransactionList rows={rows} today={todayIn(ctx.timezone)} />
@@ -112,12 +117,12 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
         <div className="flex justify-center gap-2">
           {page > 1 ? (
             <LinkButton variant="outline" href={pageHref(page - 1)}>
-              Назад
+              {t("back")}
             </LinkButton>
           ) : null}
           {hasMore ? (
             <LinkButton variant="outline" href={pageHref(page + 1)}>
-              Дальше
+              {t("next")}
             </LinkButton>
           ) : null}
         </div>

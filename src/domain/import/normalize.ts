@@ -1,5 +1,7 @@
 import bankData from "./bank-data.json"
 import { importMessage } from "./messages"
+import enTransactions from "../../../messages/en/transactions.json"
+import ruTransactions from "../../../messages/ru/transactions.json"
 import { CURRENCIES, currencyExponent } from "@/lib/currencies"
 import { isIsoDate } from "@/lib/dates"
 import { PENDING_ROW_MESSAGE, REJECTED_ROW_MESSAGE, type ColumnField, type ColumnMapping, type IncomingRow } from "./types"
@@ -124,8 +126,15 @@ export function normalizeRow(cells: StatementCell[], mapping: ColumnMapping, pro
   if (get("balance")) row.balanceAfterMinor = attempt(() => money("balance"))
   if (get("toAmount")) row.toAmount = attempt(() => money("toAmount", row.toCurrency ?? ""))
   if (row.mcc && !/^\d{4}$/.test(row.mcc)) row.errors.push(importMessage("invalidMcc"))
-  const status = normalizeDescription(get("status"))
+  let status = normalizeDescription(get("status"))
   if (profile === "bestbudget-export") {
+    // Normalize our localized export metadata to the existing internal import hints.
+    for (const key of ["income", "expense", "transfer"] as const) {
+      if (row.typeHint === enTransactions.types[key]) row.typeHint = ruTransactions.types[key]
+    }
+    for (const key of ["posted", "planned", "skipped"] as const) {
+      if (status === normalizeDescription(enTransactions.statuses[key])) status = normalizeDescription(ruTransactions.statuses[key])
+    }
     row.status =
       status === bankData.markers.posted
         ? "posted"

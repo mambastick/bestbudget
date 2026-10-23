@@ -101,3 +101,16 @@ describe("describeSchedule", () => {
     )
   })
 })
+
+
+describe("localized schedules", () => {
+  it("uses English dates and complete interval phrases", () => {
+    expect(describeSchedule(monthly(5, "2026-01-01"), "en")).toBe("Monthly on day 5")
+    expect(describeSchedule({ ...monthly(31, "2026-02-01"), frequency: "yearly", interval: 2 }, "en")).toBe("Every 2 years on February 31")
+    expect(describeSchedule({ ...monthly(5, "2026-11-02"), frequency: "weekly", interval: 2 }, "en")).toBe("Every 2 weeks on Monday")
+    expect(describeSchedule({ ...monthly(5, "2026-01-01"), frequency: "daily", interval: 21 }, "en")).toBe("Every 21 days")
+  })
+  it.each([[1, "Ежедневно"], [2, "Каждые 2 дня"], [5, "Каждые 5 дней"], [21, "Каждый 21 день"]])("keeps ICU interval %s distinct from a daily schedule", (interval, expected) => {
+    expect(describeSchedule({ ...monthly(5, "2026-01-01"), frequency: "daily", interval: Number(interval) }, "ru")).toBe(expected)
+  })
+})

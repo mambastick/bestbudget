@@ -1,3 +1,4 @@
+import { getLocale, getTranslations } from "next-intl/server"
 import { csvAmount, toCsv } from "@/domain/csv"
 import { todayIn } from "@/lib/dates"
 import { AppError } from "@/server/errors"
@@ -5,9 +6,6 @@ import { actionHousehold } from "@/server/session"
 import { exportTransactions, transactionFilters } from "@/server/services/transactions"
 
 export const dynamic = "force-dynamic"
-
-const TYPE = { income: "Доход", expense: "Расход", transfer: "Перевод" } as const
-const STATUS = { planned: "Запланирована", posted: "Выполнена", skipped: "Пропущена" } as const
 
 /** CSV export of operations of the active household, with the same filters as the operations page. */
 export async function GET(request: Request) {
@@ -22,26 +20,28 @@ export async function GET(request: Request) {
   const parsed = transactionFilters.safeParse(params)
   if (!parsed.success) return new Response("Bad request", { status: 400 })
 
+  const locale = await getLocale()
+  const t = await getTranslations("transactions")
   const rows = await exportTransactions(ctx, parsed.data)
   const csv = toCsv([
-    ["Дата", "Тип", "Статус", "Название", "Категория", "Счёт", "Счёт зачисления", "Сумма", "Валюта", "Зачислено", "Валюта зачисления", "Описание", "Автор", "ID операции"],
+    [t("csv.date"), t("csv.type"), t("csv.status"), t("csv.title"), t("csv.category"), t("csv.account"), t("csv.destinationAccount"), t("csv.amount"), t("csv.currency"), t("csv.credited"), t("csv.destinationCurrency"), t("csv.description"), t("csv.author"), t("csv.transactionId")],
     ...rows.map((r) => [
       r.date,
-      TYPE[r.type],
-      STATUS[r.status],
+      t(`types.${r.type}`),
+      t(`statuses.${r.status}`),
       r.title,
       r.categoryName ?? "",
       r.accountName,
       r.toAccountName ?? "",
-      csvAmount(r.type === "expense" ? -r.amount : r.amount, r.currency),
+      csvAmount(r.type === "expense" ? -r.amount : r.amount, r.currency, locale),
       r.currency,
-      r.type === "transfer" ? csvAmount(r.toAmount ?? r.amount, r.toCurrency!) : "",
+      r.type === "transfer" ? csvAmount(r.toAmount ?? r.amount, r.toCurrency!, locale) : "",
       r.toCurrency ?? "",
       r.description ?? "",
       r.authorName ?? "",
       r.id,
     ]),
-  ])
+  ], locale)
   const filename = `bestbudget-operations-${todayIn(ctx.timezone)}.csv`
   return new Response(csv, {
     headers: {

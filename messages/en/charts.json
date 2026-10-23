@@ -1,0 +1,8 @@
+{
+  "income": "Income",
+  "expense": "Expenses",
+  "actualBalance": "Actual balance",
+  "forecast": "Forecast",
+  "balanceForecast": "Balance forecast",
+  "other": "Other"
+}

@@ -1,5 +1,6 @@
 "use server"
 
+import { getLocale } from "next-intl/server"
 import { revalidatePath } from "next/cache"
 import { runAction } from "@/server/errors"
 import { actionHousehold } from "@/server/session"
@@ -11,7 +12,7 @@ const refresh = () => revalidatePath("/", "layout")
 export async function createTransactionAction(input: tx.TransactionInput) {
   return runAction(async () => {
     const ctx = await actionHousehold()
-    const row = await tx.createTransaction(ctx, input)
+    const row = await tx.createTransaction(ctx, input, undefined, await getLocale())
     refresh()
     return { id: row.id }
   })
@@ -20,7 +21,7 @@ export async function createTransactionAction(input: tx.TransactionInput) {
 export async function updateTransactionAction(id: string, input: tx.TransactionInput & { version: number }) {
   return runAction(async () => {
     const ctx = await actionHousehold()
-    await tx.updateTransaction(ctx, id, input)
+    await tx.updateTransaction(ctx, id, input, undefined, await getLocale())
     refresh()
   })
 }
@@ -75,7 +76,7 @@ export async function materializeOccurrenceAction(ruleId: string, date: string) 
 export async function createRulesAction(input: Parameters<typeof recurring.createRules>[1]) {
   return runAction(async () => {
     const ctx = await actionHousehold()
-    const rows = await recurring.createRules(ctx, input)
+    const rows = await recurring.createRules(ctx, input, undefined, await getLocale())
     refresh()
     return { count: rows.length }
   })
@@ -88,7 +89,7 @@ export async function getRuleAction(id: string) {
 export async function updateRuleAction(id: string, input: Parameters<typeof recurring.updateRule>[2]) {
   return runAction(async () => {
     const ctx = await actionHousehold()
-    await recurring.updateRule(ctx, id, input)
+    await recurring.updateRule(ctx, id, input, await getLocale())
     refresh()
   })
 }

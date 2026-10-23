@@ -1,3 +1,4 @@
+import { getTranslations, getLocale } from "next-intl/server"
 import type { Metadata } from "next"
 import { FxWarnings } from "@/components/app/fx-warnings"
 import { BudgetList } from "@/components/app/budget-list"
@@ -10,13 +11,18 @@ import { formatMonth, parseMonthKey, todayIn } from "@/lib/dates"
 import { requireHousehold } from "@/server/session"
 import { getBudgetReport } from "@/server/services/budgets"
 
-export const metadata: Metadata = { title: "Бюджеты" }
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("budgets")
+  return { title: t("title") }
+}
 
 export default async function BudgetsPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
+  const t = await getTranslations("budgets")
+  const locale = await getLocale()
   const ctx = await requireHousehold()
   const today = todayIn(ctx.timezone)
   const month = parseMonthKey((await searchParams).month, today)
-  const { rows, warnings } = await getBudgetReport(ctx, month)
+  const { rows, warnings } = await getBudgetReport(ctx, month, locale)
   const limited = rows.filter((r) => r.limit !== null)
   const totalLimit = limited.reduce((s, r) => s + r.limit!, 0)
   const totalSpent = limited.reduce((s, r) => s + r.spent, 0)
@@ -25,15 +31,15 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
     <div className="grid grid-cols-1 gap-6">
       <FxWarnings warnings={warnings} canManageRates={ctx.user.role === "admin"} />
       <PageHeader
-        title="Бюджеты"
-        description={`Месячные лимиты по категориям расходов · ${formatMonth(month)}`}
+        title={t("title")}
+        description={t("description", { month: formatMonth(month, locale) })}
         actions={<MonthSwitcher month={month} today={today} basePath="/budgets" />}
       />
       {limited.length > 0 ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Card size="sm">
             <CardHeader>
-              <CardDescription>Лимиты на месяц</CardDescription>
+              <CardDescription>{t("monthlyLimits")}</CardDescription>
               <CardTitle className="text-2xl font-semibold">
                 <Money value={totalLimit} currency={ctx.currency} />
               </CardTitle>
@@ -41,7 +47,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
           </Card>
           <Card size="sm">
             <CardHeader>
-              <CardDescription>Потрачено по лимитам</CardDescription>
+              <CardDescription>{t("spentWithinLimits")}</CardDescription>
               <CardTitle className="text-2xl font-semibold">
                 <Money value={totalSpent} currency={ctx.currency} />
               </CardTitle>
@@ -49,7 +55,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
           </Card>
           <Card size="sm">
             <CardHeader>
-              <CardDescription>Остаток</CardDescription>
+              <CardDescription>{t("remaining")}</CardDescription>
               <CardTitle className="text-2xl font-semibold">
                 <Money value={totalLimit - totalSpent} currency={ctx.currency} tone={totalLimit - totalSpent < 0 ? "expense" : "neutral"} />
               </CardTitle>

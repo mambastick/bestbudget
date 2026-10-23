@@ -12,7 +12,7 @@ import { createConverter, loadRates } from "./exchange-rates"
  * Grouping bounds the data transferred; query count is independent of operation count. The existing
  * transactions_household_status_date_idx (household_id, status, date), created in 0000, scopes this scan.
  */
-export async function loadFinance(ctx: HouseholdCtx, valuationDates: string[] = []) {
+export async function loadFinance(ctx: HouseholdCtx, valuationDates: string[] = [], locale = "ru") {
   const db = getDb()
   const today = todayIn(ctx.timezone)
   const [accounts, grouped, adjustments] = await Promise.all([
@@ -47,7 +47,7 @@ export async function loadFinance(ctx: HouseholdCtx, valuationDates: string[] = 
     ...dates.map((date) => ({ currency: ctx.currency, date })),
   ]
   const rates = await loadRates(accounts.some((a) => a.currency !== ctx.currency) ? needs : [])
-  const fx = createConverter(rates, ctx.currency)
+  const fx = createConverter(rates, ctx.currency, locale)
   const convert = (amount: number, currency: string, date = today) => fx.convert(amount, currency, date > today ? today : date)
   const value = (r: { amount: number; accountId: string; date: string; status?: string }) =>
     convert(r.amount, accountMap.get(r.accountId)!.currency, r.status === "posted" ? r.date : today)

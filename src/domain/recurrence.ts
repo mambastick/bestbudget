@@ -1,3 +1,6 @@
+import { createTranslator } from "use-intl/core"
+import ru from "../../messages/ru/recurring.json"
+import en from "../../messages/en/recurring.json"
 import { addDays, daysInMonth, diffDays, makeDate, maxDate, minDate, ymd, type IsoDate } from "@/lib/dates"
 
 export type Frequency = "once" | "daily" | "weekly" | "monthly" | "yearly"
@@ -72,29 +75,32 @@ export function occurrencesBetween(s: Schedule, from: IsoDate, to: IsoDate): Iso
   return out
 }
 
-/** Human-readable schedule description in Russian. */
-export function describeSchedule(s: Pick<Schedule, "frequency" | "interval" | "dayOfMonth" | "startDate">): string {
-  const n = s.interval
+/** Locale is explicit at UI boundaries; the default supports existing service callers. */
+export function describeSchedule(s: Pick<Schedule, "frequency" | "interval" | "dayOfMonth" | "startDate">, locale = "ru"): string {
+  const t = createTranslator({ locale, messages: locale.startsWith("ru") ? ru : en })
+  const count = s.interval
   const day = s.dayOfMonth ?? ymd(s.startDate).d
   switch (s.frequency) {
     case "once":
-      return "Однократно"
+      return t("scheduleOnce")
     case "daily":
-      return n === 1 ? "Ежедневно" : `Каждые ${n} дн.`
+      return t("scheduleDaily", { count })
     case "weekly": {
-      const names = ["понедельник", "вторник", "среду", "четверг", "пятницу", "субботу", "воскресенье"]
-      const wd = new Date(s.startDate + "T00:00:00Z").getUTCDay()
-      const name = names[(wd + 6) % 7]
-      return n === 1 ? `Еженедельно, в ${name}` : `Каждые ${n} нед., в ${name}`
+      const date = new Date(s.startDate + "T00:00:00Z")
+      const weekdayKey = (["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const)[date.getUTCDay()]!
+      const weekday = locale.startsWith("ru")
+        ? t(`weekdays.${weekdayKey}`)
+        : new Intl.DateTimeFormat(locale, { weekday: "long", timeZone: "UTC" }).format(date)
+      return t("scheduleWeekly", { count, weekday })
     }
     case "monthly":
-      return n === 1 ? `Ежемесячно, ${day}-го числа` : `Каждые ${n} мес., ${day}-го числа`
+      return t("scheduleMonthly", { count, day })
     case "yearly": {
-      // "1 января" → "<day> января" (genitive month name from Intl).
-      const date = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", timeZone: "UTC" })
-        .format(new Date(Date.UTC(2000, Number(s.startDate.slice(5, 7)) - 1, 1)))
-        .replace(/^\d+/, String(day))
-      return n === 1 ? `Ежегодно, ${date}` : `Каждые ${n} г., ${date}`
+      // Format the month with the target day without normalizing short-month dates into March.
+      const date = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", timeZone: "UTC" })
+        .formatToParts(new Date(Date.UTC(2000, Number(s.startDate.slice(5, 7)) - 1, 1)))
+        .map((part) => part.type === "day" ? new Intl.NumberFormat(locale).format(day) : part.value).join("")
+      return t("scheduleYearly", { count, date })
     }
   }
 }
