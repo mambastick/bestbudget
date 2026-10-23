@@ -2,7 +2,7 @@
 
 import { useTranslations } from "next-intl"
 
-import { useRef, useState } from "react"
+import { useRef, useState, useSyncExternalStore } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -21,6 +21,8 @@ import { ImportSelect } from "./import-select"
 type Inspection = ReturnType<typeof describeStatement>
 type SavedProfile = { id: string; name: string; config: Pick<PreviewInput, "file" | "mapping"> }
 
+const subscribe = () => () => {}
+
 export function ImportWizard({
   accounts,
   profiles,
@@ -29,6 +31,7 @@ export function ImportWizard({
   profiles: SavedProfile[]
 }) {
   const t = useTranslations("import")
+  const mounted = useSyncExternalStore(subscribe, () => true, () => false)
   const fields: { key: ColumnField; label: string }[] = [
     { key: "date", label: t("fields.date") },
     { key: "bookingDate", label: t("fields.bookingDate") },
@@ -201,7 +204,7 @@ export function ImportWizard({
             />
           ) : null}
           <div className="flex flex-wrap gap-2 sm:col-span-2">
-            <Button disabled={busy} onClick={() => void upload("inspect")}>
+            <Button disabled={!mounted || busy} onClick={() => void upload("inspect")}>
               {busy ? t("wizard.reading") : t("wizard.read")}
             </Button>
             <LinkButton variant="outline" href="/api/import/template">

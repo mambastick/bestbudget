@@ -52,8 +52,11 @@ test.beforeAll(async ({ browser }) => {
   await page.getByLabel("E-mail").fill(user.email)
   await page.getByLabel("Пароль", { exact: true }).fill(user.password)
   await page.getByRole("button", { name: "Войти", exact: true }).click()
-  await expect(page).toHaveURL(/\/(onboarding|dashboard)/)
-  const fresh = page.url().includes("/onboarding")
+  // Client navigation can expose /dashboard before its redirect to onboarding settles.
+  const createHousehold = page.getByRole("button", { name: "Создать", exact: true })
+  const balance = page.getByTestId("actual-balance").filter({ visible: true })
+  await expect(createHousehold.or(balance)).toBeVisible()
+  const fresh = await createHousehold.isVisible()
   if (fresh) {
     await page.getByLabel("Название").fill("Демо семьи · PWA")
     await page.getByRole("button", { name: "Создать", exact: true }).click()
