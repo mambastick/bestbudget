@@ -60,7 +60,7 @@ test("seed-demo: README captures and all pages at 1280/375 in both themes", asyn
   for (const theme of ["light", "dark"]) {
     await page.evaluate((theme) => localStorage.setItem("theme", theme), theme)
     for (const width of [1280, 375]) {
-      await page.setViewportSize({ width, height: width === 375 ? 812 : 960 })
+      await page.setViewportSize({ width, height: width === 375 ? 1000 : 960 })
       for (const route of routes) {
         await page.goto(route)
         await expect(page.locator("html")).toHaveClass(new RegExp(theme))
