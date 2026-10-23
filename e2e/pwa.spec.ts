@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import type { BrowserContext, Page } from "@playwright/test"
 import { expect, test } from "./fixtures"
-import { E2E_ENV } from "../playwright.config"
+import { BROWSER_TIMEZONE, E2E_ENV } from "../playwright.config"
 
 const user = { name: "PWA Demo", email: "pwa@e2e.test", password: "pwa-demo-password-1" }
 let cookies: Awaited<ReturnType<BrowserContext["cookies"]>>
@@ -20,7 +20,7 @@ async function profile(page: Page) {
 const mobileOptions = {
   viewport: { width: 375, height: 812 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true,
   userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1",
-  locale: "ru-RU", timezoneId: "Europe/Moscow",
+  locale: "ru-RU", timezoneId: BROWSER_TIMEZONE,
 }
 
 async function standalone(context: BrowserContext) {
@@ -156,6 +156,7 @@ test("English install instructions use the PWA namespace at 375px", async ({ pag
   await profile(page)
   await page.getByRole("radio", { name: "English", exact: true }).click()
   await expect(page.locator("html")).toHaveAttribute("lang", "en")
+  await expect(page.getByRole("button", { name: "Back", exact: true })).toBeVisible()
   await page.getByRole("button", { name: "Install app", exact: true }).click()
   await expect(page.getByRole("dialog")).toContainText("How to install BestBudget")
   await noOverflow(page)
