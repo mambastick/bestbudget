@@ -46,7 +46,7 @@ export default defineConfig({
     baseURL: env.APP_URL,
     locale: "ru-RU",
     timezoneId: BROWSER_TIMEZONE,
-    trace: "retain-on-failure",
+    trace: { mode: "retain-on-failure", screenshots: false },
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {},
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 } } }],
