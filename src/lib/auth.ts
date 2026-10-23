@@ -15,6 +15,7 @@ import { findValidInvitation } from "@/server/services/households"
 import { getAuthMethods, OIDC_PROVIDER_ID, type AuthMethods } from "@/server/services/settings"
 import { sendPasswordResetMail, smtpEnabled } from "./mail"
 import { appUrl, env } from "./env"
+import { roleFromOidcGroups, type OidcRole } from "./oidc-roles"
 
 export const INVITE_COOKIE = "bb_invite"
 
@@ -46,6 +47,12 @@ function build(methods: AuthMethods) {
   const e = env()
   const oidc = methods.oidc
   const secure = appUrl().startsWith("https://")
+  const roleMapping = e.OIDC_GROUPS_CLAIM && e.OIDC_USER_GROUP && e.OIDC_ADMIN_GROUP
+    ? { claim: e.OIDC_GROUPS_CLAIM, userGroup: e.OIDC_USER_GROUP, adminGroup: e.OIDC_ADMIN_GROUP }
+    : undefined
+  // Request-scoped, populated only after Better Auth validates the configured provider's
+  // token, immutable account subject and binding. Never accept a role as user input.
+  const oidcRoles = new WeakMap<object, { role: OidcRole; userId?: string }>()
 
   return betterAuth({
     appName: "BestBudget",
@@ -79,10 +86,19 @@ function build(methods: AuthMethods) {
           }
         : undefined,
     },
-    user: { additionalFields: { locale: { type: "string", required: false, input: false }, lastSeenLocale: { type: "string", required: false, input: false } } },
     account: {
       // SSO identities are never merged into existing accounts by e-mail; linking is explicit, from a signed-in session.
       accountLinking: { enabled: true, disableImplicitLinking: true, allowDifferentEmails: true },
+    },
+    user: {
+      additionalFields: { locale: { type: "string", required: false, input: false }, lastSeenLocale: { type: "string", required: false, input: false } },
+      validateUserInfo: oidc && roleMapping ? ({ user, source }, ctx) => {
+        if (source.method !== "oauth" || source.oauth?.providerId !== OIDC_PROVIDER_ID) return
+        const role = roleFromOidcGroups(source.oauth.profile, roleMapping)
+        if (!role) return { error: "oidc_access_denied", errorDescription: "SSO account is not authorized for this application" }
+        // Linking alone must not change the current user's system role.
+        if (source.action !== "link-account") oidcRoles.set(ctx, { role, userId: user.id })
+      } : undefined,
     },
     rateLimit: {
       enabled: e.RATE_LIMIT_ENABLED ? e.RATE_LIMIT_ENABLED === "true" : process.env.NODE_ENV === "production",
@@ -103,12 +119,13 @@ function build(methods: AuthMethods) {
       user: {
         create: {
           before: async (user, ctx) => {
-            const isOidc = ctx?.path?.includes(`/callback/${OIDC_PROVIDER_ID}`) ?? false
+            const isOidc = ctx?.path === "/callback/:id" && ctx.params?.id === OIDC_PROVIDER_ID
             const token = readCookie(ctx?.headers?.get("cookie"), INVITE_COOKIE)
             const allowed = signupGate.getStore()?.allowed || methods.publicRegistration || (isOidc && oidc?.allowSignup) || (token && await findValidInvitation(token))
             if (!allowed) return false
             const locale = readCookie(ctx?.headers?.get("cookie"), LOCALE_COOKIE)
-            return { data: { ...user, locale: isLocale(locale) ? locale : null, lastSeenLocale: browserLocale(ctx?.headers?.get("accept-language")) } }
+            const mapped = ctx && oidcRoles.get(ctx)
+            return { data: { ...user, ...(mapped ? { role: mapped.role } : {}), locale: isLocale(locale) ? locale : null, lastSeenLocale: browserLocale(ctx?.headers?.get("accept-language")) } }
           },
           after: async (user) => {
             // Not awaited: Better Auth may still hold the new row in an open transaction.
@@ -118,6 +135,15 @@ function build(methods: AuthMethods) {
       },
       session: {
         create: {
+          before: async (session, ctx) => {
+            const mapped = ctx && oidcRoles.get(ctx)
+            if (!mapped) return
+            if (mapped.userId && mapped.userId !== session.userId) return false
+            // Persist before session issuance, through the auth adapter so transaction
+            // boundaries are preserved. Promotion and demotion use the same path.
+            const user = await ctx.context.internalAdapter.updateUser(session.userId, { role: mapped.role })
+            if (!user) return false
+          },
           after: async (session, ctx) => {
             const language = ctx?.headers?.get("accept-language")
             if (language) await rememberBrowserLocale(session.userId, browserLocale(language))

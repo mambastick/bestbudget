@@ -83,6 +83,16 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
+            {{- with .roleMapping }}
+            {{- if or .groupsClaim .userGroup .adminGroup }}
+            - name: OIDC_GROUPS_CLAIM
+              value: {{ required "oidc.roleMapping.groupsClaim is required when role mapping is enabled" .groupsClaim | quote }}
+            - name: OIDC_USER_GROUP
+              value: {{ required "oidc.roleMapping.userGroup is required when role mapping is enabled" .userGroup | quote }}
+            - name: OIDC_ADMIN_GROUP
+              value: {{ required "oidc.roleMapping.adminGroup is required when role mapping is enabled" .adminGroup | quote }}
+            {{- end }}
+            {{- end }}
             {{- end }}
             {{- with .Values.smtp.from }}
             - name: SMTP_FROM

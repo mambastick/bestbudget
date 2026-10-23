@@ -31,6 +31,9 @@ const schema = z.object({
   OIDC_REDIRECT_URI: optionalString,
   OIDC_ENABLED: z.enum(["true", "false"]).optional(),
   OIDC_ALLOW_SIGNUP: bool,
+  OIDC_GROUPS_CLAIM: optionalString,
+  OIDC_USER_GROUP: optionalString,
+  OIDC_ADMIN_GROUP: optionalString,
 
   JOBS_ENABLED: z.enum(["true", "false"]).optional(),
   TELEGRAM_BOT_TOKEN: optionalString,
@@ -42,6 +45,14 @@ const schema = z.object({
 
   SMTP_URL: optionalString,
   SMTP_FROM: optionalString,
+}).superRefine((e, ctx) => {
+  const mapping = [e.OIDC_GROUPS_CLAIM, e.OIDC_USER_GROUP, e.OIDC_ADMIN_GROUP]
+  if (mapping.some(Boolean) && !mapping.every(Boolean)) {
+    ctx.addIssue({ code: "custom", path: ["OIDC_GROUPS_CLAIM"], message: "Set OIDC_GROUPS_CLAIM, OIDC_USER_GROUP and OIDC_ADMIN_GROUP together" })
+  }
+  if (e.OIDC_USER_GROUP && e.OIDC_USER_GROUP === e.OIDC_ADMIN_GROUP) {
+    ctx.addIssue({ code: "custom", path: ["OIDC_ADMIN_GROUP"], message: "OIDC_ADMIN_GROUP must differ from OIDC_USER_GROUP" })
+  }
 })
 
 export type Env = z.infer<typeof schema>
