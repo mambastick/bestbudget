@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test"
 
 /**
- * End-to-end acceptance tests. They start an in-memory PostgreSQL (PGlite) and a dev server
+ * End-to-end acceptance tests. They start an in-memory PostgreSQL (PGlite) and a production server
  * with their own port and secrets, so they never touch real data.
  *
  * Use a local Chromium-based browser instead of the bundled one with PLAYWRIGHT_CHROMIUM_EXECUTABLE.
@@ -36,6 +36,8 @@ export default defineConfig({
   testDir: "e2e",
   outputDir: process.env.E2E_OUTPUT_DIR ?? "work/playwright",
   fullyParallel: false,
+  // Concurrent PGlite socket clients failed with 08P01 during parallel seeds.
+  // OIDC admin/auth state and the PWA sw.js probe are also shared across files.
   workers: 1,
   timeout: 90_000,
   expect: { timeout: 15_000 },
@@ -44,7 +46,7 @@ export default defineConfig({
     baseURL: env.APP_URL,
     locale: "ru-RU",
     timezoneId: BROWSER_TIMEZONE,
-    trace: "retain-on-failure",
+    trace: { mode: "retain-on-failure", screenshots: false },
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {},
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 } } }],

@@ -1,5 +1,6 @@
+import { screenshot } from "./matrix"
 import { execFileSync } from "node:child_process"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { readFile, writeFile } from "node:fs/promises"
 import type { BrowserContext, Page } from "@playwright/test"
 import { expect, test } from "./fixtures"
 import { INSTALL_STATE_EVENT } from "../src/lib/pwa/install-prompt"
@@ -226,14 +227,15 @@ test("English install instructions use the PWA namespace at 375px", async ({ pag
   await page.getByRole("button", { name: "Install app", exact: true }).click()
   await expect(page.getByRole("dialog")).toContainText("How to install BestBudget")
   await noOverflow(page)
-  await page.screenshot({ path: "docs/screenshots/pwa/install-en.png", animations: "disabled" })
+  await screenshot(page, "docs/screenshots/pwa/install-en.png")
   await page.getByRole("button", { name: "Got it", exact: true }).click()
   await page.getByRole("radio", { name: "Русский", exact: true }).click()
   await expect(page.locator("html")).toHaveAttribute("lang", "ru")
 })
 
-test("iOS Safari and Chrome instructions are accessible from the user menu and profile at 375px", async ({ browser }) => {
-  for (const other of [false, true]) {
+for (const other of [false, true]) {
+  test(`iOS ${other ? "Chrome" : "Safari"} instructions at 375px`, async ({ browser }) => {
+    test.setTimeout(60_000)
     const context = await browser.newContext({ ...mobileOptions, userAgent: other ? mobileOptions.userAgent.replace("Version/17.0", "CriOS/120.0") : mobileOptions.userAgent })
     await context.addCookies(cookies)
     const page = await context.newPage()
@@ -245,19 +247,18 @@ test("iOS Safari and Chrome instructions are accessible from the user menu and p
     } else await page.getByRole("button", { name: "Установить приложение", exact: true }).click()
     await expect(page.getByRole("dialog").last()).toContainText(other ? "На iOS 16.4" : "В Safari")
     await noOverflow(page)
-    await page.screenshot({ path: `docs/screenshots/pwa/install-ios${other ? "-chrome" : "-safari"}.png`, animations: "disabled" })
+    await screenshot(page, `docs/screenshots/pwa/install-ios${other ? "-chrome" : "-safari"}.png`)
     await context.close()
-  }
-})
+  })
+}
 
-test("standalone iPhone: shortcut, parent navigation, safe insets, input size, themes and screenshots", async ({ browser }) => {
-  await mkdir("docs/screenshots/pwa", { recursive: true })
-  await mkdir("public/screenshots", { recursive: true })
-  const context = await browser.newContext(mobileOptions)
-  await context.addCookies(cookies)
-  await standalone(context)
-  const page = await context.newPage()
-  for (const theme of ["light", "dark"]) {
+for (const theme of ["light", "dark"] as const) {
+  test(`standalone iPhone: ${theme} shortcut, navigation and safe insets`, async ({ browser }) => {
+    test.setTimeout(60_000)
+    const context = await browser.newContext(mobileOptions)
+    await context.addCookies(cookies)
+    await standalone(context)
+    const page = await context.newPage()
     await profile(page)
     await page.getByRole("radio", { name: theme === "light" ? "Светлая" : "Тёмная", exact: true }).click()
     await expect(page.locator("html")).toHaveClass(new RegExp(theme))
@@ -277,31 +278,35 @@ test("standalone iPhone: shortcut, parent navigation, safe insets, input size, t
     const footer = dialog.locator('[data-slot="dialog-footer"]')
     await expect(footer).toHaveCSS("padding-bottom", "34px")
     await noOverflow(page)
-    await page.screenshot({ path: `docs/screenshots/pwa/iphone-dialog-${theme}.png`, animations: "disabled" })
+    await screenshot(page, `docs/screenshots/pwa/iphone-dialog-${theme}.png`)
     await footer.scrollIntoViewIfNeeded()
     expect((await footer.boundingBox())!.y + (await footer.boundingBox())!.height).toBeLessThanOrEqual(812 - 34)
-    await page.screenshot({ path: `docs/screenshots/pwa/iphone-footer-${theme}.png`, animations: "disabled" })
+    await screenshot(page, `docs/screenshots/pwa/iphone-footer-${theme}.png`)
     await dialog.getByRole("button", { name: "Отмена", exact: true }).click()
     await expect(dialog).toHaveCount(0)
     await expect(page.locator('[data-slot="app-header"]')).toHaveCSS("padding-top", "47px")
     const fab = page.locator('[data-slot="transaction-fab"]')
     expect((await fab.boundingBox())!.y + (await fab.boundingBox())!.height).toBeLessThanOrEqual(812 - 34)
     await noOverflow(page)
-    await page.screenshot({ path: `docs/screenshots/pwa/iphone-${theme}.png`, animations: "disabled" })
+    await screenshot(page, `docs/screenshots/pwa/iphone-${theme}.png`)
 
     await page.getByRole("button", { name: "Показать или скрыть меню" }).click()
     await expect(page.locator('[data-slot="sidebar-footer"]')).toHaveCSS("padding-bottom", "34px")
-    await page.screenshot({ path: `docs/screenshots/pwa/iphone-sidebar-${theme}.png`, animations: "disabled" })
+    await screenshot(page, `docs/screenshots/pwa/iphone-sidebar-${theme}.png`)
     await page.keyboard.press("Escape")
-  }
-  await context.close()
+    await context.close()
+  })
+}
+
+test("PWA dashboard assets and signed-out standalone layout", async ({ browser }) => {
+  test.setTimeout(60_000)
   const mobile = await browser.newContext(mobileOptions)
   await mobile.addCookies(cookies)
   const narrow = await mobile.newPage()
   await narrow.emulateMedia({ reducedMotion: "reduce" })
   await narrow.goto("/dashboard")
   await expect(narrow.getByTestId("actual-balance").filter({ visible: true })).toBeVisible()
-  await narrow.screenshot({ path: "public/screenshots/dashboard-narrow.png", animations: "disabled" })
+  await screenshot(narrow, "public/screenshots/dashboard-narrow.png")
   await mobile.close()
   const desktop = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "ru-RU" })
   await desktop.addCookies(cookies)
@@ -313,7 +318,7 @@ test("standalone iPhone: shortcut, parent navigation, safe insets, input size, t
   await expect(wide.locator("html")).toHaveClass(/light/)
   await expect(wide.getByTestId("actual-balance").filter({ visible: true })).toBeVisible()
   await wide.waitForLoadState("networkidle")
-  await wide.screenshot({ path: "public/screenshots/dashboard-wide.png", animations: "disabled" })
+  await screenshot(wide, "public/screenshots/dashboard-wide.png")
   await desktop.close()
   const signedOut = await browser.newContext(mobileOptions)
   await standalone(signedOut)
@@ -323,7 +328,7 @@ test("standalone iPhone: shortcut, parent navigation, safe insets, input size, t
   await expect(login.locator('[data-slot="auth-preferences"]')).toHaveCSS("top", "59px")
   await expect(login.getByLabel("E-mail")).toHaveCSS("font-size", "16px")
   await noOverflow(login)
-  await login.screenshot({ path: "docs/screenshots/pwa/iphone-login.png", animations: "disabled" })
+  await screenshot(login, "docs/screenshots/pwa/iphone-login.png")
   await signedOut.close()
 })
 

@@ -181,7 +181,7 @@ PORT=3300 npx -y pnpm@10.27.0 dev
 |---|---|
 | `typecheck`, `lint`, `test` | TypeScript, ESLint, Vitest with isolated PGlite and real migrations |
 | `build` | Production standalone build and bundled administration/backup CLIs |
-| `test:e2e` | Playwright on production; isolated ports **3200/54330**, must be free |
+| `test:e2e` | Playwright on production; isolated ports **3200/54330**, must be free; [matrix tests](docs/e2e.md) |
 | `db:generate --name <name>` | Generate an additive migration after schema changes |
 | `db:seed-demo <email>` | Six months of synthetic data; requires an empty RUB household and its single default account. Includes synthetic FX rates; use only a demo database |
 | `test:screenshots readme.spec.ts` | Recreate README images and inspect all pages at 1280/375 px, light/dark |
