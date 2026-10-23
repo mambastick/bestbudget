@@ -274,8 +274,10 @@ describe("loans", () => {
     expect(item.virtual).toBe(true)
     expect(calendar.items.filter((p) => p.loanId === f.loan.id)).toHaveLength(1)
     const day = calendar.days.find((p) => p.date === item.date)!
-    const previousDay = calendar.days.find((p) => p.date === addDays(item.date, -1))!
-    expect(previousDay.balance - day.balance).toBe(item.amount)
+    // The preceding day can belong to the previous calendar month.
+    const [previousDay] = (await projection(f.ctx, addDays(item.date, -1), item.date, f.today)).days
+    expect(previousDay).toBeDefined()
+    expect(previousDay!.balance - day.balance).toBe(item.amount)
     const id1 = await materializeLoanPayment(f.ctx, f.loan.id, item.date)
     const id2 = await materializeLoanPayment(f.ctx, f.loan.id, item.date)
     expect(id1).toBe(id2)
@@ -342,7 +344,8 @@ describe("loans", () => {
       mode: "reduce_term",
     })
     const shortened = await getLoan(f.ctx, f.loan.id)
-    const second = addMonths(first, 1)
+    // Use the contractual slot: a clamped September 30 can be followed by October 31.
+    const second = shortened.next!.date
     await confirmDate(second)
     current = await getLoan(f.ctx, f.loan.id)
     await addLoanEvent(f.ctx, f.loan.id, current.loan.version, { type: "rate_change", date: addDays(second, 1), annualRate: "6" })

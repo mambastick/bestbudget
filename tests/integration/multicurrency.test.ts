@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 import { and, eq, inArray } from "drizzle-orm"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { closeDb, getDb } from "@/db"
 import { categoryBudgets, exchangeRates, financialAccounts, transactions } from "@/db/schema"
 import { getBudgets } from "@/server/services/budgets"
@@ -19,8 +19,10 @@ vi.mock("@/lib/env", async (original) => {
   return { ...real, env: () => ({ ...real.env(), FX_PROVIDER: provider.value }) }
 })
 const fetchMock = vi.fn().mockRejectedValue(new Error("Network forbidden in tests"))
-beforeAll(async () => {
+beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-01T09:00:00Z") })
+})
+beforeAll(async () => {
   vi.stubGlobal("fetch", fetchMock)
   await getDb().insert(exchangeRates).values([
     { currency: "USD", date: "2026-10-01", rateToRub: "90", source: "cbr" },
