@@ -44,3 +44,8 @@ Database backups are the administrator's responsibility. Built-in dumps are a co
 **On upgrade, explicitly set `backup.enabled=true` if you use built-in backups.** A generated backup PVC is retained when backups are disabled; set `backup.persistence.existingClaim` to reuse it when re-enabling them.
 
 Configuration, manual backups, verification and restore from a PVC: [docs/backup.md](../../../docs/backup.md).
+
+### ИИ-ассистент
+
+По умолчанию выключен. Настройте провайдера в админке либо задайте `ai.provider`, `ai.baseUrl`, `ai.model`, `ai.enabled` и при необходимости `ai.monthlyTokenLimit`, `ai.temperature`, `ai.selfHosted`, `ai.gigachatScope`, `ai.gigachatAuthUrl`.
+Для ключа используйте `existingSecret` с полем `AI_API_KEY` (или `ai.apiKey` в защищённом values-файле). После ENV-настройки выполните проверку подключения в админке; затем владелец семьи должен дать согласие. Для дополнительного CA см. [docs/ai.md](../../../docs/ai.md). Секреты не передавайте через командную строку.

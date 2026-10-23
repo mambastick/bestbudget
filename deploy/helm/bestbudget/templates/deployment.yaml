@@ -56,7 +56,7 @@ spec:
                   name: {{ $secret }}
                   key: {{ $key }}
             {{- end }}
-            {{- range $key := list "ENCRYPTION_KEY" "OIDC_CLIENT_SECRET" "SMTP_URL" "TELEGRAM_BOT_TOKEN" "TELEGRAM_WEBHOOK_SECRET" "VAPID_PRIVATE_KEY" }}
+            {{- range $key := list "ENCRYPTION_KEY" "OIDC_CLIENT_SECRET" "SMTP_URL" "TELEGRAM_BOT_TOKEN" "TELEGRAM_WEBHOOK_SECRET" "VAPID_PRIVATE_KEY" "AI_API_KEY" }}
             - name: {{ $key }}
               valueFrom:
                 secretKeyRef:
@@ -93,6 +93,26 @@ spec:
               value: {{ required "oidc.roleMapping.adminGroup is required when role mapping is enabled" .adminGroup | quote }}
             {{- end }}
             {{- end }}
+            {{- end }}
+            {{- if .Values.ai.provider }}
+            - name: AI_PROVIDER
+              value: {{ .Values.ai.provider | quote }}
+            - name: AI_BASE_URL
+              value: {{ .Values.ai.baseUrl | quote }}
+            - name: AI_MODEL
+              value: {{ .Values.ai.model | quote }}
+            - name: AI_ENABLED
+              value: {{ .Values.ai.enabled | quote }}
+            - name: AI_MONTHLY_TOKEN_LIMIT
+              value: {{ .Values.ai.monthlyTokenLimit | quote }}
+            - name: AI_TEMPERATURE
+              value: {{ .Values.ai.temperature | quote }}
+            - name: AI_SELF_HOSTED
+              value: {{ .Values.ai.selfHosted | quote }}
+            - name: AI_GIGACHAT_SCOPE
+              value: {{ .Values.ai.gigachatScope | quote }}
+            - name: AI_GIGACHAT_AUTH_URL
+              value: {{ .Values.ai.gigachatAuthUrl | quote }}
             {{- end }}
             {{- with .Values.smtp.from }}
             - name: SMTP_FROM
@@ -141,7 +161,13 @@ spec:
               mountPath: /app/.next/cache
             - name: tmp
               mountPath: /tmp
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
       volumes:
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         - name: cache
           emptyDir: {}
         - name: tmp

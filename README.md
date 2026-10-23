@@ -39,6 +39,7 @@ Synthetic demo data, light theme. No bank credentials or real family finances.
 - Light/dark/system theme.
 - Installable on the home screen (PWA).
 
+- **AI assistant:** opt-in chat with tool-capable providers, private household context and proposals you review and apply. Admin UI or ENV configuration; [AI setup and extension guide](docs/ai.md).
 - **Tracking and planning:** income, expenses, transfers, planned/posted/skipped transactions, search, filters and CSV export. Reports keep actuals separate from forecasts.
 - **Recurring payments:** daily, weekly, monthly and yearly schedules; several salary dates; confirm the actual amount/date, skip one occurrence or edit future payments.
 - **Calendar and cash flow:** daily balance forecast, upcoming obligations and warnings about cash gaps; monthly category budgets without blocking transactions.
@@ -120,6 +121,7 @@ See [`.env.example`](.env.example) for the complete list. Optional services can 
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_MODE` | Empty / polling; admin UI or ENV; [notifications](docs/notifications.md) |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Optional override; key pair otherwise generated and stored; [Web Push](docs/notifications.md#web-push) |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_ALLOW_SIGNUP` | Empty issuer uses UI settings; new SSO accounts require invitations by default; [SSO](docs/sso.md) |
+| `AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`, `AI_ENABLED`, `AI_MONTHLY_TOKEN_LIMIT` | Optional AI override; disabled by default. Admin UI, tool check and household owner consent; [AI guide](docs/ai.md) |
 | `AUTH_FORCE_LOCAL_LOGIN` | `false`; emergency password-login recovery |
 | `SMTP_URL`, `SMTP_FROM` | Optional self-service password reset; otherwise an admin resets passwords |
 

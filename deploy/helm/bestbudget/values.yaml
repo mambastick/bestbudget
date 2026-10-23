@@ -30,7 +30,7 @@ auth:
 
 # Use an existing Secret instead of the generated one. Expected keys:
 # BETTER_AUTH_SECRET, SETUP_TOKEN, DATABASE_URL, and optionally ENCRYPTION_KEY, OIDC_CLIENT_SECRET, SMTP_URL,
-# TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, VAPID_PRIVATE_KEY.
+# TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, VAPID_PRIVATE_KEY, AI_API_KEY.
 # When set, auth.*, oidc.clientSecret, smtp.url and the database URL are taken from it.
 existingSecret: ""
 
@@ -75,8 +75,24 @@ notifications:
     privateKey: ""
     subject: ""
 
+# Optional AI provider override. Empty provider uses encrypted settings in the admin UI.
+# With existingSecret, put the credential in its AI_API_KEY key.
+ai:
+  provider: ""
+  baseUrl: ""
+  apiKey: ""
+  model: ""
+  enabled: false
+  monthlyTokenLimit: 0
+  temperature: ""
+  selfHosted: false
+  gigachatScope: GIGACHAT_API_PERS
+  gigachatAuthUrl: https://ngw.devices.sberbank.ru:9443/api/v2/oauth
+
 # Extra environment variables for the app container.
 extraEnv: []
+extraVolumes: []
+extraVolumeMounts: []
 
 # Bundled single-instance PostgreSQL. Disable to use an external database.
 postgresql:
