@@ -352,9 +352,9 @@ describe("periodic AI budget review", () => {
     expect(send).toHaveBeenCalledOnce()
   })
 
-  it("requires personal e-mail opt-in and a verified address, localizes and deduplicates delivery", async () => {
+  it("requires personal e-mail opt-in and configured SMTP, localizes and deduplicates delivery", async () => {
     const f = await reviewed()
-    vi.spyOn(mail, "smtpEnabled").mockReturnValue(true)
+    const smtp = vi.spyOn(mail, "smtpEnabled").mockReturnValue(false)
     await db.update(users).set({ locale: "ru" }).where(eq(users.id, f.owner.id))
     await db
       .insert(notificationPreferences)
@@ -365,7 +365,7 @@ describe("periodic AI budget review", () => {
     await db.update(notificationPreferences).set({ reviewEmail: true }).where(eq(notificationPreferences.userId, f.owner.id))
     await deliverReviewNotifications()
     expect(send).not.toHaveBeenCalled()
-    await db.update(users).set({ emailVerified: true }).where(eq(users.id, f.owner.id))
+    smtp.mockReturnValue(true)
     await deliverReviewNotifications()
     await deliverReviewNotifications()
     expect(send).toHaveBeenCalledOnce()

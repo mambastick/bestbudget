@@ -222,7 +222,7 @@
     "personalNotifications": "My notification channels and preferences",
     "personalReview": "Notify me about new recommendations",
     "personalEmail": "E-mail me about new recommendations",
-    "emailHint": "E-mail requires configured SMTP and a verified address. It is off by default.",
+    "emailHint": "E-mail requires configured SMTP and uses your profile address. It is off by default.",
     "loading": "Loading controls…",
     "notification": "New budget recommendations: {count}",
     "widgetTitle": "Budget recommendations: {count}",

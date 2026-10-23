@@ -58,7 +58,7 @@ export async function deliverReviewNotifications(now = new Date()) {
         telegram,
         locale,
       )
-      if (settings.email && p.reviewEmail && user.emailVerified && smtpEnabled())
+      if (settings.email && p.reviewEmail && smtpEnabled())
         targets.push({
           channel: "email",
           suffix: "",
