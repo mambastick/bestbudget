@@ -55,7 +55,7 @@ function useMoneyAxis() {
   const { currency } = useCatalog()
   return {
     ...axisProps,
-    width: 56,
+    width: 80,
     allowDecimals: false,
     tickCount: 5,
     domain: [(min: number) => Math.min(0, min), (max: number) => (max <= 0 ? 100_00 : max)] as [(v: number) => number, (v: number) => number],
@@ -184,8 +184,8 @@ export function CategoryDonut({ data, currency = "RUB" }: { data: { name: string
   const total = slices.reduce((s, d) => s + d.total, 0)
   const config: ChartConfig = Object.fromEntries(slices.map((s, i) => [`c${i}`, { label: s.name, color: s.color }]))
   return (
-    <div className="grid items-center gap-4 sm:grid-cols-[minmax(0,180px)_1fr]">
-      <ChartContainer config={config} className="mx-auto aspect-square w-full max-w-[180px]">
+    <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[144px_minmax(0,1fr)] xl:grid-cols-[120px_minmax(0,1fr)]">
+      <ChartContainer config={config} className="mx-auto aspect-square w-full max-w-36 xl:max-w-30">
         <PieChart>
           <ChartTooltip
             content={(p: RechartsTooltipProps) => {
@@ -206,9 +206,9 @@ export function CategoryDonut({ data, currency = "RUB" }: { data: { name: string
         {slices.map((s) => (
           <li key={s.name} className="flex items-center gap-2">
             <span className="size-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: s.color }} />
-            <span className="min-w-0 flex-1 truncate">{s.name}</span>
-            <span className="tabular text-muted-foreground">{Math.round((s.total / total) * 100)}%</span>
-            <span className="tabular w-28 text-right font-medium">{formatMoney(s.total, currency)}</span>
+            <span className="min-w-0 flex-1 truncate xl:overflow-visible xl:whitespace-normal xl:break-words xl:text-clip">{s.name}</span>
+            <span className="shrink-0 tabular text-muted-foreground">{Math.round((s.total / total) * 100)}%</span>
+            <span className="shrink-0 tabular text-right font-medium">{formatMoney(s.total, currency)}</span>
           </li>
         ))}
       </ul>

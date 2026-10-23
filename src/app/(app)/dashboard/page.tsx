@@ -14,7 +14,7 @@ import { MonthSwitcher } from "@/components/app/month-switcher"
 import { UpcomingList } from "@/components/app/operations/upcoming-list"
 import { PageHeader } from "@/components/app/page-header"
 import { QuickAddButton } from "@/components/app/operations/quick-add-button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatDay, formatDayShort, formatMonth, monthKey, parseMonthKey, todayIn } from "@/lib/dates"
 import { cn } from "@/lib/utils"
@@ -123,7 +123,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
       <GoalsWidget ctx={ctx} />
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-5">
         <Card className="xl:col-span-3">
           <CardHeader>
             <CardTitle>Баланс по дням</CardTitle>
@@ -176,14 +176,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </div>
 
       <Card>
-        <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
-          <div>
-            <CardTitle>Прогноз движения денег</CardTitle>
-            <CardDescription>Баланс на 90 дней вперёд с учётом регулярных и плановых операций</CardDescription>
-          </div>
-          <LinkButton variant="outline" size="sm" href="/calendar">
-            Календарь
-          </LinkButton>
+        <CardHeader>
+          <CardTitle>Прогноз движения денег</CardTitle>
+          <CardDescription>Баланс на 90 дней вперёд с учётом регулярных и плановых операций</CardDescription>
+          <CardAction>
+            <LinkButton variant="ghost" size="sm" href="/calendar">
+              Календарь
+            </LinkButton>
+          </CardAction>
         </CardHeader>
         <CardContent>
           <ForecastChart data={d.forecast.map((f) => ({ label: formatDayShort(f.date), balance: f.balance }))} />

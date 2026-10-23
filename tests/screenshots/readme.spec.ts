@@ -7,7 +7,7 @@ import { E2E_ENV, SETUP_TOKEN } from "../../playwright.config"
 const DEMO = { name: "Алексей Морозов", email: "readme@bestbudget.test", password: "readme-demo-password-1" }
 const DIR = "docs/screenshots/readme"
 const ROUTES = [
-  "/dashboard", "/transactions", "/transactions?tab=rules", "/calendar", "/budgets", "/goals", "/loans", "/loans/new", "/analytics", "/accounts",
+  "/dashboard", "/transactions", "/transactions/import", "/transactions?tab=rules", "/calendar", "/budgets", "/goals", "/loans", "/loans/new", "/analytics", "/accounts",
   "/settings", "/settings?tab=categories", "/settings?tab=profile", "/admin", "/admin?tab=households", "/admin?tab=auth", "/admin?tab=rates", "/admin?tab=events", "/admin?tab=notifications",
 ]
 
@@ -70,6 +70,22 @@ test("seed-demo: README captures and all pages at 1280/375 in both themes", asyn
           const money = page.getByTestId("actual-balance").locator("span[aria-label]").first()
           await expect(money).toHaveText(/\d,\d{2}\s₽/)
           await expect(money).not.toHaveText(/\d\.\d{2}\s₽/)
+          for (const name of ["Все цели", "Календарь"]) {
+            const link = page.getByRole("main").last().getByRole("link", { name, exact: true })
+            await expect(link.locator("..")).toHaveAttribute("data-slot", "card-action")
+            expect((await link.boundingBox())!.width).toBeLessThan(120)
+          }
+          if (width >= 1280) {
+            const categoryCard = page.locator('[data-slot="card"]').filter({ has: page.getByText("Расходы по категориям", { exact: true }) })
+            for (const name of ["Проценты по кредитам", "Рестораны и доставка"]) {
+              await expect(categoryCard.getByText(name, { exact: true })).toHaveCSS("text-overflow", "clip")
+            }
+            const balanceCard = page.locator('[data-slot="card"]').filter({ has: page.getByText("Баланс по дням", { exact: true }) })
+            const plot = balanceCard.locator('[data-slot="chart"]')
+            const cardBox = (await balanceCard.boundingBox())!
+            const plotBox = (await plot.boundingBox())!
+            expect(cardBox.y + cardBox.height - plotBox.y - plotBox.height).toBeLessThan(40)
+          }
         }
         if (route === "/goals") {
           const emergency = page.getByTestId("goal-card").filter({ hasText: "Подушка безопасности", visible: true })
@@ -87,9 +103,17 @@ test("seed-demo: README captures and all pages at 1280/375 in both themes", asyn
           }).map((e) => `${e.tagName}.${e.className}: ${e.textContent?.slice(0, 60)}`).slice(0, 15),
           isoDates: document.querySelector("main")?.innerText.match(/\b\d{4}-\d{2}-\d{2}\b/g) ?? [],
           scrollWidth: document.documentElement.scrollWidth,
+          axisLabels: document.querySelectorAll('.recharts-cartesian-axis-tick-labels text').length,
+          clippedAxes: [...document.querySelectorAll('.recharts-cartesian-axis-tick-labels text')].filter((e) => {
+            const box = e.getBoundingClientRect()
+            const svg = e.closest('svg')!.getBoundingClientRect()
+            return box.width > 0 && (box.left < svg.left - 1 || box.right > svg.right + 1 || box.top < svg.top - 1 || box.bottom > svg.bottom + 1)
+          }).map((e) => e.textContent),
         }))
         audit.push({ route, width, theme, overflow: finding.overflow, isoDates: finding.isoDates })
         expect.soft(finding.scrollWidth, `${theme} ${width} ${route}`).toBeLessThanOrEqual(width)
+        if (["/dashboard", "/analytics", mortgage, vacation].includes(route)) expect(finding.axisLabels).toBeGreaterThan(0)
+        expect.soft(finding.clippedAxes, `${theme} ${width} ${route}: clipped axis labels`).toEqual([])
         expect.soft(finding.isoDates, `${theme} ${width} ${route}: ISO dates`).toEqual([])
         const slug = route.replaceAll(/[/?=]/g, "-")
         await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}${slug}.png`), fullPage: true, animations: "disabled" })

@@ -103,7 +103,7 @@ export function LoanDetail({ data: d, today, canManage }: { data: Detail; today:
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="date" tickFormatter={formatMonth} minTickGap={60} fontSize={11} />
-                <YAxis width={65} tickFormatter={(v: number) => formatMoneyCompact(v, d.currency)} fontSize={11} />
+                <YAxis width={80} tickFormatter={(v: number) => formatMoneyCompact(v, d.currency)} fontSize={11} />
                 <Tooltip
                   contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8 }}
                   formatter={(v) => formatMoney(Number(v), d.currency)}
