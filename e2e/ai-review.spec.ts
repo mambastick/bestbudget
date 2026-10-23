@@ -4,9 +4,7 @@ import postgres from "postgres"
 import { E2E_ENV, SETUP_TOKEN } from "../playwright.config"
 import { expect, test } from "./fixtures"
 
-test("budget reviews: opt-in schedule, recommendations, apply/dismiss, repeat suppression and discussion", async ({
-  browser,
-}) => {
+test("budget reviews: opt-in schedule, recommendations, apply/dismiss, repeat suppression and discussion", async ({ browser }) => {
   test.setTimeout(180_000)
   const context = await browser.newContext({
     serviceWorkers: "block",
@@ -61,13 +59,12 @@ test("budget reviews: opt-in schedule, recommendations, apply/dismiss, repeat su
     await page.goto("/settings")
     await expect(page.getByText("Сначала подтвердите согласие", { exact: false }).filter({ visible: true })).toBeVisible()
     await page.getByRole("checkbox", { name: "Включить ассистента для семьи", exact: true }).check()
-    await page
-      .getByRole("checkbox", { name: "Я согласен на передачу перечисленных данных этому провайдеру.", exact: true })
-      .check()
+    await page.getByRole("checkbox", { name: "Я согласен на передачу перечисленных данных этому провайдеру.", exact: true }).check()
     await page.getByRole("button", { name: "Сохранить согласие", exact: true }).click()
-    await expect(page.getByLabel("Частота разбора", { exact: true })).toHaveValue("off")
-    await page.getByLabel("Частота разбора", { exact: true }).selectOption("weekly")
-    await page.getByLabel("День недели", { exact: true }).selectOption("5")
+    await expect(page.getByRole("radio", { name: "Выкл", exact: true })).toHaveAttribute("aria-checked", "true")
+    await page.getByRole("radio", { name: "Раз в неделю", exact: true }).click()
+    await page.getByRole("combobox", { name: "День недели", exact: true }).click()
+    await page.getByRole("option", { name: "Пятница", exact: true }).click()
     await page.getByLabel("Время разбора", { exact: true }).fill("10:00")
     await page.getByRole("button", { name: "Сохранить расписание", exact: true }).click()
     await expect(page.getByText("Расписание сохранено", { exact: true })).toBeVisible()
@@ -76,7 +73,9 @@ test("budget reviews: opt-in schedule, recommendations, apply/dismiss, repeat su
     await expect(page).toHaveURL(/assistant\/recommendations/)
     await page.getByRole("button", { name: "Разобрать сейчас", exact: true }).click()
     const cards = page.getByTestId("ai-recommendation")
-    await expect(cards.filter({ has: page.locator('[data-testid="ai-proposal"]') })).toHaveCount(2)
+    await expect(cards).toHaveCount(2)
+    await expect(cards.locator('[data-slot="card"]')).toHaveCount(0)
+    await expect(cards.getByRole("checkbox")).toHaveCount(2)
     await expect(page.getByTestId("ai-review-badge")).toHaveText("2")
     const [before] = await db`select count(*)::int n from category_budgets where household_id = ${owner.household_id}`
     expect(before!.n).toBe(0)
@@ -109,6 +108,19 @@ test("budget reviews: opt-in schedule, recommendations, apply/dismiss, repeat su
                 fullPage: true,
                 animations: "disabled",
               })
+            if (process.env.UPDATE_SCREENSHOTS === "1") {
+              await page.goto("/settings?tab=household#ai-review-settings")
+              await expect(page.getByRole("radio", { name: locale === "ru" ? "Раз в неделю" : "Weekly", exact: true })).toHaveAttribute(
+                "aria-checked",
+                "true",
+              )
+              await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+              await page.screenshot({
+                path: `${screenshotDir}/settings-${locale}-${width}-${theme}.png`,
+                fullPage: true,
+                animations: "disabled",
+              })
+            }
           }
         }
       }
@@ -119,25 +131,47 @@ test("budget reviews: opt-in schedule, recommendations, apply/dismiss, repeat su
     await expect(page.getByTestId("ai-review-widget")).toContainText("Рекомендации по бюджету: 2")
     await page.getByTestId("ai-review-widget").getByRole("link", { name: "Открыть рекомендации", exact: true }).click()
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await db`insert into transactions(household_id, type, status, amount, title, date, account_id, category_id, created_by)
+      select ${owner.household_id}, 'expense', 'posted', 25000, 'Coffee after review', current_date, a.id, c.id, ${owner.id}
+      from financial_accounts a cross join categories c
+      where a.household_id = ${owner.household_id} and c.household_id = ${owner.household_id} and c.kind = 'expense' limit 1`
+    await page.reload()
+    await expect(page.locator('[data-testid="ai-recommendation"][data-status="pending"]')).toHaveCount(2)
+    await expect(page.getByTestId("ai-stale-item")).toHaveCount(0)
+    await expect(page.getByTestId("ai-review-changed")).toBeVisible()
+    const changedCategory = await cards.nth(1).getByRole("checkbox").getAttribute("aria-label")
+    await db`insert into category_budgets(household_id, category_id, amount, updated_by)
+      select ${owner.household_id}, id, 900, ${owner.id} from categories
+      where household_id = ${owner.household_id} and kind = 'expense' and name = ${changedCategory}`
+    await page.reload()
+    await expect(cards.first().getByRole("checkbox")).toBeEnabled()
+    await expect(cards.nth(1).getByRole("checkbox")).toBeDisabled()
+    await expect(page.getByTestId("ai-stale-item")).toContainText(changedCategory!)
+    await expect(cards.nth(1).getByRole("button", { name: "Применить выбранное", exact: true })).toBeDisabled()
     const firstId = await cards.first().getAttribute("data-status")
     expect(firstId).toBe("pending")
     await cards.first().getByRole("button", { name: "Применить выбранное", exact: true }).click()
-    await expect(page.locator('[data-testid="ai-recommendation"][data-status="pending"]')).toHaveCount(0)
+    await expect(page.locator('[data-testid="ai-recommendation"][data-status="pending"]')).toHaveCount(1)
+    await expect(page.getByTestId("ai-review-changed")).toBeVisible()
     await page.locator("summary").click()
     await expect(page.locator('[data-testid="ai-recommendation"][data-status="applied"]')).toHaveCount(1)
-    const expired = page.locator('[data-testid="ai-recommendation"][data-status="expired"]')
-    await expect(expired).toHaveCount(1)
-    await expired.getByRole("button", { name: "Отклонить", exact: true }).click()
+    const remaining = page.locator('[data-testid="ai-recommendation"][data-status="pending"]')
+    await expect(remaining).toHaveCount(1)
+    await remaining.getByRole("button", { name: "Отклонить", exact: true }).click()
     await expect(page.locator('[data-testid="ai-recommendation"][data-status="dismissed"]')).toHaveCount(1)
     const [after] = await db`select count(*)::int n from category_budgets where household_id = ${owner.household_id}`
-    expect(after!.n).toBe(1)
+    expect(after!.n).toBe(2)
+    const [applied] = await db`select count(*)::int n from ai_proposals where household_id = ${owner.household_id} and status = 'applied'`
+    expect(applied!.n).toBe(1)
     const [decision] = await db`select count(*)::int n from ai_review_decisions where household_id = ${owner.household_id}`
     expect(decision!.n).toBe(1)
     await page.getByRole("button", { name: "Разобрать сейчас", exact: true }).click()
-    await expect.poll(async () => {
-      const [row] = await db`select count(*)::int n from ai_reviews where household_id = ${owner.household_id} and status = 'completed'`
-      return row!.n
-    }).toBe(2)
+    await expect
+      .poll(async () => {
+        const [row] = await db`select count(*)::int n from ai_reviews where household_id = ${owner.household_id} and status = 'completed'`
+        return row!.n
+      })
+      .toBe(2)
     await expect(page.getByText("Нет новых рекомендаций", { exact: true })).toBeVisible()
     await expect(page.locator('[data-testid="ai-recommendation"][data-status="pending"]')).toHaveCount(0)
     await expect(page.getByTestId("ai-review-badge")).toHaveCount(0)
@@ -151,8 +185,7 @@ test("budget reviews: opt-in schedule, recommendations, apply/dismiss, repeat su
       .click()
     await expect(page).toHaveURL(/assistant\?id=/)
     await expect(page.getByTestId("ai-messages")).toContainText("Для планирования категории")
-    const [settings] =
-      await db`select frequency, weekday, time from ai_review_settings where household_id = ${owner.household_id}`
+    const [settings] = await db`select frequency, weekday, time from ai_review_settings where household_id = ${owner.household_id}`
     expect(settings).toMatchObject({ frequency: "weekly", weekday: 5, time: "10:00" })
   } finally {
     await db.end()

@@ -200,7 +200,7 @@
     "history": "History ({count})",
     "discuss": "Discuss",
     "dismiss": "Dismiss",
-    "expiredHint": "Seven days have passed or the source data changed. Run another review before applying changes.",
+    "expiredHint": "This recommendation expired or was replaced by a new review.",
     "settingsTitle": "Periodic budget review",
     "settingsHint": "Time zone: {timezone}. After downtime, one review catches up for the current week or month; days 29–31 are clamped to the last day of shorter months.",
     "frequency": "Review frequency",
@@ -256,6 +256,12 @@
       "6": "Saturday",
       "7": "Sunday"
     },
-    "openLoan": "Open loan and prepayment simulator"
+    "openLoan": "Open loan and prepayment simulator",
+    "lifetimeHint": "Proposals remain available for 7 days or until the next review. Selected items are checked again before applying.",
+    "staleBudget": "Outdated: the “{label}” limit or its category has changed.",
+    "staleItem": "Outdated: “{label}” or its referenced entities have changed.",
+    "dataChanged": "Data has changed since the review",
+    "runAgain": "Review again",
+    "settingsLink": "Review settings → Household"
   }
 }
