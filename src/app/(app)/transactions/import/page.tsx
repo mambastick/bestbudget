@@ -42,6 +42,7 @@ export default async function ImportPage({ searchParams }: { searchParams: Promi
         <ImportWizard accounts={accounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency }))} profiles={profiles} />
       )}
       <ImportHistory
+        timeZone={ctx.timezone}
         batches={history.map((b) => ({
           id: b.id,
           source: b.source,

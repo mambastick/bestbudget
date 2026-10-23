@@ -233,6 +233,7 @@ function UserMenu({ user }: { user: ShellProps["user"] }) {
 }
 
 function Header({ title }: { title: string }) {
+  const pathname = usePathname()
   const ops = useOperations()
 
   // "N" (or "Т" on the Russian layout) opens a new operation from anywhere, except while typing.
@@ -264,14 +265,14 @@ function Header({ title }: { title: string }) {
         </AnimateIcon>
       </header>
       {/* Mobile: thumb-reachable quick add. */}
-      <Button
+      {!pathname.startsWith("/transactions/import") ? <Button
         size="icon-lg"
         onClick={() => ops.openCreate()}
         aria-label="Добавить операцию"
         className="fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-30 size-14 rounded-full shadow-lg sm:hidden [&_svg]:size-6!"
       >
         <Plus />
-      </Button>
+      </Button> : null}
     </>
   )
 }

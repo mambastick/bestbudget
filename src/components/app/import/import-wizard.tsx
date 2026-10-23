@@ -13,6 +13,7 @@ import { PROFILES, profileMapping } from "@/domain/import/profiles"
 import { mappingSchema, type ColumnField, type ColumnMapping, type FileOptions, type PreviewInput } from "@/domain/import/types"
 import type { describeStatement } from "@/server/import/file"
 import type { ActionResult } from "@/server/errors"
+import { ImportStepper } from "./import-stepper"
 import { ImportSelect } from "./import-select"
 
 type Inspection = ReturnType<typeof describeStatement>
@@ -135,8 +136,9 @@ export function ImportWizard({
   }
   return (
     <>
+      <ImportStepper step={inspection ? 2 : 1} />
       <Section
-        title="1. Файл и чтение"
+        title="Файл и чтение"
         description="Оригинал остаётся только в памяти на время чтения. В истории сохраняются нормализованные строки."
       >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -223,7 +225,7 @@ export function ImportWizard({
       </Section>
       {inspection ? (
         <Section
-          title="2. Настройка"
+          title="Настройка"
           description={`${inspection.rowCount} ${plural(inspection.rowCount, "строка", "строки", "строк")} · листы: ${inspection.sheets.join(", ")}. Сверьте заголовки и первые строки.`}
         >
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

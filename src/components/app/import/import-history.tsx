@@ -1,3 +1,4 @@
+import { formatDateTime } from "@/lib/dates"
 import { History } from "lucide-react"
 import Link from "next/link"
 import { EmptyState } from "@/components/app/empty-state"
@@ -6,7 +7,9 @@ import { PROFILES } from "@/domain/import/profiles"
 
 export function ImportHistory({
   batches,
+  timeZone,
 }: {
+  timeZone: string
   batches: {
     id: string
     source: string
@@ -28,7 +31,7 @@ export function ImportHistory({
                 <span className="min-w-0 break-words">
                   {PROFILES.find((p) => p.id === b.source)?.name ?? "Пользовательский профиль"}
                   <span className="block text-xs text-muted-foreground">
-                    {b.createdAt.slice(0, 10)} · строк: {b.counters.rows}
+                    {formatDateTime(b.createdAt, timeZone)} · строк: {b.counters.rows}
                   </span>
                 </span>
                 <span>
