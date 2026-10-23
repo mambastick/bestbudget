@@ -60,7 +60,7 @@ chmod 600 .env
 
 | Переменная | Значение |
 |---|---|
-| `APP_URL` | Адрес в браузере, например `http://192.168.1.10:3000` или `https://budget.example.com` |
+| `APP_URL` | Внешний адрес, например `https://budget.example.com`. **Для PWA нужен HTTPS** (кроме localhost); HTTP по LAN-адресу недостаточно. |
 | `BETTER_AUTH_SECRET` | Результат `openssl rand -base64 32` |
 | `POSTGRES_PASSWORD` | Результат `openssl rand -hex 16` |
 | `SETUP_TOKEN` | Отдельный результат `openssl rand -hex 16` |
@@ -97,7 +97,7 @@ Helm выведет инструкцию получения токена нас�
 | Переменная окружения | По умолчанию / назначение |
 |---|---|
 | `BESTBUDGET_VERSION` | `1.0.0-beta.2`; тег образа Compose |
-| `APP_URL` | Обязательный внешний URL; cookie, проверка Origin, приглашения и callback SSO |
+| `APP_URL` | Обязательный внешний URL; cookie, проверка Origin, приглашения и callback SSO. **Для PWA нужен HTTPS** (кроме localhost); HTTP по LAN-адресу недостаточно. |
 | `BETTER_AUTH_SECRET`, `SETUP_TOKEN` | Обязательный секрет сессий и токен первоначальной настройки |
 | `ENCRYPTION_KEY` | Необязательный; иначе производится от `BETTER_AUTH_SECRET`. Сохраняйте для восстановления зашифрованных настроек |
 | `POSTGRES_*`, `DATABASE_URL` | Доступ к БД Compose; `DATABASE_URL` нужен при запуске вне Compose |
@@ -112,6 +112,10 @@ Helm выведет инструкцию получения токена нас�
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_ALLOW_SIGNUP` | Пустой issuer использует настройки UI; новые SSO-аккаунты по умолчанию требуют приглашения; [SSO](docs/sso.md) |
 | `AUTH_FORCE_LOCAL_LOGIN` | `false`; аварийное восстановление входа по паролю |
 | `SMTP_URL`, `SMTP_FROM` | Необязательный самостоятельный сброс пароля; иначе пароль сбрасывает администратор |
+
+## Приложение на главном экране
+
+Установите BestBudget через меню пользователя или профиль; на iPhone — Safari: **Поделиться → На экран «Домой»**. Приложение открывается в отдельном окне; офлайн доступна заглушка, финансовые данные не кешируются. [Установка, вход и ограничения iOS](docs/pwa.md).
 
 ## Импорт выписок
 
