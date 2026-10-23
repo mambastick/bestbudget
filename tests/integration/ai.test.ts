@@ -29,6 +29,7 @@ import { proposalCurrency } from "@/domain/ai/description"
 import { createAccount, updateAccount, updateCategory } from "@/server/services/catalog"
 import { todayIn } from "@/lib/dates"
 import { createTransaction } from "@/server/services/transactions"
+import { createGoal } from "@/server/services/goals"
 import { AI_TURN_RESERVATION } from "@/domain/ai/types"
 
 const db = getDb()
@@ -418,6 +419,31 @@ describe("AI foundation", () => {
     })
     const recategorize = await pending(f, [{ type: "transaction.recategorize", input: { id: transaction.id, categoryId: f.cat("ЖКХ") } }])
     expect(recategorize.items[0]).toMatchObject({ currency: "USD", beforeCurrency: "USD" })
+  })
+  it("keeps a goal target and its account allocation in their respective currencies", async () => {
+    const f = await enabled()
+    const savings = await createAccount(f.ctx, { name: "Savings", kind: "savings", currency: "RUB", openingBalance: 0 })
+    const input = {
+      name: "Travel",
+      kind: "account" as const,
+      accountId: savings.id,
+      currency: "USD" as const,
+      targetAmount: 10000,
+      allocatedAmount: 500000,
+    }
+    const creation = await pending(f, [{ type: "goal.create", input }])
+    expect(proposalCurrency(creation.items[0]!, "targetAmount")).toBe("USD")
+    expect(proposalCurrency(creation.items[0]!, "allocatedAmount")).toBe("RUB")
+    const goal = await createGoal(f.ctx, input)
+    const update = await pending(f, [
+      { type: "goal.update", input: { ...input, id: goal.id, version: goal.version, allocatedAmount: 600000 } },
+    ])
+    const item = update.items[0]!
+    expect(proposalCurrency(item, "targetAmount", true)).toBe("USD")
+    expect(proposalCurrency(item, "targetAmount")).toBe("USD")
+    expect(proposalCurrency(item, "allocatedAmount", true)).toBe("RUB")
+    expect(proposalCurrency(item, "allocatedAmount")).toBe("RUB")
+    await applyProposal(f.ctx, update.id, [item.id])
   })
   it("rejects changes to referenced account currencies and category identities", async () => {
     const f = await enabled()

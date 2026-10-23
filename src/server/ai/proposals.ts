@@ -69,6 +69,8 @@ export async function createProposal(
     const currency =
       typeof after.currency === "string" ? after.currency : (accountCurrency(after.accountId ?? before?.accountId) ?? ctx.currency)
     const beforeCurrency = typeof before?.currency === "string" ? before.currency : (accountCurrency(before?.accountId) ?? ctx.currency)
+    const allocationCurrency = accountCurrency(after.accountId ?? before?.accountId)
+    const beforeAllocationCurrency = accountCurrency(before?.accountId)
     items.push({
       id: randomUUID(),
       type: item.type,
@@ -83,6 +85,8 @@ export async function createProposal(
       beforeCurrency,
       toCurrency: accountCurrency(after.toAccountId ?? before?.toAccountId),
       beforeToCurrency: accountCurrency(before?.toAccountId),
+      fieldCurrencies: allocationCurrency ? { allocatedAmount: allocationCurrency } : undefined,
+      beforeFieldCurrencies: beforeAllocationCurrency ? { allocatedAmount: beforeAllocationCurrency } : undefined,
     })
   }
   const [proposal] = await getDb()

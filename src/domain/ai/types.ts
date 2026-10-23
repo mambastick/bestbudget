@@ -21,6 +21,8 @@ export interface ProposalItem {
   beforeCurrency?: string
   toCurrency?: string
   beforeToCurrency?: string
+  fieldCurrencies?: Record<string, string>
+  beforeFieldCurrencies?: Record<string, string>
   householdCurrency: string
   householdTimezone: string
   result?: { href: string; entityId?: string }
