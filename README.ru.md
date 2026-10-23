@@ -8,7 +8,7 @@ Self-hosted приложение для семейных финансов: пл�
 [![Release](https://img.shields.io/github/v/release/mambastick/bestbudget?include_prereleases)](https://github.com/mambastick/bestbudget/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**1.0.0-beta.3 — бета-версия.** Интерфейс на русском и английском следует языку системы; каждый пользователь может выбрать язык и тему вручную. Подробная документация пока на русском.
+**1.0.0-beta.4 — бета-версия.** Интерфейс на русском и английском следует языку системы; каждый пользователь может выбрать язык и тему вручную. Подробная документация пока на русском.
 
 ## Скриншоты
 
@@ -56,8 +56,8 @@ Self-hosted приложение для семейных финансов: пл�
 
 ```bash
 mkdir bestbudget && cd bestbudget
-curl -fL https://raw.githubusercontent.com/mambastick/bestbudget/v1.0.0-beta.3/compose.yaml -o compose.yaml
-curl -fL https://raw.githubusercontent.com/mambastick/bestbudget/v1.0.0-beta.3/.env.example -o .env
+curl -fL https://raw.githubusercontent.com/mambastick/bestbudget/v1.0.0-beta.4/compose.yaml -o compose.yaml
+curl -fL https://raw.githubusercontent.com/mambastick/bestbudget/v1.0.0-beta.4/.env.example -o .env
 mkdir -p backups
 chmod 600 .env
 ```
@@ -79,7 +79,7 @@ docker compose up -d
 
 Откройте `APP_URL/setup`, введите `SETUP_TOKEN` и создайте первого администратора. Создайте семейное пространство, затем пригласите семью через **Настройки → Семья**. После появления администратора первичная настройка закрывается; `SETUP_TOKEN` можно удалить.
 
-Compose загружает `ghcr.io/mambastick/bestbudget:1.0.0-beta.3` (amd64/arm64), автоматически применяет миграции и хранит PostgreSQL в томе `pgdata`. Проверка состояния: `/api/health`.
+Compose загружает `ghcr.io/mambastick/bestbudget:1.0.0-beta.4` (amd64/arm64), автоматически применяет миграции и хранит PostgreSQL в томе `pgdata`. Проверка состояния: `/api/health`.
 
 Для доступа через интернет используйте HTTPS reverse proxy. Укажите внешний адрес в `APP_URL`; передавайте `Host`, `X-Forwarded-Host`, `X-Forwarded-Proto`. Включайте `TRUST_PROXY=true` только за доверенным прокси; при прокси на том же сервере задайте `APP_BIND=127.0.0.1`. [Прокси и SSO](docs/sso.md).
 
@@ -88,7 +88,7 @@ Compose загружает `ghcr.io/mambastick/bestbudget:1.0.0-beta.3` (amd64/a
 Нужны ingress-контроллер, настройка TLS и постоянное хранилище. Бэкапы по расписанию требуют Kubernetes 1.27+.
 
 ```bash
-helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.0-beta.3 \
+helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.0-beta.4 \
   --namespace bestbudget --create-namespace \
   --set appUrl=https://budget.example.com \
   --set ingress.enabled=true --set ingress.className=nginx --set ingress.tls.enabled=true
@@ -106,7 +106,7 @@ Helm выведет инструкцию получения токена нас�
 
 | Переменная окружения | По умолчанию / назначение |
 |---|---|
-| `BESTBUDGET_VERSION` | `1.0.0-beta.3`; тег образа Compose |
+| `BESTBUDGET_VERSION` | `1.0.0-beta.4`; тег образа Compose |
 | `APP_URL` | Обязательный внешний URL; cookie, проверка Origin, приглашения и callback SSO. **Для PWA нужен HTTPS** (кроме localhost); HTTP по LAN-адресу недостаточно. |
 | `BETTER_AUTH_SECRET`, `SETUP_TOKEN` | Обязательный секрет сессий и токен первоначальной настройки |
 | `ENCRYPTION_KEY` | Необязательный; иначе производится от `BETTER_AUTH_SECRET`. Сохраняйте для восстановления зашифрованных настроек |
@@ -142,7 +142,7 @@ Helm выведет инструкцию получения токена нас�
 
 ```bash
 docker compose run --rm backup now
-# Set BESTBUDGET_VERSION=1.0.0-beta.3 in .env and update compose.yaml from the release tag.
+# Set BESTBUDGET_VERSION=1.0.0-beta.4 in .env and update compose.yaml from the release tag.
 docker compose pull
 docker compose up -d
 ```

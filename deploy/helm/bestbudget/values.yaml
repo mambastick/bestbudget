@@ -3,7 +3,7 @@
 image:
   repository: ghcr.io/mambastick/bestbudget
   # Keep in sync with Chart.yaml appVersion.
-  tag: "1.0.0-beta.3"
+  tag: "1.0.0-beta.4"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []

@@ -8,7 +8,7 @@ Self-hosted family finance: planned vs actual spending, recurring payments and c
 [![Release](https://img.shields.io/github/v/release/mambastick/bestbudget?include_prereleases)](https://github.com/mambastick/bestbudget/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**1.0.0-beta.3 (beta).** The interface supports English and Russian, follows the system language and lets each user choose a language and theme. Detailed docs are currently in Russian.
+**1.0.0-beta.4 (beta).** The interface supports English and Russian, follows the system language and lets each user choose a language and theme. Detailed docs are currently in Russian.
 
 ## Screenshots
 
@@ -56,8 +56,8 @@ Requires Docker Engine with Compose v2 and a Linux server/NAS. No source checkou
 
 ```bash
 mkdir bestbudget && cd bestbudget
-curl -fL https://raw.githubusercontent.com/mambastick/bestbudget/v1.0.0-beta.3/compose.yaml -o compose.yaml
-curl -fL https://raw.githubusercontent.com/mambastick/bestbudget/v1.0.0-beta.3/.env.example -o .env
+curl -fL https://raw.githubusercontent.com/mambastick/bestbudget/v1.0.0-beta.4/compose.yaml -o compose.yaml
+curl -fL https://raw.githubusercontent.com/mambastick/bestbudget/v1.0.0-beta.4/.env.example -o .env
 mkdir -p backups
 chmod 600 .env
 ```
@@ -79,7 +79,7 @@ docker compose up -d
 
 Open `APP_URL/setup`, enter `SETUP_TOKEN` and create the first administrator. Create a household, then invite your family from **Settings → Family**. Setup closes once an administrator exists; you may remove `SETUP_TOKEN` afterwards.
 
-Compose pulls `ghcr.io/mambastick/bestbudget:1.0.0-beta.3` (amd64/arm64), runs migrations automatically and stores PostgreSQL data in the `pgdata` volume. Health endpoint: `/api/health`.
+Compose pulls `ghcr.io/mambastick/bestbudget:1.0.0-beta.4` (amd64/arm64), runs migrations automatically and stores PostgreSQL data in the `pgdata` volume. Health endpoint: `/api/health`.
 
 For internet access, use an HTTPS reverse proxy. Set `APP_URL` to the external URL; forward `Host`, `X-Forwarded-Host`, `X-Forwarded-Proto`. Enable `TRUST_PROXY=true` only behind a trusted proxy; bind to `APP_BIND=127.0.0.1` when the proxy runs on the same host. [Proxy and SSO setup](docs/sso.md).
 
@@ -88,7 +88,7 @@ For internet access, use an HTTPS reverse proxy. Set `APP_URL` to the external U
 An ingress controller, TLS configuration and persistent storage are prerequisites. Scheduled backups require Kubernetes 1.27+.
 
 ```bash
-helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.0-beta.3 \
+helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.0-beta.4 \
   --namespace bestbudget --create-namespace \
   --set appUrl=https://budget.example.com \
   --set ingress.enabled=true --set ingress.className=nginx --set ingress.tls.enabled=true
@@ -106,7 +106,7 @@ See [`.env.example`](.env.example) for the complete list. Optional services can 
 
 | Environment variable | Default / purpose |
 |---|---|
-| `BESTBUDGET_VERSION` | `1.0.0-beta.3`; Compose image tag |
+| `BESTBUDGET_VERSION` | `1.0.0-beta.4`; Compose image tag |
 | `APP_URL` | Required public URL; cookies, origin checks, invitations and SSO callback. **HTTPS is required for PWA** (except localhost) |
 | `BETTER_AUTH_SECRET`, `SETUP_TOKEN` | Required session secret and first-run setup token |
 | `ENCRYPTION_KEY` | Optional; otherwise derived from `BETTER_AUTH_SECRET`. Preserve it when restoring encrypted settings |
@@ -142,7 +142,7 @@ Read the [changelog](CHANGELOG.md) and make a backup using the installed version
 
 ```bash
 docker compose run --rm backup now
-# Set BESTBUDGET_VERSION=1.0.0-beta.3 in .env and update compose.yaml from the release tag.
+# Set BESTBUDGET_VERSION=1.0.0-beta.4 in .env and update compose.yaml from the release tag.
 docker compose pull
 docker compose up -d
 ```
