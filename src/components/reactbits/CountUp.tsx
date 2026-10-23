@@ -16,6 +16,7 @@ interface CountUpProps {
   style?: CSSProperties;
   startWhen?: boolean;
   separator?: string;
+  decimalSeparator?: string;
   prefix?: string;
   suffix?: string;
   mode?: 'count' | 'roll';
@@ -133,8 +134,9 @@ const buildRoll = (
     compact,
     decimals,
     places,
-    separator
-  }: { compact: boolean; decimals: number | undefined; places: number; separator: string }
+    separator,
+    decimalSeparator
+  }: { compact: boolean; decimals: number | undefined; places: number; separator: string; decimalSeparator: string }
 ): Roll => {
   const { size, label, digits } = scaleFor(b, compact, decimals, places);
   const pa = splitNumber(a, digits, size);
@@ -149,7 +151,7 @@ const buildRoll = (
     return index >= 0 ? Number(parts.int[index]) : null;
   };
   for (let place = length - 1; place >= -digits; place--) {
-    if (place === -1) slots.push({ char: '.' });
+    if (place === -1) slots.push({ char: decimalSeparator });
     const start = digitAt(pa, place);
     const end = digitAt(pb, place);
     const column: Column = {
@@ -188,6 +190,7 @@ export default function CountUp({
   style,
   startWhen = true,
   separator = '',
+  decimalSeparator = '.',
   prefix = '',
   suffix = '',
   mode = 'count',
@@ -219,18 +222,18 @@ export default function CountUp({
     (latest: number) => {
       const { size, label, digits } = scaleFor(latest, compact, decimals, places);
       const parts = splitNumber(latest, digits, size);
-      const body = `${parts.negative ? '-' : ''}${group(parts.int, separator)}${parts.frac ? `.${parts.frac}` : ''}`;
+      const body = `${parts.negative ? '-' : ''}${group(parts.int, separator)}${parts.frac ? `${decimalSeparator}${parts.frac}` : ''}`;
       return `${prefix}${body}${label}${suffix}`;
     },
-    [compact, decimals, places, separator, prefix, suffix]
+    [compact, decimals, places, separator, decimalSeparator, prefix, suffix]
   );
 
   const model = useMemo(() => {
     if (mode !== 'roll') return null;
     const a = play ? play.from : startValue;
     const b = play ? play.to : endValue;
-    return buildRoll(a, b, !!play?.spin, { compact, decimals, places, separator });
-  }, [mode, play, startValue, endValue, compact, decimals, places, separator]);
+    return buildRoll(a, b, !!play?.spin, { compact, decimals, places, separator, decimalSeparator });
+  }, [mode, play, startValue, endValue, compact, decimals, places, separator, decimalSeparator]);
 
   const [initialText] = useState(() => formatValue(startValue));
   const latestRef = useRef<Live | null>(null);

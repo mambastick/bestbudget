@@ -24,7 +24,7 @@ import { ConfirmDialog } from "@/components/app/confirm-dialog"
 import { LinkButton } from "@/components/app/link-button"
 import { Section } from "@/components/app/settings/section"
 import type { importBatches, importRows } from "@/db/schema"
-import { canImportRow, type RowDecision } from "@/domain/import/types"
+import { canImportRow, PENDING_ROW_MESSAGE, REJECTED_ROW_MESSAGE, type RowDecision } from "@/domain/import/types"
 import type { ActionResult } from "@/server/errors"
 import { formatMoney } from "@/lib/money"
 import { formatDateFull, formatDayShort, isIsoDate } from "@/lib/dates"
@@ -37,16 +37,20 @@ import { CategoryRuleEditor } from "./category-rule-editor"
 type Row = typeof importRows.$inferSelect
 type Batch = typeof importBatches.$inferSelect
 type Category = { id: string; name: string; kind: string }
-type Filter = "all" | "new" | "duplicate" | "transfer" | "planned" | "error"
+type Filter = "all" | "new" | "duplicate" | "transfer" | "planned" | "pending" | "rejected" | "error"
 const filters: { value: Filter; label: string }[] = [
   { value: "all", label: "Все" },
   { value: "new", label: "Новые" },
   { value: "duplicate", label: "Дубли" },
   { value: "transfer", label: "Переводы" },
   { value: "planned", label: "Плановые" },
+  { value: "pending", label: "Ожидают" },
+  { value: "rejected", label: "Отклонены" },
   { value: "error", label: "Ошибки" },
 ]
 function rowKind(row: Row): Filter {
+  const n = row.normalized
+  if (!n.errors.length && !n.exportStatus && (n.status === "pending" || n.status === "rejected")) return n.status
   if (!canImportRow(row.normalized)) return "error"
   if (row.proposal.candidates.some((c) => c.kind === "duplicate" || c.kind === "manual")) return "duplicate"
   if (row.proposal.candidates.some((c) => c.kind === "planned")) return "planned"
@@ -261,6 +265,8 @@ export function ImportPreview({
     const kind = rowKind(row),
       choice = choiceFor(row)
     const candidate = row.proposal.candidates[choice.candidateIndex ?? -1] ?? row.proposal.candidates.find((c) => c.kind === kind)
+    if (kind === "pending") return "Ожидает"
+    if (kind === "rejected") return "Отклонена"
     if (kind === "error") return row.normalized.errors.some((e) => e.includes("кредит")) ? "Кредит · исключён" : "Ошибка"
     if (choice.decision === "link") return "Уже есть · связать"
     if (choice.decision === "skip") return kind === "duplicate" ? "Дубль · пропуск" : "Пропущена"
@@ -300,52 +306,67 @@ export function ImportPreview({
     const id = choiceFor(row).categoryId
     if (id) setSimilar({ row, categoryId: id })
   }
-  const rowMenu = (row: Row) => (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-auto max-w-full justify-start px-1 py-1 text-left"
-            aria-label={`Решение: ${row.normalized.descriptionRaw || row.rowLocator}`}
-          />
-        }
-      >
-        <Badge
-          variant={rowKind(row) === "error" ? "destructive" : "secondary"}
-          className={cn(
-            "h-auto max-w-full whitespace-normal text-left",
-            rowKind(row) === "duplicate" && "bg-amber-500/10 text-amber-800 dark:text-amber-300",
-          )}
+  const rowMenu = (row: Row) => {
+    const kind = rowKind(row)
+    if (kind === "pending" || kind === "rejected") return (
+      <Tooltip>
+        <TooltipTrigger render={<Button variant="ghost" size="sm" className="h-auto px-1 py-1" aria-label={`Решение: ${row.normalized.descriptionRaw || row.rowLocator}`} />}>
+          <Badge variant="secondary" className="text-muted-foreground">{status(row)}</Badge>
+        </TooltipTrigger>
+        <TooltipContent>{kind === "pending" ? PENDING_ROW_MESSAGE : REJECTED_ROW_MESSAGE}</TooltipContent>
+      </Tooltip>
+    )
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-auto max-w-full justify-start px-1 py-1 text-left"
+              aria-label={`Решение: ${row.normalized.descriptionRaw || row.rowLocator}`}
+            />
+          }
         >
-          {status(row)}
-          <ChevronDown className="shrink-0" />
-        </Badge>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-72 max-w-[calc(100vw-2rem)]">
-        {decisionOptions(row).map((o) => (
-          <DropdownMenuItem key={o.value} onClick={() => setDecision(row, o.value)}>
-            {o.value === `${choiceFor(row).decision}:${choiceFor(row).candidateIndex ?? ""}` ? <Check className="size-3" /> : null}
-            {o.label}
-          </DropdownMenuItem>
-        ))}
-        {canRemember(row) && choiceFor(row).decision === "create" && choiceFor(row).categoryId ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => remember(row)}>Запомнить для похожих…</DropdownMenuItem>
-          </>
-        ) : null}
-        {choiceFor(row).decision === "create" && rowKind(row) === "duplicate" ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setEditing(row)}>Подтвердить отдельную покупку…</DropdownMenuItem>
-          </>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-  const issues = (row: Row) => [...row.normalized.errors, ...row.normalized.warnings].map(localizeDates)
+          <Badge
+            variant={rowKind(row) === "error" ? "destructive" : "secondary"}
+            className={cn(
+              "h-auto max-w-full whitespace-normal text-left",
+              rowKind(row) === "duplicate" && "bg-amber-500/10 text-amber-800 dark:text-amber-300",
+            )}
+          >
+            {status(row)}
+            <ChevronDown className="shrink-0" />
+          </Badge>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-72 max-w-[calc(100vw-2rem)]">
+          {decisionOptions(row).map((o) => (
+            <DropdownMenuItem key={o.value} onClick={() => setDecision(row, o.value)}>
+              {o.value === `${choiceFor(row).decision}:${choiceFor(row).candidateIndex ?? ""}` ? <Check className="size-3" /> : null}
+              {o.label}
+            </DropdownMenuItem>
+          ))}
+          {canRemember(row) && choiceFor(row).decision === "create" && choiceFor(row).categoryId ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => remember(row)}>Запомнить для похожих…</DropdownMenuItem>
+            </>
+          ) : null}
+          {choiceFor(row).decision === "create" && rowKind(row) === "duplicate" ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setEditing(row)}>Подтвердить отдельную покупку…</DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+  }
+  const issues = (row: Row) => {
+    const kind = rowKind(row)
+    const bankNotice = kind === "pending" ? [PENDING_ROW_MESSAGE] : kind === "rejected" ? [REJECTED_ROW_MESSAGE] : []
+    return [...new Set([...row.normalized.errors, ...row.normalized.warnings, ...bankNotice])].map(localizeDates)
+  }
   const warnings = batch.warnings.filter((w) => !w.startsWith("Дата учёта"))
   const transferCount = new Set(
     rows
@@ -642,6 +663,7 @@ export function ImportPreview({
                           "min-w-0 truncate",
                           rowKind(row) === "error" && "text-destructive",
                           rowKind(row) === "duplicate" && "text-amber-700 dark:text-amber-300",
+                          (rowKind(row) === "pending" || rowKind(row) === "rejected") && "text-muted-foreground",
                         )}
                       >
                         {status(row)}

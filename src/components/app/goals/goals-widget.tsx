@@ -14,7 +14,7 @@ export async function GoalsWidget({ ctx }: { ctx: HouseholdCtx }) {
       title="Цели"
       description="Приоритетные накопления семьи"
       action={
-        <LinkButton href="/goals" variant="outline" size="sm">
+        <LinkButton href="/goals" variant="ghost" size="sm">
           Все цели
         </LinkButton>
       }

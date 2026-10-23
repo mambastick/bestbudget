@@ -25,8 +25,9 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           pkg=$(node -p "require('./package.json').version")
           chart=$(grep '^version:' deploy/helm/bestbudget/Chart.yaml | awk '{print $2}')
-          if [ "$version" != "$pkg" ] || [ "$version" != "$chart" ]; then
-            echo "Tag $version does not match package.json ($pkg) or Chart.yaml ($chart)"; exit 1
+          app=$(awk '/^appVersion:/ {gsub(/"/, "", $2); print $2}' deploy/helm/bestbudget/Chart.yaml)
+          if [ "$version" != "$pkg" ] || [ "$version" != "$chart" ] || [ "$version" != "$app" ]; then
+            echo "Tag $version does not match package.json ($pkg) or Chart.yaml ($chart, appVersion $app)"; exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           if [[ "$version" == *-* ]]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi

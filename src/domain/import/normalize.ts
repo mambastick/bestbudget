@@ -1,6 +1,6 @@
 import { CURRENCIES, currencyExponent } from "@/lib/currencies"
 import { isIsoDate } from "@/lib/dates"
-import type { ColumnField, ColumnMapping, IncomingRow } from "./types"
+import { PENDING_ROW_MESSAGE, REJECTED_ROW_MESSAGE, type ColumnField, type ColumnMapping, type IncomingRow } from "./types"
 
 export type StatementCell = string | { number: string } | { date: string }
 export const cellText = (cell: StatementCell | undefined): string =>
@@ -156,6 +156,8 @@ export function normalizeRow(cells: StatementCell[], mapping: ColumnMapping, pro
     row.warnings.push(
       `Экспорт BestBudget: сохранить статус «${row.exportStatus === "planned" ? "запланирована" : "пропущена"}», без записи в факт`,
     )
+  else if (row.status === "pending") row.warnings.push(PENDING_ROW_MESSAGE)
+  else if (row.status === "rejected") row.warnings.push(REJECTED_ROW_MESSAGE)
   else if (row.status !== "posted") row.warnings.push("Статус не подтверждает проводку: строка доступна только для пропуска")
   if (profile.startsWith("tbank")) row.warnings.push("Экспериментальный профиль: проверьте знак, статус и дату проводки")
   if (row.descriptionRaw.length > 1000) row.errors.push("Описание длиннее 1000 символов")

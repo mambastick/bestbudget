@@ -36,7 +36,7 @@ export function GoalChart({
           tickFormatter={(v: number) => formatMoneyCompact(v, currency)}
           tickLine={false}
           axisLine={false}
-          width={55}
+          width={80}
           tick={{ fontSize: 11 }}
         />
         {target !== null ? <ReferenceLine y={target} stroke="var(--chart-2)" strokeDasharray="3 3" /> : null}

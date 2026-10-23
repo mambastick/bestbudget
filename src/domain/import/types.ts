@@ -5,6 +5,9 @@ export const MAX_ROWS = 50_000
 export const MAX_COLUMNS = 100
 export const PROFILE_VERSION = 1
 
+export const PENDING_ROW_MESSAGE = "Операция ещё не проведена банком — импортируйте позже"
+export const REJECTED_ROW_MESSAGE = "Операция отклонена банком — строка будет пропущена"
+
 export const columnFields = [
   "account",
   "date",

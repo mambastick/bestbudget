@@ -41,7 +41,7 @@ const syntheticLines = [
   "Основной счёт;2026-10-20;-5200.00;RUB;Перевод в копилку;;posted;5411;",
   "Копилка импорта;2026-10-20;5200.00;RUB;Перевод со своей карты;;posted;;",
   "Основной счёт;2026-10-20;-650.00;RUB;Ожидает проводки;;pending;5411;",
-  "Основной счёт;wrong-date;-750.00;RUB;Нераспознанная дата;;posted;5411;",
+  "Основной счёт;wrong-date;-750.00;RUB;Нераспознанная дата;;pending;5411;",
 ]
 const csv = (lines: string[]) => [header, ...lines, ""].join("\r\n")
 
@@ -101,7 +101,28 @@ test("30-row statement: compact preview, filters, bulk actions, similar rule, mo
   await expect(filters.getByRole("button", { name: "Дубли 1", exact: true })).toBeVisible()
   await expect(filters.getByRole("button", { name: "Переводы 2", exact: true })).toBeVisible()
   await expect(filters.getByRole("button", { name: "Плановые 1", exact: true })).toBeVisible()
-  await expect(filters.getByRole("button", { name: "Ошибки 2", exact: true })).toBeVisible()
+  await expect(filters.getByRole("button", { name: "Ошибки 1", exact: true })).toBeVisible()
+  await filters.getByRole("button", { name: "Ожидают 1", exact: true }).click()
+  await expect(page.getByTestId("import-row")).toHaveCount(1)
+  const pending = page.getByRole("button", { name: "Решение: Ожидает проводки", exact: true })
+  await expect(pending).toHaveText("Ожидает")
+  await expect(pending.locator('[data-slot="badge"]')).toHaveClass(/text-muted-foreground/)
+  await pending.hover()
+  await expect(page.locator('[data-slot="tooltip-content"]').filter({ visible: true })).toContainText("Операция ещё не проведена банком — импортируйте позже")
+  await page.mouse.move(0, 0)
+  const db = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+  try {
+    const [hold] = await db`select decision from import_rows where batch_id = ${new URL(page.url()).searchParams.get("batch")} and normalized->>'descriptionRaw' = 'Ожидает проводки'`
+    expect(hold!.decision).toBe("skip")
+    // An already saved draft may still contain the generic warning from earlier import previews.
+    await db`update import_rows set normalized = jsonb_set(normalized, '{warnings}', ${JSON.stringify(["Статус не подтверждает проводку: строка доступна только для пропуска"])}::jsonb)
+      where batch_id = ${new URL(page.url()).searchParams.get("batch")} and normalized->>'descriptionRaw' = 'Ожидает проводки'`
+  } finally { await db.end() }
+  await page.reload()
+  await filters.getByRole("button", { name: "Ошибки 1", exact: true }).click()
+  await expect(page.getByTestId("import-row")).toHaveCount(1)
+  await expect(page.getByTestId("import-row")).toContainText("Нераспознанная дата")
+  await filters.getByRole("button", { name: "Все 30", exact: true }).click()
   await expect(page.getByRole("combobox", { name: "Категория: Платёж по ипотеке (пример)", exact: true })).toContainText("Ипотека")
   await expect(page.getByRole("toolbar")).toHaveCount(0)
   await filters.getByRole("button", { name: "Переводы 2", exact: true }).click()
@@ -134,6 +155,14 @@ test("30-row statement: compact preview, filters, bulk actions, similar rule, mo
   await page.setViewportSize({ width: 375, height: 812 })
   await expect(page.getByText("Шаг 3 из 4 · Проверка", { exact: true })).toBeVisible()
   await expect(page.getByRole("button", { name: "Добавить операцию", exact: true })).toHaveCount(0)
+  await filters.getByRole("button", { name: "Ожидают 1", exact: true }).click()
+  await expect(page.getByTestId("import-row").getByRole("button", { name: "Изменить: Ожидает проводки", exact: true })).toContainText("Ожидает")
+  await page.getByRole("button", { name: "Изменить: Ожидает проводки", exact: true }).click()
+  await expect(page.getByRole("dialog")).toContainText("Операция ещё не проведена банком — импортируйте позже")
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Пропустить", exact: true })).toBeVisible()
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Создать операцию", exact: true })).toHaveCount(0)
+  await page.getByRole("dialog").getByRole("button", { name: "Готово", exact: true }).click()
+  await filters.getByRole("button", { name: "Все 30", exact: true }).click()
   await page.getByRole("button", { name: "Изменить: PYATEROCHKA", exact: true }).first().click()
   await expect(page.getByRole("dialog")).toContainText("Решение")
   await select(page, "Категория: PYATEROCHKA", "Продукты")
@@ -149,6 +178,11 @@ test("30-row statement: compact preview, filters, bulk actions, similar rule, mo
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.screenshot({ path: "work/import-preview-desktop.png", fullPage: true })
   await commit(page, 26)
+  const ledger = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+  try {
+    const [hold] = await ledger`select count(*)::int as n from transactions where title = 'Ожидает проводки'`
+    expect(hold!.n).toBe(0)
+  } finally { await ledger.end() }
   await page.getByRole("link", { name: "Открыть операции", exact: true }).click()
   await page.goto("/transactions?q=PYATEROCHKA")
   await expect(page.getByText("PYATEROCHKA", { exact: true })).toHaveCount(8)

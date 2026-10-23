@@ -1,214 +1,192 @@
 # BestBudget
 
-Self-hosted веб-приложение для совместного ведения семейного бюджета: доходы, расходы, регулярные платежи, счета, бюджеты по категориям,
-финансовый календарь и прогноз остатка. Несколько пользователей работают в общем семейном пространстве, вход — по паролю и/или через SSO
-(OpenID Connect).
+English | [Русский](README.ru.md)
 
-**Стек:** Next.js 16 (App Router, Server Actions) · React 19 · TypeScript · Tailwind CSS 4 · shadcn/ui (Base UI) · PostgreSQL · Drizzle ORM ·
-Better Auth · Recharts · Zod · Vitest · Playwright · Docker Compose.
+Self-hosted family finance: planned vs actual spending, recurring payments and cash-gap forecasts. Built for the Russian banking market, usable anywhere with your own currencies and household time zone.
 
-## Возможности
+[![CI](https://github.com/mambastick/bestbudget/actions/workflows/ci.yml/badge.svg)](https://github.com/mambastick/bestbudget/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/mambastick/bestbudget?include_prereleases)](https://github.com/mambastick/bestbudget/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-- **Семейные пространства** с ролями «Владелец», «Администратор», «Участник»; приглашения по одноразовой ссылке; несколько пространств у
-  одного пользователя; автор каждой операции.
-- **Операции:** доходы, расходы, переводы между своими счетами. Статусы «запланирована» / «выполнена» / «пропущена». Поиск и фильтры.
-- **Регулярные операции:** ежедневно/еженедельно/ежемесячно/ежегодно с интервалом, датой начала и окончания; несколько начислений в месяц
-  (зарплата 5-го и 20-го); корректная обработка 29–31 числа. Каждое начисление сначала плановое — подтвердите его, изменив при необходимости
-  сумму и дату; можно пропустить, изменить только одно или все следующие, остановить расписание.
-- **Обзор:** фактический баланс, доходы и расходы месяца, ожидаемые поступления и платежи, прогноз на конец месяца, свободные средства после
-  обязательных платежей, графики, ближайшие операции, предупреждение о кассовом разрыве.
-- **Календарь** с прогнозом остатка на конец каждого дня и подсветкой дней с отрицательным балансом.
-- **Бюджеты** — необязательные месячные лимиты по категориям (предупреждение, без блокировки).
-- **Несколько валют:** счета в RUB, USD, EUR, JPY и других поддерживаемых валютах; переводы с разными суммами списания и зачисления; отчёты в базовой валюте семьи. Курсы ЦБ РФ кешируются в базе, ручные курсы доступны в администрировании.
-- **Счета** — наличные, карты, накопительные, кредитные карты (без двойного учёта расходов).
-- **Аналитика** за период с сравнением с предыдущим, крупнейшие категории, динамика накоплений; прогноз — отдельно.
-- **Администрирование:** пользователи (блокировка, роли, сброс пароля, завершение сеансов), пространства без доступа к их финансам, способы
-  входа, SSO, журнал системных событий.
-- Светлая и тёмная темы, адаптивный интерфейс, русская локализация; анимации на [Animate UI](https://animate-ui.com) (Motion) и
-  [React Bits](https://reactbits.dev).
+**1.0.0-beta.2 (beta).** The interface is currently in Russian. Detailed docs are currently in Russian.
 
-## Быстрый старт (Docker Compose)
+## Screenshots
+
+Synthetic demo data, light theme. No bank credentials or real family finances.
+
+![Dashboard: balance, planned payments and monthly forecast](docs/screenshots/readme/dashboard.png)
+
+<details>
+<summary>Calendar, mortgage schedule and mobile savings goals</summary>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/readme/calendar-dark.png">
+  <img src="docs/screenshots/readme/calendar.png" alt="Calendar with payments and daily balance forecast">
+</picture>
+![Mortgage: remaining debt, payment schedule and prepayment simulator](docs/screenshots/readme/loan.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/readme/goals-mobile-dark.png">
+  <img src="docs/screenshots/readme/goals-mobile.png" width="375" alt="Savings goals on a 375 px mobile screen">
+</picture>
+
+</details>
+
+## Features
+
+- **Tracking and planning:** income, expenses, transfers, planned/posted/skipped transactions, search, filters and CSV export. Reports keep actuals separate from forecasts.
+- **Recurring payments:** daily, weekly, monthly and yearly schedules; several salary dates; confirm the actual amount/date, skip one occurrence or edit future payments.
+- **Calendar and cash flow:** daily balance forecast, upcoming obligations and warnings about cash gaps; monthly category budgets without blocking transactions.
+- **Multiple currencies:** accounts and transfers with separate debit/credit amounts; household base-currency reports; cached Bank of Russia rates or manual rates for offline installations.
+- **Loans:** mortgages and consumer loans, annuity/differentiated schedules, principal/interest split, prepayments, rate changes, debt reconciliation and credit-card limits.
+- **Savings goals:** account allocations, manual contributions, emergency fund based on spending history, progress forecasts and recurring planned top-ups.
+- **Statement import:** CSV/XLSX column mapping, preview, duplicate checks, own transfers, planned-payment confirmation, category rules and batch undo. [Import guide](docs/import.md).
+- **Reminders:** opt-in Telegram and Web Push for payments, overdue items, cash gaps and budget overruns; quiet hours and daily digests. [Notifications](docs/notifications.md).
+- **Family and access:** multiple households, one-time invitations, owner/admin/member roles, password login and generic OIDC SSO. System admins manage the installation without access to other households' finances.
+- **Operations:** scheduled PostgreSQL backups, optional S3 upload, Docker Compose and Helm; responsive light/dark UI and installable PWA. PWA does not cache financial pages for offline use.
+
+## Quick start — Docker Compose
+
+Requires Docker Engine with Compose v2 and a Linux server/NAS. No source checkout needed. After the release is published:
 
 ```bash
-cp .env.example .env
+mkdir bestbudget && cd bestbudget
+curl -fL https://raw.githubusercontent.com/mambastick/bestbudget/v1.0.0-beta.2/compose.yaml -o compose.yaml
+curl -fL https://raw.githubusercontent.com/mambastick/bestbudget/v1.0.0-beta.2/.env.example -o .env
 mkdir -p backups
+chmod 600 .env
 ```
 
-Заполните в `.env` обязательные значения:
+Set these four values in `.env`:
 
-```bash
-openssl rand -base64 32   # → BETTER_AUTH_SECRET
-openssl rand -hex 16      # → POSTGRES_PASSWORD
-openssl rand -hex 16      # → SETUP_TOKEN
-```
+| Variable | Value |
+|---|---|
+| `APP_URL` | Browser URL, e.g. `http://192.168.1.10:3000` or `https://budget.example.com` |
+| `BETTER_AUTH_SECRET` | Output of `openssl rand -base64 32` |
+| `POSTGRES_PASSWORD` | Output of `openssl rand -hex 16` |
+| `SETUP_TOKEN` | A separate `openssl rand -hex 16` |
 
-и `APP_URL` — адрес, по которому приложение открывают в браузере (например, `http://192.168.1.10:3000` или `https://budget.example.com`).
+On Linux, set `LOCAL_UID`/`LOCAL_GID` to the numeric output of `id -u` / `id -g` if your non-root account differs from `1000:1000`. Create `backups` as that user; for installation as root, run `chown 1000:1000 backups`.
 
 ```bash
 docker compose up -d
 ```
 
-По умолчанию используется готовый образ `ghcr.io/mambastick/bestbudget` нужной версии (`BESTBUDGET_VERSION` в `.env`).
-Собрать образ из исходников: `docker build -t ghcr.io/mambastick/bestbudget:1.0.0-beta.1 .`.
+Open `APP_URL/setup`, enter `SETUP_TOKEN` and create the first administrator. Create a household, then invite your family from **Настройки → Семья** (Settings → Family). Setup closes once an administrator exists; you may remove `SETUP_TOKEN` afterwards.
 
-1. Откройте `APP_URL` — приложение перенаправит на `/setup`.
-2. Введите `SETUP_TOKEN`, имя, e-mail и пароль — будет создан системный администратор.
-3. Создайте семейное пространство (базовые категории и основной счёт создаются автоматически).
-4. **Настройки → Семья → Пригласить** — отправьте одноразовую ссылку супругу или супруге.
+Compose pulls `ghcr.io/mambastick/bestbudget:1.0.0-beta.2` (amd64/arm64), runs migrations automatically and stores PostgreSQL data in the `pgdata` volume. Health endpoint: `/api/health`.
 
-Миграции базы применяются автоматически при каждом старте контейнера. Данные PostgreSQL хранятся в томе `pgdata` и переживают перезапуск
-и пересоздание контейнеров. Проверка состояния: `GET /api/health`.
+For internet access, use an HTTPS reverse proxy. Set `APP_URL` to the external URL; forward `Host`, `X-Forwarded-Host`, `X-Forwarded-Proto`. Enable `TRUST_PROXY=true` only behind a trusted proxy; bind to `APP_BIND=127.0.0.1` when the proxy runs on the same host. [Proxy and SSO setup](docs/sso.md).
 
-### Курсы валют
+## Kubernetes — Helm
 
-По умолчанию `FX_PROVIDER=cbr`: сервер обращается к [XML API ЦБ РФ](https://cbr.ru/development/sxml/) без ключей и сохраняет курсы в PostgreSQL.
-Для изолированной установки задайте `FX_PROVIDER=none` (Helm: `--set fxProvider=none`) и вводите курсы в **Администрирование → Курсы валют**.
-Там же можно обновить свежий снимок ЦБ или историю выбранной валюты за прошлую дату. История загружается пакетно,
-а проверенные диапазоны без публикаций тоже кешируются в БД: выходные и каникулы не вызывают повторные запросы. Ручной курс задаётся в рублях за одну единицу валюты и действует для всех пространств.
-Если ЦБ недоступен, используется последний известный курс не позднее нужной даты; для текущей оценки старше 7 дней дата указана внутри карточки баланса. Исторические даты публикаций не создают баннеров. Без курса итог неполный,
-и интерфейс предупреждает об исключённых суммах. Валюту счёта можно менять до появления операций/расписаний. При смене базовой валюты
-владельцем лимиты бюджетов сохраняются в тех же минорных единицах: их нужно проверить и задать заново.
-
-
-### Бэкапы
-
-Включены по умолчанию: каждую ночь в 03:00 по `TZ` (`Europe/Moscow`), файлы лежат в `./backups`.
-Хранятся последние 7 копий плюс все за 30 дней. Перед первым запуском создайте `backups`; UID/GID контейнеров — `1000:1000` (для другого владельца задайте `LOCAL_UID`/`LOCAL_GID`).
-
+An ingress controller, TLS configuration and persistent storage are prerequisites. Scheduled backups require Kubernetes 1.27+.
 
 ```bash
-docker compose run --rm backup now
-docker compose run --rm backup list
-docker compose stop app && docker compose run --rm backup restore backups/ИМЯ-ФАЙЛА.dump --yes && docker compose start app
-```
-
-S3 включается через `BACKUP_S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`; [настройки, статус и Kubernetes](docs/backup.md).
-
-### Обновление
-
-```bash
-docker compose pull && docker compose up -d
-```
-
-Миграции применяются автоматически. Перед обновлением сделайте резервную копию.
-
-## Kubernetes (Helm)
-
-Чарт публикуется в GHCR как OCI-артефакт. Минимальная установка со встроенным PostgreSQL и Ingress:
-
-```bash
-helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.0-beta.1 \
+helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.0-beta.2 \
   --namespace bestbudget --create-namespace \
   --set appUrl=https://budget.example.com \
   --set ingress.enabled=true --set ingress.className=nginx --set ingress.tls.enabled=true
 ```
 
-После установки `helm` выведет команду для получения `SETUP_TOKEN` — с ним откройте `https://budget.example.com/setup`.
+Helm prints instructions for retrieving the setup token. Generated secrets survive upgrades. See the [chart README](deploy/helm/bestbudget/README.md) for external PostgreSQL, existing Secrets, storage and all values.
 
-- Секреты (`BETTER_AUTH_SECRET`, `SETUP_TOKEN`, пароль PostgreSQL) генерируются при установке и сохраняются при `helm upgrade`.
-  Можно передать свой Secret: `--set existingSecret=bestbudget-secrets`.
-- Внешняя база: `--set postgresql.enabled=false --set externalDatabase.url=postgres://user:pass@host:5432/bestbudget`.
-- SSO: `oidc.issuer`, `oidc.clientId`, `oidc.clientSecret` (или настройка из интерфейса, если `oidc.issuer` пустой).
-- Под приложения запускается без root, с read-only файловой системой; readiness-проба проверяет базу, liveness — нет.
-- Все параметры — в [deploy/helm/bestbudget/values.yaml](deploy/helm/bestbudget/values.yaml).
+## Configuration
 
-Из исходников: `helm install bestbudget deploy/helm/bestbudget --set appUrl=...`.
+See [`.env.example`](.env.example) for the complete list. Optional services can also be configured in the admin UI where indicated.
 
-## Работа за reverse proxy
-
-- `APP_URL` — публичный `https://` адрес: по нему формируются cookie (флаг `Secure`), проверка Origin, ссылки-приглашения и callback SSO.
-- Прокси должен передавать `Host`/`X-Forwarded-Host` и `X-Forwarded-Proto`. Включите `TRUST_PROXY=true`, чтобы ограничение частоты
-  попыток входа учитывало реальный IP из `X-Forwarded-For`.
-- Если прокси на том же хосте, опубликуйте порт только локально: `APP_BIND=127.0.0.1`.
-
-Пример для Caddy:
-
-```
-budget.example.com {
-  reverse_proxy 127.0.0.1:3000
-}
-```
-
-Пример для nginx:
-
-```nginx
-location / {
-  proxy_pass http://127.0.0.1:3000;
-  proxy_set_header Host $host;
-  proxy_set_header X-Forwarded-Host $host;
-  proxy_set_header X-Forwarded-Proto $scheme;
-  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-}
-```
-
-## SSO (OpenID Connect)
-
-Поддерживается любой OIDC-провайдер с discovery-документом: Keycloak, Authentik, Microsoft Entra ID и др.
-
-1. Создайте в провайдере клиента (confidential, Authorization Code). Redirect URI: `${APP_URL}/api/auth/callback/oidc`.
-2. Настройте SSO одним из способов:
-   - **Через интерфейс:** Администрирование → Авторизация. Секрет клиента хранится в PostgreSQL в зашифрованном виде (AES-256-GCM).
-   - **Через окружение:** `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_SCOPES`, `OIDC_DISPLAY_NAME`, `OIDC_REDIRECT_URI`.
-
-**Приоритет источников:** если задан `OIDC_ISSUER`, используются переменные окружения, а форма в интерфейсе доступна только для чтения.
-Иначе — настройки из базы. Изменения применяются без перезапуска.
-
-Issuer для популярных провайдеров:
-
-| Провайдер | Issuer URL |
+| Environment variable | Default / purpose |
 |---|---|
-| Keycloak | `https://<host>/realms/<realm>` |
-| Authentik | `https://<host>/application/o/<slug>/` |
-| Microsoft Entra ID | `https://login.microsoftonline.com/<tenant-id>/v2.0` |
+| `BESTBUDGET_VERSION` | `1.0.0-beta.2`; Compose image tag |
+| `APP_URL` | Required public URL; cookies, origin checks, invitations and SSO callback |
+| `BETTER_AUTH_SECRET`, `SETUP_TOKEN` | Required session secret and first-run setup token |
+| `ENCRYPTION_KEY` | Optional; otherwise derived from `BETTER_AUTH_SECRET`. Preserve it when restoring encrypted settings |
+| `POSTGRES_*`, `DATABASE_URL` | Compose database credentials; `DATABASE_URL` is needed when running outside Compose |
+| `APP_PORT`, `APP_BIND`, `TRUST_PROXY` | `3000`, `0.0.0.0`, `false`; network and trusted proxy |
+| `FX_PROVIDER` | `cbr`; `none` disables rate-provider network requests, keeping saved/manual rates |
+| `TZ`, `BACKUP_TIME`, `BACKUP_PATH`, `BACKUP_KEEP_*` | `Europe/Moscow`, `03:00`, `./backups`, newest 7 plus all from 30 days; [backups](docs/backup.md) |
+| `BACKUP_S3_BUCKET`, `AWS_*`, `BACKUP_S3_*` | Optional S3 upload; [backup settings](docs/backup.md#s3) |
+| `JOBS_ENABLED` | `true`; built-in reminder scheduler |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_MODE` | Empty / polling; admin UI or ENV; [notifications](docs/notifications.md) |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Optional override; key pair otherwise generated and stored; [Web Push](docs/notifications.md#web-push) |
+| `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_ALLOW_SIGNUP` | Empty issuer uses UI settings; new SSO accounts require invitations by default; [SSO](docs/sso.md) |
+| `AUTH_FORCE_LOCAL_LOGIN` | `false`; emergency password-login recovery |
+| `SMTP_URL`, `SMTP_FROM` | Optional self-service password reset; otherwise an admin resets passwords |
 
-**Связывание аккаунтов.** SSO-аккаунт никогда не связывается с существующим локальным автоматически по совпадению e-mail. Чтобы входить
-через SSO в существующий аккаунт, войдите по паролю и нажмите «Привязать» в Настройки → Профиль и безопасность. Новые пользователи через SSO
-создаются только по приглашению — либо всегда, если включено «Создавать аккаунты при первом входе через SSO» (`OIDC_ALLOW_SIGNUP`).
-ID-токен проверяется по JWKS провайдера; используется PKCE.
+## Statement import
 
-## Безопасность и восстановление доступа
+Open **Операции → Импорт выписки** (Transactions → Import statement), upload CSV/XLSX and map columns and accounts. Check the preview before posting: identify duplicates and your own transfers, confirm matching planned transactions and choose categories. Save category rules for similar purchases and reusable column profiles for your household.
 
-- Публичная регистрация выключена по умолчанию — новые пользователи приходят по приглашениям.
-- Нельзя отключить последний способ входа: вход по паролю отключается только при работающем SSO, уже привязанном к аккаунту
-  администратора; если SSO перестаёт быть доступным, вход по паролю включается автоматически.
-- **Аварийный доступ:** `AUTH_FORCE_LOCAL_LOGIN=true` в `.env` и `docker compose up -d` принудительно включают вход по паролю.
-- **Консольные команды** (внутри контейнера):
+A batch posts atomically; its history lets you undo unchanged imported transactions and restore confirmed plans. Pending bank holds are skipped until the bank posts them. BestBudget CSV v1 and exported transactions are supported; bank-specific profiles are **experimental** and require preview checks. **PDF is not supported**; save old XLS files as CSV/XLSX first. [Workflow, formats and undo limits](docs/import.md).
+
+<details>
+<summary>Statement import preview</summary>
+
+![Statement preview with duplicate checks, own transfers and planned-payment matches](docs/screenshots/import/import-preview-desktop.png)
+
+</details>
+
+## Upgrading and backups
+
+Read the [changelog](CHANGELOG.md) and make a backup using the installed version:
 
 ```bash
-docker compose exec app node dist-scripts/admin.mjs list-admins
-docker compose exec app node dist-scripts/admin.mjs reset-password user@example.com
-docker compose exec app node dist-scripts/admin.mjs promote user@example.com
-docker compose exec app node dist-scripts/admin.mjs enable-local-auth
-docker compose exec -e ADMIN_EMAIL=admin@example.com app node dist-scripts/admin.mjs create-admin
+docker compose run --rm backup now
+# Set BESTBUDGET_VERSION=1.0.0-beta.2 in .env and update compose.yaml from the release tag.
+docker compose pull
+docker compose up -d
 ```
 
-- Без SMTP пароли сбрасывает администратор (временный пароль в интерфейсе). С `SMTP_URL` доступно самостоятельное восстановление по e-mail.
-- Пароли хешируются scrypt; сессии — HTTP-only cookie; ограничение частоты попыток входа; заголовки CSP, `X-Frame-Options` и др.;
-  проверка Origin для server actions и API авторизации; все входные данные проверяются Zod на сервере.
+Migrations run automatically, including upgrades from beta.1. Keep your previous version, `.env` and encryption/session secrets with the backup. Schema downgrades are not automatic.
 
-## Разработка
+Compose backs up nightly at 03:00 in `TZ`, retaining the newest 7 copies plus every copy from the last 30 days. Keep an off-server copy and test a restore into a separate database. [Backup, S3 and restore instructions](docs/backup.md).
 
-Нужны Node.js 22+ и pnpm 10. Docker для разработки не обязателен: локальная база — встроенный PostgreSQL (PGlite) поверх обычного
-протокола.
+## Security notes
+
+- Public registration and SSO auto-provisioning are off by default. Use invitations; enable public access deliberately.
+- Preserve `BETTER_AUTH_SECRET` and `ENCRYPTION_KEY`. Stored OIDC/Telegram/push secrets are encrypted; changing the encryption key makes existing encrypted settings unreadable. Keep `.env` private.
+- Link SSO to your administrator account before disabling password login. Unusable SSO configuration falls back to password login; an identity-provider outage may require `AUTH_FORCE_LOCAL_LOGIN=true` and a container restart. Accounts are never automatically linked by matching e-mail. [Recovery and CLI](docs/sso.md).
+- Serve remote access over HTTPS. Telegram, browser push services and the rate provider receive requests only for their enabled features; bank credentials are not needed.
+
+## Development
+
+Node.js 22+ and pnpm 10.27.0. Docker is optional: `db:dev` starts PGlite over the PostgreSQL wire protocol.
 
 ```bash
-pnpm install
-cp .env.example .env    # DATABASE_URL=postgres://postgres@127.0.0.1:54329/postgres, APP_URL=http://localhost:3000, секреты
-pnpm db:dev             # PGlite на порту 54329, данные в .data/pglite
-pnpm db:migrate
-pnpm dev
+npx -y pnpm@10.27.0 install --frozen-lockfile
+cp .env.example .env
+# Set APP_URL=http://localhost:3300, DATABASE_URL=postgres://postgres@127.0.0.1:54340/postgres,
+# BETTER_AUTH_SECRET and SETUP_TOKEN in .env.
+PGLITE_PORT=54340 npx -y pnpm@10.27.0 db:dev
+# In another terminal:
+npx -y pnpm@10.27.0 db:migrate
+PORT=3300 npx -y pnpm@10.27.0 dev
 ```
 
-Можно использовать и обычный PostgreSQL: `docker compose up -d db` и `DATABASE_URL=postgres://bestbudget:<password>@localhost:5432/bestbudget`
-(откройте порт 5432 в `compose.yaml` или подключитесь иначе).
-
-| Команда | Назначение |
+| Command (prefix with `npx -y pnpm@10.27.0`) | Purpose |
 |---|---|
-| `pnpm test` | unit- и интеграционные тесты (Vitest, реальные миграции на in-memory PostgreSQL) |
-| `pnpm test:e2e` | сквозной сценарий в браузере (Playwright, production-сборка). Локальный Chromium: `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium` |
-| `pnpm typecheck`, `pnpm lint` | проверки |
-| `pnpm db:generate` | создать миграцию после изменения `src/db/schema.ts` |
-| `pnpm db:seed-demo <e-mail>` | заполнить первое пространство пользователя демо-данными (только для разработки) |
-| `pnpm build` | production-сборка (`.next/standalone`) и консольные скрипты (`dist-scripts`) |
+| `typecheck`, `lint`, `test` | TypeScript, ESLint, Vitest with isolated PGlite and real migrations |
+| `build` | Production standalone build and bundled administration/backup CLIs |
+| `test:e2e` | Playwright on production; isolated ports **3200/54330**, must be free |
+| `db:generate --name <name>` | Generate an additive migration after schema changes |
+| `db:seed-demo <email>` | Six months of synthetic data; requires an empty RUB household and its single default account. Includes synthetic FX rates; use only a demo database |
+| `test:screenshots readme.spec.ts` | Recreate README images and inspect all pages at 1280/375 px, light/dark |
 
-Устройство приложения, модель данных и решения — в [docs/architecture.md](docs/architecture.md).
+Install the browser once: `npx -y pnpm@10.27.0 exec playwright install chromium`. An existing Chromium can be selected with `PLAYWRIGHT_CHROMIUM_EXECUTABLE`. Helm checks: `./scripts/check-helm.sh`. Docker build/backup/restore smoke checks run in CI.
+
+## Architecture and contributing
+
+Next.js 16 App Router · React 19 · TypeScript strict · Tailwind 4 · shadcn/Base UI · Drizzle · PostgreSQL 17 · Better Auth · Recharts.
+
+[Architecture and data model](docs/architecture.md). Money uses integer minor units; dates belong to the household time zone; financial references enforce household isolation. Domain logic lives in services, server actions validate inputs and return structured results.
+
+Issues and pull requests are welcome. Describe the problem and reproduction steps; include checks and screenshots for UI changes. Keep migrations additive, use existing UI components and avoid new heavy dependencies. UI text is Russian; code and code comments are English. Never attach real statements, credentials or personal financial data to public issues.
+
+## Roadmap
+
+- Validate native profiles for Sber, T-Bank and Alfa-Bank using locally anonymized real statement samples. Current bank formats remain experimental; column mapping is available.
+- Optional IMAP attachments and Android SMS/push **drafts**, with user review before posting.
+- Monitor Russian Open Banking access for self-hosted clients; no direct retail-bank API integration or availability date is promised. See the [banking research](docs/research/bank-integrations-ru.md) and [statement format study](docs/research/statement-formats.md).
+
+## License
+
+[MIT](LICENSE), copyright © 2026 BestBudget.
