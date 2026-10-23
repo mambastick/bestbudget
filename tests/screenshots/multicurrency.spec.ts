@@ -44,6 +44,7 @@ test("captures multicurrency on the actual seed-demo dataset", async ({ page }) 
   const at = addDays(today, -3)
   const sql = postgres(E2E_ENV.DATABASE_URL, { max: 1, onnotice: () => {} })
   try {
+    await sql`delete from exchange_rates`
     // Test-only cached publications and a same-day manual override. FX_PROVIDER=none forbids real CBR calls.
     await sql`insert into exchange_rates(currency, date, rate_to_rub, source) values
       ('USD', ${addDays(today, -40)}, 95, 'cbr'), ('EUR', ${addDays(today, -40)}, 100, 'cbr'),
