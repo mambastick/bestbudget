@@ -48,13 +48,13 @@ export function householdDefaults(locale: string) {
 }
 
 export const ACCOUNT_KIND_LABELS = {
-  cash: "Наличные",
-  debit_card: "Банковская карта",
-  credit_card: "Кредитная карта",
-  savings: "Накопительный счёт",
-  shared: "Общий счёт",
-  other: "Другое",
-  loan: "Кредит",
+  cash: "kind.cash",
+  debit_card: "kind.debit_card",
+  credit_card: "kind.credit_card",
+  savings: "kind.savings",
+  shared: "kind.shared",
+  other: "kind.other",
+  loan: "kind.loan",
 } as const
 
 export const CATEGORY_COLORS = [

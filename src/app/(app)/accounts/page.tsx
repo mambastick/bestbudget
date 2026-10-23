@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server"
 import type { Metadata } from "next"
 import { AccountsView } from "@/components/app/accounts-view"
 import { PageHeader } from "@/components/app/page-header"
@@ -5,14 +6,18 @@ import { can } from "@/domain/permissions"
 import { requireHousehold } from "@/server/session"
 import { listAccounts } from "@/server/services/catalog"
 
-export const metadata: Metadata = { title: "Счета" }
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("accounts")
+  return { title: t("page.title") }
+}
 
 export default async function AccountsPage() {
+  const t = await getTranslations("accounts")
   const ctx = await requireHousehold()
   const accounts = await listAccounts(ctx, { includeArchived: true })
   return (
     <div className="grid grid-cols-1 gap-6">
-      <PageHeader title="Счета" description="Где лежат деньги: карты, наличные, накопления" />
+      <PageHeader title={t("page.title")} description={t("page.description")} />
       <AccountsView
         accounts={accounts.map((a) => ({
           id: a.id,

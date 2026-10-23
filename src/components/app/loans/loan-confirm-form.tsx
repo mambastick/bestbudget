@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations, useLocale } from "next-intl"
+
 import { useState } from "react"
 import { toast } from "sonner"
 import { confirmLoanPaymentAction } from "@/app/actions/loans"
@@ -15,10 +17,12 @@ import { useAction } from "@/hooks/use-action"
 import { formatMoney, minorToInput, parseMoney } from "@/lib/money"
 
 export function LoanConfirmForm({ row, onClose }: { row: OperationRow; onClose: () => void }) {
+  const t = useTranslations("loans")
+  const locale = useLocale()
   const { today, accounts } = useCatalog()
   const currency = accounts.find((a) => a.id === row.accountId)!.currency
-  const [amount, setAmount] = useState(minorToInput(row.amount, currency))
-  const [principal, setPrincipal] = useState(minorToInput(row.loanPrincipal ?? 0, currency))
+  const [amount, setAmount] = useState(minorToInput(row.amount, currency, locale))
+  const [principal, setPrincipal] = useState(minorToInput(row.loanPrincipal ?? 0, currency, locale))
   const [date, setDate] = useState(row.date > today ? today : row.date)
   const [allocation, setAllocation] = useState<"principal" | "interest" | "manual">("principal")
   const { run, pending } = useAction()
@@ -33,9 +37,9 @@ export function LoanConfirmForm({ row, onClose }: { row: OperationRow; onClose: 
 
   function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!total || body === null || body < 0 || interest < 0) return void toast.error("Проверьте сумму и разбивку платежа")
+    if (!total || body === null || body < 0 || interest < 0) return void toast.error(t("confirm.invalid"))
     run(() => confirmLoanPaymentAction(row.id, { version: row.version, date, amount: total, allocation, principal: body }), {
-      success: "Платёж по кредиту подтверждён",
+      success: t("confirm.success"),
       onSuccess: onClose,
     })
   }
@@ -43,51 +47,56 @@ export function LoanConfirmForm({ row, onClose }: { row: OperationRow; onClose: 
   return (
     <form onSubmit={submit} className="grid grid-cols-1 gap-4">
       <DialogHeader>
-        <DialogTitle>Подтвердить платёж по кредиту</DialogTitle>
+        <DialogTitle>{t("confirm.title")}</DialogTitle>
         <DialogDescription>
-          {row.title}. План: {formatMoney(row.amount, currency)} (тело {formatMoney(row.loanPrincipal ?? 0, currency)} + проценты{" "}
-          {formatMoney(row.loanInterest ?? 0, currency)}).
+          {t("confirm.planned", {
+            title: row.title,
+            amount: formatMoney(row.amount, currency, { locale }),
+            principal: formatMoney(row.loanPrincipal ?? 0, currency, { locale }),
+            interest: formatMoney(row.loanInterest ?? 0, currency, { locale }),
+          })}
         </DialogDescription>
       </DialogHeader>
       <Field>
-        <FieldLabel htmlFor="loan-confirm-amount">Фактическая сумма</FieldLabel>
+        <FieldLabel htmlFor="loan-confirm-amount">{t("confirm.actualAmount")}</FieldLabel>
         <MoneyInput id="loan-confirm-amount" currency={currency} value={amount} onChange={setAmount} />
       </Field>
       <Field>
-        <FieldLabel>Разницу отнести</FieldLabel>
+        <FieldLabel>{t("confirm.allocate")}</FieldLabel>
         <Segmented
           value={allocation}
           onChange={setAllocation}
           size="sm"
           options={[
-            { value: "principal", label: "В тело" },
-            { value: "interest", label: "В проценты" },
-            { value: "manual", label: "Вручную" },
+            { value: "principal", label: t("confirm.principal") },
+            { value: "interest", label: t("confirm.interest") },
+            { value: "manual", label: t("actions.manual") },
           ]}
         />
       </Field>
       {allocation === "manual" ? (
         <Field>
-          <FieldLabel htmlFor="loan-confirm-principal">Тело платежа</FieldLabel>
+          <FieldLabel htmlFor="loan-confirm-principal">{t("confirm.principalAmount")}</FieldLabel>
           <MoneyInput id="loan-confirm-principal" currency={currency} value={principal} onChange={setPrincipal} />
         </Field>
       ) : null}
       <p className="text-sm" aria-live="polite">
-        Тело: {formatMoney(body ?? 0, currency)} · проценты: {formatMoney(interest, currency)}
+        {t("confirm.breakdown", {
+          principal: formatMoney(body ?? 0, currency, { locale }),
+          interest: formatMoney(interest, currency, { locale }),
+        })}
       </p>
       <Field>
-        <FieldLabel htmlFor="loan-confirm-date">Фактическая дата</FieldLabel>
+        <FieldLabel htmlFor="loan-confirm-date">{t("confirm.date")}</FieldLabel>
         <DateField id="loan-confirm-date" value={date} onChange={(d) => d && setDate(d)} today={today} />
       </Field>
-      <p className="text-xs text-muted-foreground">
-        Обе части подтвердятся вместе. Изменение тела пересчитает будущий график с прежним платежом.
-      </p>
+      <p className="text-xs text-muted-foreground">{t("confirm.hint")}</p>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
-          Отмена
+          {t("actions.cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          Подтвердить
+          {t("actions.confirm")}
         </Button>
       </DialogFooter>
     </form>

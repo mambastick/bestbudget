@@ -1,0 +1,65 @@
+{
+  "page": {
+    "title": "Accounts",
+    "description": "Your money across cards, cash and savings"
+  },
+  "summary": {
+    "debt": "Debt",
+    "total": "Account balances in {currency}"
+  },
+  "actions": {
+    "transfer": "Transfer",
+    "account": "Account",
+    "archive": "Archive",
+    "archived": "Archive",
+    "restore": "Restore",
+    "edit": "Edit",
+    "delete": "Delete",
+    "menu": "Actions",
+    "cancel": "Cancel",
+    "save": "Save"
+  },
+  "creditHelp": {
+    "title": "How to track a credit card",
+    "description": "Create a credit card account with your current debt. Record purchases as expenses from this account. Record repayments as a <transfer>transfer</transfer> from a debit account. Transfers between your own accounts count as neither income nor expenses, so purchases are counted only once."
+  },
+  "feedback": {
+    "restored": "Account restored",
+    "archived": "Account archived",
+    "deleted": "Account deleted",
+    "saved": "Account saved",
+    "created": "Account created"
+  },
+  "delete": {
+    "description": "Only accounts without transactions can be deleted. Archive accounts with transaction history.",
+    "title": "Delete account “{name}”?"
+  },
+  "form": {
+    "new": "New account",
+    "description": "The current balance is calculated from the opening balance and posted transactions.",
+    "name": "Name",
+    "namePlaceholder": "e.g. Everyday card",
+    "kind": "Type",
+    "currency": "Account currency",
+    "currencyLocked": "Currency cannot be changed once transactions or schedules exist.",
+    "cardDebt": "Current card debt",
+    "openingBalance": "Opening balance",
+    "overdraft": "Negative balance (overdraft)",
+    "debtHint": "Debt is stored as a negative account balance.",
+    "creditLimit": "Credit limit"
+  },
+  "card": {
+    "openingBalance": "opening balance",
+    "transactions": "{count, plural, one {# transaction} other {# transactions}}",
+    "creditDetails": "Debt: {debt} · available: {available} · limit: {limit}"
+  },
+  "kind": {
+    "cash": "Cash",
+    "debit_card": "Debit card",
+    "credit_card": "Credit card",
+    "savings": "Savings account",
+    "shared": "Shared account",
+    "other": "Other",
+    "loan": "Loan"
+  }
+}

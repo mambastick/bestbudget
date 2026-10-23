@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations, useLocale } from "next-intl"
+
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { createGoalAction, updateGoalAction } from "@/app/actions/goals"
@@ -18,18 +20,6 @@ import { useAction } from "@/hooks/use-action"
 import type { Currency } from "@/lib/currencies"
 import { minorToInput, parseMoney } from "@/lib/money"
 import type { GoalSummary } from "@/server/services/goals"
-
-const GOAL_ICONS = {
-  "piggy-bank": "Накопления",
-  plane: "Отпуск",
-  car: "Машина",
-  home: "Дом",
-  wrench: "Ремонт",
-  "graduation-cap": "Образование",
-  "heart-pulse": "Здоровье",
-  gift: "Подарок",
-  circle: "Другое",
-}
 
 export interface GoalAccount {
   id: string
@@ -52,11 +42,12 @@ export function AccountSelect({
   onChange: (value: string) => void
   disabled?: boolean
 }) {
+  const t = useTranslations("goals")
   const items = accounts.map((a) => ({ value: a.id, label: `${a.name} · ${a.currency}` }))
   return (
     <Select value={value || null} onValueChange={(v) => v && onChange(v)} items={items} disabled={disabled}>
       <SelectTrigger id={id} className="w-full min-w-0">
-        <SelectValue placeholder="Выберите счёт" />
+        <SelectValue placeholder={t("form.selectAccount")} />
       </SelectTrigger>
       <SelectContent>
         {items.map((a) => (
@@ -82,19 +73,33 @@ export function GoalEditor({
   currency: string
   onClose: () => void
 }) {
+  const t = useTranslations("goals")
+  const locale = useLocale()
+  const GOAL_ICONS = {
+    "piggy-bank": t("icons.savings"),
+    plane: t("icons.holiday"),
+    car: t("icons.car"),
+    home: t("icons.home"),
+    wrench: t("icons.repairs"),
+    "graduation-cap": t("icons.education"),
+    "heart-pulse": t("icons.health"),
+    gift: t("icons.gift"),
+    circle: t("icons.other"),
+  }
+
   const router = useRouter()
   const { pending, run } = useAction()
   const [name, setName] = useState(goal?.name ?? "")
   const [kind, setKind] = useState<"account" | "manual">(goal?.kind ?? "account")
   const [cur, setCur] = useState(goal?.currency ?? currency)
-  const [target, setTarget] = useState(goal ? minorToInput(goal.targetAmount, goal.currency) : "")
+  const [target, setTarget] = useState(goal ? minorToInput(goal.targetAmount, goal.currency, locale) : "")
   const [date, setDate] = useState<string | null>(goal?.targetDate ?? null)
   const [accountId, setAccountId] = useState(goal?.accountId ?? "")
   const [emergency, setEmergency] = useState(goal?.expenseMonths ? "emergency" : "fixed")
   const [months, setMonths] = useState(goal?.expenseMonths ?? 6)
   const [window, setWindow] = useState<3 | 6>(goal?.expenseWindow === 6 ? 6 : 3)
   const [priority, setPriority] = useState(goal?.priority ?? 100)
-  const [cap, setCap] = useState(goal?.allocatedAmount ? minorToInput(goal.allocatedAmount, goal.accountCurrency!) : "")
+  const [cap, setCap] = useState(goal?.allocatedAmount ? minorToInput(goal.allocatedAmount, goal.accountCurrency!, locale) : "")
   const [icon, setIcon] = useState(goal?.icon ?? "piggy-bank")
   const [color, setColor] = useState(goal?.color ?? "#10b981")
   const [error, setError] = useState("")
@@ -105,7 +110,7 @@ export function GoalEditor({
     const targetAmount = emergency === "emergency" ? (goal?.targetAmount ?? 1) : parseMoney(target, cur)
     const allocatedAmount = kind === "account" && cap ? parseMoney(cap, account?.currency ?? cur) : null
     if (!targetAmount || (cap && allocatedAmount === null) || (kind === "account" && !accountId)) {
-      setError("Укажите сумму цели и накопительный счёт; проверьте лимит распределения.")
+      setError(t("form.invalid"))
       return
     }
     const input = {
@@ -124,12 +129,12 @@ export function GoalEditor({
     }
     if (goal)
       run(() => updateGoalAction(goal.id, { ...input, currency: cur as Currency, version: goal.version }), {
-        success: "Цель сохранена",
+        success: t("form.saved"),
         onSuccess: onClose,
       })
     else
       run(() => createGoalAction({ ...input, currency: cur as Currency }), {
-        success: "Цель создана",
+        success: t("form.created"),
         onSuccess: ({ id }) => {
           onClose()
           router.push(`/goals/${id}`)
@@ -141,33 +146,33 @@ export function GoalEditor({
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
         <form onSubmit={submit} className="grid grid-cols-1 gap-4">
           <DialogHeader>
-            <DialogTitle>{goal ? "Изменить цель" : "Новая цель"}</DialogTitle>
-            <DialogDescription>Накопления семьи с понятным сроком и планом пополнений.</DialogDescription>
+            <DialogTitle>{goal ? t("form.edit") : t("form.new")}</DialogTitle>
+            <DialogDescription>{t("form.description")}</DialogDescription>
           </DialogHeader>
           <Field>
-            <FieldLabel htmlFor="goal-name">Название</FieldLabel>
+            <FieldLabel htmlFor="goal-name">{t("form.name")}</FieldLabel>
             <Input
               id="goal-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
               maxLength={60}
-              placeholder="Отпуск в Турции"
+              placeholder={t("form.placeholder")}
             />
           </Field>
           <Segmented
-            aria-label="Способ накопления"
+            aria-label={t("form.method")}
             value={kind}
             onChange={setKind}
             disabled={!!goal}
             options={[
-              { value: "account", label: "На счёте" },
-              { value: "manual", label: "Вручную" },
+              { value: "account", label: t("form.account") },
+              { value: "manual", label: t("form.manual") },
             ]}
           />
           {kind === "account" ? (
             <Field>
-              <FieldLabel htmlFor="goal-account">Накопительный счёт</FieldLabel>
+              <FieldLabel htmlFor="goal-account">{t("form.savingsAccount")}</FieldLabel>
               <AccountSelect
                 id="goal-account"
                 value={accountId}
@@ -180,27 +185,27 @@ export function GoalEditor({
               />
               {savings.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Сначала создайте накопительный счёт.{" "}
+                  {t("form.createAccountHint")}{" "}
                   <LinkButton href="/accounts" variant="link" size="sm">
-                    Счета
+                    {t("form.accounts")}
                   </LinkButton>
                 </p>
               ) : null}
             </Field>
           ) : (
-            <p className="text-xs text-muted-foreground">Ручные взносы не изменяют баланс счетов и доходы семьи.</p>
+            <p className="text-xs text-muted-foreground">{t("form.manualHint")}</p>
           )}
           <Segmented
-            aria-label="Тип цели"
+            aria-label={t("form.kind")}
             value={emergency}
             onChange={setEmergency}
             options={[
-              { value: "fixed", label: "Сумма" },
-              { value: "emergency", label: "Подушка" },
+              { value: "fixed", label: t("form.amount") },
+              { value: "emergency", label: t("form.emergency") },
             ]}
           />
           <Field>
-            <FieldLabel htmlFor="goal-currency">Валюта цели</FieldLabel>
+            <FieldLabel htmlFor="goal-currency">{t("form.currency")}</FieldLabel>
             <CurrencySelect
               id="goal-currency"
               value={cur}
@@ -213,13 +218,13 @@ export function GoalEditor({
           </Field>
           {emergency === "fixed" ? (
             <Field>
-              <FieldLabel htmlFor="goal-target">Сумма цели</FieldLabel>
+              <FieldLabel htmlFor="goal-target">{t("form.target")}</FieldLabel>
               <MoneyInput id="goal-target" value={target} onChange={setTarget} currency={cur} required />
             </Field>
           ) : (
             <>
               <Field>
-                <FieldLabel htmlFor="goal-months">Месяцев расходов в подушке</FieldLabel>
+                <FieldLabel htmlFor="goal-months">{t("form.expenseMonths")}</FieldLabel>
                 <Input
                   id="goal-months"
                   type="number"
@@ -231,28 +236,26 @@ export function GoalEditor({
                 />
               </Field>
               <Field>
-                <FieldLabel>Средние расходы</FieldLabel>
+                <FieldLabel>{t("form.averageExpenses")}</FieldLabel>
                 <Segmented
                   value={String(window)}
                   onChange={(v) => setWindow(v === "6" ? 6 : 3)}
                   options={[
-                    { value: "3", label: "За 3 месяца" },
-                    { value: "6", label: "За 6 месяцев" },
+                    { value: "3", label: t("form.threeMonths") },
+                    { value: "6", label: t("form.sixMonths") },
                   ]}
                 />
-                <p className="text-xs text-muted-foreground">
-                  По подтверждённым расходам за полные календарные месяцы, включая месяцы без расходов. Сумма обновляется автоматически.
-                </p>
+                <p className="text-xs text-muted-foreground">{t("form.expensesHint")}</p>
               </Field>
             </>
           )}
           <Field>
-            <FieldLabel htmlFor="goal-date">Срок (необязательно)</FieldLabel>
+            <FieldLabel htmlFor="goal-date">{t("form.deadline")}</FieldLabel>
             <DateField id="goal-date" value={date} today={today} onChange={setDate} clearable />
           </Field>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field>
-              <FieldLabel htmlFor="goal-priority">Приоритет (1 — первый)</FieldLabel>
+              <FieldLabel htmlFor="goal-priority">{t("form.priority")}</FieldLabel>
               <Input
                 id="goal-priority"
                 type="number"
@@ -265,20 +268,15 @@ export function GoalEditor({
             </Field>
             {kind === "account" ? (
               <Field>
-                <FieldLabel htmlFor="goal-cap">Лимит из счёта (необязательно)</FieldLabel>
+                <FieldLabel htmlFor="goal-cap">{t("form.cap")}</FieldLabel>
                 <MoneyInput id="goal-cap" value={cap} onChange={setCap} currency={account?.currency ?? cur} />
               </Field>
             ) : null}
           </div>
-          {kind === "account" ? (
-            <p className="text-xs text-muted-foreground">
-              Единственная цель без лимита получает весь баланс. Общий счёт распределяется по приоритету: сначала до суммы первой цели или
-              её лимита, затем остаток следующей. При равном приоритете порядок фиксирован. Перевод увеличивает общий остаток счёта.
-            </p>
-          ) : null}
+          {kind === "account" ? <p className="text-xs text-muted-foreground">{t("form.allocationHint")}</p> : null}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field>
-              <FieldLabel htmlFor="goal-icon">Значок</FieldLabel>
+              <FieldLabel htmlFor="goal-icon">{t("form.icon")}</FieldLabel>
               <Select
                 value={icon}
                 onValueChange={(v) => v && setIcon(v)}
@@ -301,15 +299,11 @@ export function GoalEditor({
               </Select>
             </Field>
             <Field>
-              <FieldLabel htmlFor="goal-color">Цвет</FieldLabel>
+              <FieldLabel htmlFor="goal-color">{t("form.color")}</FieldLabel>
               <Input id="goal-color" type="color" value={color} onChange={(e) => setColor(e.target.value)} />
             </Field>
           </div>
-          {goal ? (
-            <p className="text-xs text-muted-foreground">
-              Изменение цели не меняет уже настроенное расписание. Его можно отключить и настроить заново.
-            </p>
-          ) : null}
+          {goal ? <p className="text-xs text-muted-foreground">{t("form.scheduleHint")}</p> : null}
           {error ? (
             <p role="alert" className="text-sm text-destructive">
               {error}
@@ -317,10 +311,10 @@ export function GoalEditor({
           ) : null}
           <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose}>
-              Отмена
+              {t("actions.cancel")}
             </Button>
             <Button type="submit" disabled={pending}>
-              {goal ? "Сохранить" : "Создать цель"}
+              {goal ? t("actions.save") : t("view.create")}
             </Button>
           </div>
         </form>

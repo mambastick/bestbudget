@@ -1,3 +1,4 @@
+import { importMessage } from "@/domain/import/messages"
 import { afterAll, describe, expect, it } from "vitest"
 import { and, eq } from "drizzle-orm"
 import { closeDb, getDb } from "@/db"
@@ -58,7 +59,7 @@ describe("statement import integration", () => {
     expect(await commit(h, first)).toMatchObject({ created: 1 })
     expect(await commit(h, first)).toMatchObject({ created: 1 })
     const repeated = await preview(h, [line()])
-    expect(repeated.batch.warnings.join(" ")).toMatch(/уже импортировали/)
+    expect(repeated.batch.warnings).toContain(importMessage("repeatedFile"))
     expect(repeated.rows[0]!.proposal.candidates[0]!.kind).toBe("duplicate")
     expect(repeated.rows[0]!.decision).toBe("skip")
     expect(await commit(h, repeated)).toMatchObject({ created: 0, skipped: 1 })
@@ -252,7 +253,7 @@ describe("statement import integration", () => {
     const amount = first.reduce((sum, p) => sum + p.amount, 0)
     const full = line(csvAmount(-amount).replace(",", "."), date)
     const batch = await preview(h, [full, line(csvAmount(-first[0]!.amount).replace(",", "."), date)])
-    expect(batch.rows.every((r) => r.decision === "skip" && r.normalized.errors.some((e) => e.includes("платежом по кредиту")))).toBe(true)
+    expect(batch.rows.every((r) => r.decision === "skip" && r.normalized.errors.some((e) => e === importMessage("loanPayment")))).toBe(true)
     expect(await commit(h, batch)).toMatchObject({ created: 0, confirmed: 0, skipped: 2 })
     expect(await actual(h.ctx.householdId)).toHaveLength(0)
     // A pre-existing draft must also be refused after a loan schedule appears.
@@ -359,7 +360,7 @@ describe("statement import integration", () => {
     expect(await listImportProfiles(h.ctx)).toHaveLength(1)
     const second = await preview(h, [line("-451.00", "2026-10-22")])
     expect(second.rows[0]!.categoryId).toBe(h.cat("Прочее"))
-    expect(second.rows[0]!.proposal.categorySource).toMatch(/Правило v1/)
+    expect(second.rows[0]!.proposal.categorySource).toBe(importMessage("rule", { version: 1, priority: 100 }))
     expect(await getDb().select().from(categoryRules).where(eq(categoryRules.householdId, h.ctx.householdId))).toHaveLength(1)
   })
   it("round-trips BestBudget export with a cross-currency transfer and injection escaping", async () => {

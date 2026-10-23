@@ -38,7 +38,9 @@ export interface Allocation {
 export function allocateGoals(goals: readonly Allocation[], balances: ReadonlyMap<string, number>): Map<string, number> {
   const remaining = new Map(balances)
   const result = new Map<string, number>()
-  for (const g of [...goals].sort((a, b) => a.priority - b.priority || a.sortOrder - b.sortOrder || a.id.localeCompare(b.id))) {
+  for (const g of [...goals].sort(
+    (a, b) => a.priority - b.priority || a.sortOrder - b.sortOrder || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  )) {
     const available = Math.max(0, remaining.get(g.accountId) ?? 0)
     const allocated = g.cap === null ? 0 : Math.min(available, Math.max(0, g.cap))
     result.set(g.id, allocated)
@@ -89,7 +91,12 @@ export function goalMetrics(input: {
   }
 }
 
-export const GOAL_STATUS_LABELS = { achieved: "Достигнута", no_deadline: "Без срока", behind: "Отстаём", on_track: "В графике" } as const
+export const GOAL_STATUS_LABELS = {
+  achieved: "status.achieved",
+  no_deadline: "status.no_deadline",
+  behind: "status.behind",
+  on_track: "status.on_track",
+} as const
 
 /** Shares the recurrence engine's clamping and slot count with the funding form. */
 export function automaticGoalSchedule(today: string, targetDate: string, day: number, fundingGap: number) {

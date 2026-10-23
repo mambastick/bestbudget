@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server"
 import { Target } from "lucide-react"
 import { EmptyState } from "@/components/app/empty-state"
 import { LinkButton } from "@/components/app/link-button"
@@ -7,15 +8,16 @@ import { listGoals } from "@/server/services/goals"
 import { GoalCard } from "./goal-card"
 
 export async function GoalsWidget({ ctx }: { ctx: HouseholdCtx }) {
+  const t = await getTranslations("goals")
   const { goals } = await listGoals(ctx)
   const active = goals.filter((g) => g.status !== "archived").slice(0, 3)
   return (
     <Section
-      title="Цели"
-      description="Приоритетные накопления семьи"
+      title={t("page.title")}
+      description={t("widget.description")}
       action={
         <LinkButton href="/goals" variant="ghost" size="sm">
-          Все цели
+          {t("page.all")}
         </LinkButton>
       }
     >
@@ -26,7 +28,7 @@ export async function GoalsWidget({ ctx }: { ctx: HouseholdCtx }) {
           ))}
         </div>
       ) : (
-        <EmptyState icon={Target} title="На что копим?" description="Создайте цель, чтобы видеть прогресс накоплений." />
+        <EmptyState icon={Target} title={t("view.emptyTitle")} description={t("widget.empty")} />
       )}
     </Section>
   )

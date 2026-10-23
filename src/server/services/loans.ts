@@ -1,8 +1,9 @@
 import "server-only"
+import { assetTranslator } from "@/i18n/assets"
 import { and, asc, eq, gte, isNull, lte, ne, notInArray, or, gt, sql } from "drizzle-orm"
 import { z } from "zod"
 import { getDb, type DbOrTx } from "@/db"
-import { categories, financialAccounts, loanEvents, loans, transactions, type Loan, type LoanEvent } from "@/db/schema"
+import { categories, financialAccounts, loanEvents, loans, transactions, users, type Loan, type LoanEvent } from "@/db/schema"
 import {
   calculateLoanSchedule,
   LoanCalculationError,
@@ -126,6 +127,7 @@ export async function createLoan(ctx: HouseholdCtx, raw: LoanInput) {
       )
       .for("update")
     if (!paymentAccount || paymentAccount.kind === "loan") throw new AppError("loan.activePaymentAccount")
+    const interestCategoryName = assetTranslator("loans", ctx.locale)("generated.interestCategory")
     let categoryId = input.interestCategoryId
     if (!categoryId) {
       await tx
@@ -133,7 +135,7 @@ export async function createLoan(ctx: HouseholdCtx, raw: LoanInput) {
         .values({
           householdId: ctx.householdId,
           kind: "expense",
-          name: "Проценты по кредитам",
+          name: interestCategoryName,
           icon: "landmark",
           color: "#dc2626",
           sortOrder: 1000,
@@ -146,7 +148,7 @@ export async function createLoan(ctx: HouseholdCtx, raw: LoanInput) {
           and(
             eq(categories.householdId, ctx.householdId),
             eq(categories.kind, "expense"),
-            sql`lower(${categories.name}) = lower('Проценты по кредитам')`,
+            sql`lower(${categories.name}) = lower(${interestCategoryName})`,
             isNull(categories.archivedAt),
           ),
         )
@@ -187,7 +189,7 @@ export async function createLoan(ctx: HouseholdCtx, raw: LoanInput) {
         createdBy: ctx.userId,
       })
       .returning()
-    await materialize(tx, loan!, todayIn(ctx.timezone))
+    await materialize(tx, loan!, todayIn(ctx.timezone), undefined, ctx.locale)
     await audit(
       {
         action: "loan.create",
@@ -203,7 +205,7 @@ export async function createLoan(ctx: HouseholdCtx, raw: LoanInput) {
   })
 }
 
-function plannedParts(loan: Loan, row: LoanScheduleRow) {
+function plannedParts(loan: Loan, row: LoanScheduleRow, locale: string) {
   const base = {
     householdId: loan.householdId,
     loanId: loan.id,
@@ -212,7 +214,7 @@ function plannedParts(loan: Loan, row: LoanScheduleRow) {
     accountId: loan.paymentAccountId,
     date: row.date,
     status: "planned" as const,
-    title: "Платёж по кредиту",
+    title: assetTranslator("loans", locale)("generated.payment"),
     createdBy: loan.createdBy,
     updatedBy: loan.createdBy,
   }
@@ -226,16 +228,23 @@ function plannedParts(loan: Loan, row: LoanScheduleRow) {
   ]
 }
 
-async function materialize(db: DbOrTx, loan: Loan, today: string, onlyDate?: string) {
+async function loanCreatorLocale(db: DbOrTx, loan: Loan) {
+  if (!loan.createdBy) return "en"
+  const [user] = await db.select({ locale: users.locale }).from(users).where(eq(users.id, loan.createdBy))
+  return user?.locale ?? "en"
+}
+
+async function materialize(db: DbOrTx, loan: Loan, today: string, onlyDate?: string, requestLocale?: string) {
   if (loan.status !== "active") return
   const data = await ledger(db, loan)
+  const locale = requestLocale ?? (await loanCreatorLocale(db, loan))
   const rows = schedule(loan, data.events, data.posted).filter(
     (r) => r.kind === "scheduled" && (onlyDate ? r.date === onlyDate : r.date <= addDays(today, 62)),
   )
   const taken = new Set(data.rows.map((r) => r.loanDueDate))
   for (const row of rows) {
     if (taken.has(row.date)) continue
-    const parts = plannedParts(loan, row)
+    const parts = plannedParts(loan, row, locale)
     if (parts.length)
       await db
         .insert(transactions)
@@ -245,12 +254,13 @@ async function materialize(db: DbOrTx, loan: Loan, today: string, onlyDate?: str
 }
 
 /** The loan row serializes materialization, payment confirmation and schedule changes. */
-export async function ensureLoansMaterialized(ctx: Pick<HouseholdCtx, "householdId">, today: string) {
+export async function ensureLoansMaterialized(ctx: Pick<HouseholdCtx, "householdId" | "locale">, today: string) {
   const ids = await getDb()
     .select({ id: loans.id })
     .from(loans)
     .where(and(eq(loans.householdId, ctx.householdId), eq(loans.status, "active")))
-  for (const { id } of ids) await getDb().transaction(async (tx) => materialize(tx, await owned(tx, ctx, id, true), today))
+  for (const { id } of ids)
+    await getDb().transaction(async (tx) => materialize(tx, await owned(tx, ctx, id, true), today, undefined, ctx.locale))
 }
 
 export async function materializeLoanPayment(ctx: HouseholdCtx, id: string, date: string) {
@@ -258,7 +268,7 @@ export async function materializeLoanPayment(ctx: HouseholdCtx, id: string, date
   isoDate.parse(date)
   await getDb().transaction(async (tx) => {
     const loan = await owned(tx, ctx, id, true)
-    await materialize(tx, loan, todayIn(ctx.timezone), date)
+    await materialize(tx, loan, todayIn(ctx.timezone), date, ctx.locale)
   })
   const [row] = await getDb()
     .select({ id: transactions.id })
@@ -321,7 +331,7 @@ export async function listLoans(ctx: HouseholdCtx) {
   return Promise.all(rows.map((r) => getLoan(ctx, r.id)))
 }
 
-async function regenerate(db: DbOrTx, loan: Loan, from: string, today: string) {
+async function regenerate(db: DbOrTx, loan: Loan, from: string, today: string, locale?: string) {
   // A touched payment is retained as a whole, including its other leg.
   const touched = await db
     .select({ key: transactions.loanPaymentKey })
@@ -348,7 +358,7 @@ async function regenerate(db: DbOrTx, loan: Loan, from: string, today: string) {
         : undefined,
     ),
   )
-  await materialize(db, loan, today)
+  await materialize(db, loan, today, undefined, locale)
 }
 
 export const loanEventInput = z.discriminatedUnion("type", [
@@ -398,25 +408,23 @@ export async function addLoanEvent(ctx: HouseholdCtx, id: string, version: numbe
       .values({ ...values, loanId: id, householdId: ctx.householdId, createdBy: ctx.userId })
       .returning()
     if (input.type === "prepayment")
-      await tx
-        .insert(transactions)
-        .values({
-          householdId: ctx.householdId,
-          loanId: id,
-          loanDueDate: input.date,
-          loanPart: "prepayment",
-          loanPaymentKey: `${id}:extra:${input.date}`,
-          type: "transfer",
-          status: "posted",
-          amount: event!.amount!,
-          date: input.date,
-          accountId: loan.paymentAccountId,
-          toAccountId: loan.accountId,
-          title: "Досрочное погашение",
-          createdBy: ctx.userId,
-          updatedBy: ctx.userId,
-          postedAt: new Date(),
-        })
+      await tx.insert(transactions).values({
+        householdId: ctx.householdId,
+        loanId: id,
+        loanDueDate: input.date,
+        loanPart: "prepayment",
+        loanPaymentKey: `${id}:extra:${input.date}`,
+        type: "transfer",
+        status: "posted",
+        amount: event!.amount!,
+        date: input.date,
+        accountId: loan.paymentAccountId,
+        toAccountId: loan.accountId,
+        title: assetTranslator("loans", ctx.locale)("generated.prepayment"),
+        createdBy: ctx.userId,
+        updatedBy: ctx.userId,
+        postedAt: new Date(),
+      })
     if (input.type === "reconciliation") {
       // Reconciliation supersedes unconfirmed historical slots; skipped rows reserve their keys.
       await tx
@@ -436,7 +444,7 @@ export async function addLoanEvent(ctx: HouseholdCtx, id: string, version: numbe
       .set({ version: loan.version + 1 })
       .where(and(eq(loans.householdId, ctx.householdId), eq(loans.id, id)))
       .returning()
-    await regenerate(tx, updated!, input.date, today)
+    await regenerate(tx, updated!, input.date, today, ctx.locale)
     await audit(
       { action: `loan.${input.type}`, entityType: "loan", entityId: id, householdId: ctx.householdId, actorId: ctx.userId, meta: values },
       tx,
@@ -510,26 +518,28 @@ export async function confirmLoanPayment(ctx: HouseholdCtx, transactionId: strin
           })
           .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.id, before.id)))
       else if (value > 0) {
-        const planned = plannedParts(loan, {
-          n: 0,
-          date: ref.loanDueDate!,
-          principal,
-          interest,
-          payment: input.amount,
-          balance: 0,
-          kind: "scheduled",
-        }).find((r) => r.loanPart === part)!
-        await tx
-          .insert(transactions)
-          .values({
-            ...planned,
-            amount: value,
-            date: input.date,
-            status: "posted",
-            postedAt: new Date(),
-            version: 2,
-            updatedBy: ctx.userId,
-          })
+        const planned = plannedParts(
+          loan,
+          {
+            n: 0,
+            date: ref.loanDueDate!,
+            principal,
+            interest,
+            payment: input.amount,
+            balance: 0,
+            kind: "scheduled",
+          },
+          ctx.locale ?? "ru",
+        ).find((r) => r.loanPart === part)!
+        await tx.insert(transactions).values({
+          ...planned,
+          amount: value,
+          date: input.date,
+          status: "posted",
+          postedAt: new Date(),
+          version: 2,
+          updatedBy: ctx.userId,
+        })
       }
     }
     const [updated] = await tx
@@ -537,7 +547,7 @@ export async function confirmLoanPayment(ctx: HouseholdCtx, transactionId: strin
       .set({ version: loan.version + 1 })
       .where(and(eq(loans.householdId, ctx.householdId), eq(loans.id, loan.id)))
       .returning()
-    await regenerate(tx, updated!, addDays(ref.loanDueDate!, 1), todayIn(ctx.timezone))
+    await regenerate(tx, updated!, addDays(ref.loanDueDate!, 1), todayIn(ctx.timezone), ctx.locale)
     await audit(
       {
         action: "loan.payment_confirm",
@@ -617,13 +627,14 @@ export async function virtualLoanPayments(ctx: HouseholdCtx, from: string, to: s
       .from(financialAccounts)
       .where(and(eq(financialAccounts.householdId, ctx.householdId), eq(financialAccounts.id, loan.accountId)))
     const taken = new Set(data.rows.map((r) => r.loanDueDate))
+    const locale = ctx.locale ?? (await loanCreatorLocale(getDb(), loan))
     for (const r of schedule(loan, data.events, data.posted)) {
       if (r.kind !== "scheduled" || r.date < from || r.date > to || taken.has(r.date)) continue
       out.push(
-        ...plannedParts(loan, r).map((p) => ({
+        ...plannedParts(loan, r, locale).map((p) => ({
           ...p,
           ruleId: null,
-          title: `Платёж по кредиту: ${account!.name}`,
+          title: assetTranslator("loans", locale)("generated.namedPayment", { name: account!.name }),
           toAmount: null,
           toAccountId: "toAccountId" in p ? p.toAccountId : null,
           categoryId: "categoryId" in p ? p.categoryId : null,

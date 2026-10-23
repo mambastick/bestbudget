@@ -1,3 +1,6 @@
+import { importMessage } from "@/domain/import/messages"
+import bankData from "@/domain/import/bank-data.json"
+import { assetTranslator } from "@/i18n/assets"
 import "server-only"
 import { createHash } from "node:crypto"
 import { and, desc, eq, gte, isNotNull, lte, ne, sql } from "drizzle-orm"
@@ -136,15 +139,15 @@ export async function previewImport(ctx: HouseholdCtx, bytes: Uint8Array, raw: P
         cells,
         m,
         input.profile,
-        `${statement.sheets[input.file.sheet] ?? "CSV"}: строка ${input.file.headerRow + i + 1}`,
+        `${statement.sheets[input.file.sheet] ?? "CSV"}:${input.file.headerRow + i + 1}`,
       )
-      if (cells.length !== headers.length) normalized.errors.push("Число колонок не совпадает с заголовком")
+      if (cells.length !== headers.length) normalized.errors.push(importMessage("columnCount"))
       const account = resolveAccount(normalized.accountHint)
-      if (!account) normalized.errors.push("Сопоставьте счёт: " + (normalized.accountHint ?? "счёт не указан"))
-      else if (account.kind === "loan") normalized.errors.push("Выписка по счёту кредита: используйте раздел «Кредиты», чтобы сохранить состав платежа")
+      if (!account) normalized.errors.push(importMessage("accountRequired", { name: normalized.accountHint ?? "" }))
+      else if (account.kind === "loan") normalized.errors.push(importMessage("loanAccount"))
       else if (account.currency !== normalized.currency)
-        normalized.errors.push(`Валюта строки ${normalized.currency} не совпадает со счётом ${account.currency}`)
-      if (normalized.typeHint === "Перевод") {
+        normalized.errors.push(importMessage("currencyMismatch", { currency: normalized.currency, accountCurrency: account.currency }))
+      if (normalized.typeHint === bankData.markers.transfer) {
         const destination = resolveAccount(normalized.toAccountHint)
         if (
           !destination ||
@@ -154,7 +157,7 @@ export async function previewImport(ctx: HouseholdCtx, bytes: Uint8Array, raw: P
           !normalized.toAmount ||
           normalized.toAmount <= 0
         )
-          normalized.errors.push("Проверьте счёт и сумму зачисления перевода")
+          normalized.errors.push(importMessage("transferDestination"))
       }
       const category = suggestCategory(normalized, rules, cats)
       if (normalized.errors.length) normalized.confidence = "review"
@@ -182,12 +185,9 @@ export async function previewImport(ctx: HouseholdCtx, bytes: Uint8Array, raw: P
     .from(importBatches)
     .where(and(eq(importBatches.householdId, ctx.householdId), eq(importBatches.fileHash, hash), eq(importBatches.status, "committed")))
     .limit(1)
-  if (previous.length) warnings.push("Этот файл уже импортировали. Проверьте дубли; повтор файла по умолчанию пропускается.")
-  if (input.profile.startsWith("tbank"))
-    warnings.push("Т-Банк: экспериментальный профиль, актуальный формат банка не подтверждён. Проверьте предпросмотр.")
-  warnings.push(
-    "Дата учёта — дата проводки, если она есть, иначе дата операции. Начальный остаток счёта должен относиться к началу импортируемого периода.",
-  )
+  if (previous.length) warnings.push(importMessage("repeatedFile"))
+  if (input.profile.startsWith("tbank")) warnings.push(importMessage("bankExperimental"))
+  warnings.push(importMessage("effectiveDate"))
   await addCandidates(db, ctx, parsed, input, dates[0], dates.at(-1))
   return db.transaction(async (tx) => {
     const [batch] = await tx
@@ -317,7 +317,7 @@ function matchesLoanPayment(row: Pick<ImportRow, "normalized" | "accountId">, in
   }
   return false
 }
-const loanImportReason = "Совпадает с платежом по кредиту. Строка исключена: подтвердите платёж целиком в разделе «Кредиты», чтобы учесть тело и проценты без дублей."
+const loanImportReason = importMessage("loanPayment")
 
 async function addCandidates(db: DbOrTx, ctx: HouseholdCtx, rows: PreviewRow[], input: PreviewInput, from?: string, to?: string) {
   const prior = await priorFingerprints(db, ctx)
@@ -416,17 +416,17 @@ async function addCandidates(db: DbOrTx, ctx: HouseholdCtx, rows: PreviewRow[], 
       candidates.push({
         kind: "duplicate",
         transactionId: duplicate.transactionId ?? undefined,
-        label: "Совпадает с ранее импортированной строкой",
+        label: importMessage("duplicate"),
       })
     }
-    if (repeatedExternal) candidates.push({ kind: "duplicate", label: "Повтор стабильного банковского ID внутри файла" })
+    if (repeatedExternal) candidates.push({ kind: "duplicate", label: importMessage("repeatedId") })
     const exportedTarget = input.profile === "bestbudget-export" && n.externalId ? existingById.get(n.externalId) : undefined
     if (exportedTarget && exportedTarget.accountId === row.accountId && exportedTarget.status === n.exportStatus) {
       candidates.push({
         kind: "manual",
         transactionId: exportedTarget.id,
         version: exportedTarget.version,
-        label: `ID операции уже есть: ${exportedTarget.date} · ${exportedTarget.title}`,
+        label: importMessage("existingId", { date: exportedTarget.date, title: exportedTarget.title }),
       })
       row.decision = "skip"
       continue
@@ -437,7 +437,12 @@ async function addCandidates(db: DbOrTx, ctx: HouseholdCtx, rows: PreviewRow[], 
     }
     for (let day = -2; day <= 2; day++) {
       for (const t of (manual.get(`${row.accountId}:${n.amountMinorSigned}:${addDays(n.effectiveDate!, day)}`) ?? []).slice(0, 4))
-        candidates.push({ kind: "manual", transactionId: t.id, version: t.version, label: `Уже есть: ${t.date} · ${t.title}` })
+        candidates.push({
+          kind: "manual",
+          transactionId: t.id,
+          version: t.version,
+          label: importMessage("existing", { date: t.date, title: t.title }),
+        })
     }
     let planCount = 0
     const amount = Math.abs(n.amountMinorSigned!)
@@ -453,7 +458,14 @@ async function addCandidates(db: DbOrTx, ctx: HouseholdCtx, rows: PreviewRow[], 
       }
       for (let i = lo; i < bucket.length && bucket[i]!.amount <= amount + input.plannedTolerance && planCount < 20; i++, planCount++) {
         const t = bucket[i]!
-        candidates.push({ kind: "planned", transactionId: t.id, version: t.version, transactionType: t.type, categoryId: t.categoryId, label: `Подтвердить плановую: ${t.date} · ${t.title}` })
+        candidates.push({
+          kind: "planned",
+          transactionId: t.id,
+          version: t.version,
+          transactionType: t.type,
+          categoryId: t.categoryId,
+          label: importMessage("planned", { date: t.date, title: t.title }),
+        })
       }
     }
     let transferCount = 0
@@ -461,7 +473,7 @@ async function addCandidates(db: DbOrTx, ctx: HouseholdCtx, rows: PreviewRow[], 
       if (account === row.accountId) continue
       for (let day = -2; day <= 2 && transferCount < 20; day++) {
         for (const other of (dates.get(addDays(n.effectiveDate!, day)) ?? []).slice(0, 20 - transferCount)) {
-          candidates.push({ kind: "transfer", rowIndex: other.rowIndex, label: `Свой перевод: строка ${other.rowIndex + 1}` })
+          candidates.push({ kind: "transfer", rowIndex: other.rowIndex, label: importMessage("transferRow", { row: other.rowIndex + 1 }) })
           transferCount++
         }
       }
@@ -483,7 +495,7 @@ async function addCandidates(db: DbOrTx, ctx: HouseholdCtx, rows: PreviewRow[], 
             kind: "transfer",
             transactionId: t.id,
             version: t.version,
-            label: `Свой перевод с операцией: ${t.date} · ${t.title}`,
+            label: importMessage("transferTransaction", { date: t.date, title: t.title }),
           })
           existingTransferCount++
           seenTransfers.add(t.id)
@@ -491,7 +503,7 @@ async function addCandidates(db: DbOrTx, ctx: HouseholdCtx, rows: PreviewRow[], 
         if (existingTransferCount >= 20) break
       }
     }
-    if (planCount > 1) n.warnings.push("Несколько подходящих плановых операций: выберите одну вручную")
+    if (planCount > 1) n.warnings.push(importMessage("multiplePlanned"))
     row.decision =
       candidates.some((c) => c.kind === "duplicate" || c.kind === "manual") || planCount > 1
         ? "skip"
@@ -521,11 +533,18 @@ export async function commitImport(ctx: HouseholdCtx, raw: z.input<typeof commit
       .from(importRows)
       .where(and(eq(importRows.householdId, ctx.householdId), eq(importRows.batchId, batch.id)))
       .orderBy(importRows.rowIndex)
-    const loanRows = await tx.select().from(transactions).where(and(
-      eq(transactions.householdId, ctx.householdId), isNotNull(transactions.loanId), ne(transactions.status, "skipped"),
-      batch.periodFrom ? gte(transactions.date, addDays(batch.periodFrom, -Math.max(batch.config.plannedDays, 2))) : undefined,
-      batch.periodTo ? lte(transactions.date, addDays(batch.periodTo, Math.max(batch.config.plannedDays, 2))) : undefined,
-    ))
+    const loanRows = await tx
+      .select()
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.householdId, ctx.householdId),
+          isNotNull(transactions.loanId),
+          ne(transactions.status, "skipped"),
+          batch.periodFrom ? gte(transactions.date, addDays(batch.periodFrom, -Math.max(batch.config.plannedDays, 2))) : undefined,
+          batch.periodTo ? lte(transactions.date, addDays(batch.periodTo, Math.max(batch.config.plannedDays, 2))) : undefined,
+        ),
+      )
     const loanIndex = loanPaymentIndex(loanRows)
     const decisions = new Map(input.decisions.map((d) => [d.rowId, d]))
     const rowIds = new Set(rows.map((r) => r.id))
@@ -691,7 +710,7 @@ export async function commitImport(ctx: HouseholdCtx, raw: z.input<typeof commit
               amount: Math.abs(n.amountMinorSigned),
               date: debit.normalized.effectiveDate!,
               status: "posted",
-              title: "Перевод между своими счетами",
+              title: assetTranslator("import", ctx.locale)("generated.transfer"),
               description: debit.normalized.descriptionRaw,
             },
             tx,
@@ -722,7 +741,7 @@ export async function commitImport(ctx: HouseholdCtx, raw: z.input<typeof commit
                 date: n.amountMinorSigned < 0 ? n.effectiveDate : before.date,
                 status: "posted",
                 version: before.version,
-                title: "Перевод между своими счетами",
+                title: assetTranslator("import", ctx.locale)("generated.transfer"),
               },
               tx,
             )
@@ -731,8 +750,8 @@ export async function commitImport(ctx: HouseholdCtx, raw: z.input<typeof commit
           }
         }
       } else {
-        const destination = n.typeHint === "Перевод" ? findAccount(n.toAccountHint) : undefined
-        if (n.typeHint === "Перевод" && (!destination || destination.currency !== n.toCurrency))
+        const destination = n.typeHint === bankData.markers.transfer ? findAccount(n.toAccountHint) : undefined
+        if (n.typeHint === bankData.markers.transfer && (!destination || destination.currency !== n.toCurrency))
           throw new AppError("import.destinationChanged")
         const values: TransactionInput = {
           type: destination ? "transfer" : n.amountMinorSigned < 0 ? "expense" : "income",
@@ -791,7 +810,13 @@ export function reconcileBalances(rows: Pick<ImportRow, "normalized" | "accountI
     groups.set(key, group)
   }
   return [...groups.entries()].flatMap(([key, group]) => {
-    const sorted = [...group].sort((a, b) => (a.normalized.effectiveDate ?? "").localeCompare(b.normalized.effectiveDate ?? ""))
+    const sorted = [...group].sort((a, b) =>
+      (a.normalized.effectiveDate ?? "") < (b.normalized.effectiveDate ?? "")
+        ? -1
+        : (a.normalized.effectiveDate ?? "") > (b.normalized.effectiveDate ?? "")
+          ? 1
+          : 0,
+    )
     const results: { accountId: string; currency: string; matches: boolean; expected: number; actual: number }[] = []
     let balance: number | null = null
     for (const { normalized: n } of sorted) {

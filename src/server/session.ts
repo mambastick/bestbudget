@@ -1,4 +1,5 @@
 import "server-only"
+import { getLocale } from "next-intl/server"
 import { cookies, headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { cache } from "react"
@@ -45,7 +46,7 @@ export const requireHousehold = cache(async (): Promise<HouseholdCtx & { user: S
     ctx = await resolveHouseholdCtx(user.id, first.id)
   }
   if (!ctx) redirect("/onboarding")
-  return { ...ctx, user }
+  return { ...ctx, user, locale: await getLocale() }
 })
 
 /** For server actions: same checks, but errors instead of redirects. */
@@ -59,11 +60,11 @@ export async function actionHousehold(): Promise<HouseholdCtx> {
   const user = await actionUser()
   const preferred = (await cookies()).get(HOUSEHOLD_COOKIE)?.value
   const ctx = preferred ? await resolveHouseholdCtx(user.id, preferred) : null
-  if (ctx) return ctx
+  if (ctx) return { ...ctx, locale: await getLocale() }
   const [first] = await listMemberships(user.id)
   const fallback = first ? await resolveHouseholdCtx(user.id, first.id) : null
   if (!fallback) throw new AppError("session.householdForbidden", {}, "forbidden")
-  return fallback
+  return { ...fallback, locale: await getLocale() }
 }
 
 export async function actionSystemAdmin(): Promise<SessionUser> {

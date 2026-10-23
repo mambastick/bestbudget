@@ -1,3 +1,4 @@
+import { useTranslations, useLocale } from "next-intl"
 import { formatDateTime } from "@/lib/dates"
 import { History } from "lucide-react"
 import Link from "next/link"
@@ -18,8 +19,10 @@ export function ImportHistory({
     counters: { rows: number; created: number; confirmed: number }
   }[]
 }) {
+  const t = useTranslations("import")
+  const locale = useLocale()
   return (
-    <Section title="История импортов" description="Последние 100 партий. Черновик можно открыть снова и продолжить.">
+    <Section title={t("history.title")} description={t("history.description")}>
       {batches.length ? (
         <ul className="divide-y">
           {batches.map((b) => (
@@ -29,24 +32,24 @@ export function ImportHistory({
                 href={`/transactions/import?batch=${b.id}`}
               >
                 <span className="min-w-0 break-words">
-                  {PROFILES.find((p) => p.id === b.source)?.name ?? "Пользовательский профиль"}
+                  {PROFILES.find((p) => p.id === b.source) ? t(PROFILES.find((p) => p.id === b.source)!.name) : t("history.customProfile")}
                   <span className="block text-xs text-muted-foreground">
-                    {formatDateTime(b.createdAt, timeZone)} · строк: {b.counters.rows}
+                    {formatDateTime(b.createdAt, timeZone, locale)} · {t("history.rows", { count: b.counters.rows })}
                   </span>
                 </span>
                 <span>
                   {b.status === "draft"
-                    ? "Черновик"
+                    ? t("history.draft")
                     : b.status === "undone"
-                      ? "Отменён"
-                      : `Готово · создано ${b.counters.created}, плановых ${b.counters.confirmed}`}
+                      ? t("history.undone")
+                      : t("history.completed", { created: b.counters.created, confirmed: b.counters.confirmed })}
                 </span>
               </Link>
             </li>
           ))}
         </ul>
       ) : (
-        <EmptyState icon={History} title="Импортов пока нет" description="Выберите файл, проверьте предпросмотр и подтвердите запись." />
+        <EmptyState icon={History} title={t("history.emptyTitle")} description={t("history.emptyDescription")} />
       )}
     </Section>
   )

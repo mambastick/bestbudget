@@ -1,0 +1,167 @@
+{
+  "page": {
+    "title": "Savings goals",
+    "description": "Plan your savings with priorities, deadlines and contributions",
+    "detailDescription": "Your household’s savings plan",
+    "detailTitle": "Savings goal",
+    "all": "All goals"
+  },
+  "widget": {
+    "description": "Your household’s top savings goals",
+    "empty": "Create a goal to track your savings."
+  },
+  "view": {
+    "status": "Goal status",
+    "active": "Active",
+    "archived": "Archived",
+    "create": "Create goal",
+    "emptyArchive": "No archived goals",
+    "emptyTitle": "What are you saving for?",
+    "emptyDescription": "A holiday, a car or an emergency fund — set a goal and track your progress."
+  },
+  "icons": {
+    "savings": "Savings",
+    "holiday": "Holiday",
+    "car": "Car",
+    "home": "Home",
+    "repairs": "Home improvements",
+    "education": "Education",
+    "health": "Health",
+    "gift": "Gift",
+    "other": "Other"
+  },
+  "form": {
+    "selectAccount": "Choose an account",
+    "invalid": "Enter a target amount and savings account, and check the allocation limit.",
+    "saved": "Goal saved",
+    "created": "Goal created",
+    "edit": "Edit goal",
+    "new": "New goal",
+    "description": "Household savings with a clear deadline and contribution plan.",
+    "name": "Name",
+    "placeholder": "Summer holiday",
+    "method": "Savings method",
+    "account": "In an account",
+    "manual": "Manual",
+    "savingsAccount": "Savings account",
+    "createAccountHint": "Create a savings account first.",
+    "accounts": "Accounts",
+    "manualHint": "Manual contributions do not change account balances or household income.",
+    "kind": "Goal type",
+    "amount": "Amount",
+    "emergency": "Emergency fund",
+    "currency": "Goal currency",
+    "target": "Target amount",
+    "expenseMonths": "Months of expenses to cover",
+    "averageExpenses": "Average expenses",
+    "threeMonths": "Over 3 months",
+    "sixMonths": "Over 6 months",
+    "expensesHint": "Based on posted expenses for full calendar months, including months with no expenses. The amount updates automatically.",
+    "deadline": "Deadline (optional)",
+    "priority": "Priority (1 is highest)",
+    "cap": "Account allocation limit (optional)",
+    "allocationHint": "A single goal without a limit receives the full balance. Shared accounts are allocated by priority: up to the first goal’s target or limit, then the next. Equal priorities use a fixed order. Transfers increase the account’s total balance.",
+    "icon": "Icon",
+    "color": "Colour",
+    "scheduleHint": "Editing a goal does not change its existing schedule. Turn the schedule off and set it up again to update it."
+  },
+  "actions": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "edit": "Edit",
+    "archive": "Archive",
+    "restore": "Restore"
+  },
+  "card": {
+    "manual": "Manual savings",
+    "noRate": "No exchange rate",
+    "archived": "Archived",
+    "rateRequired": "Exchange rate needed",
+    "noExpenses": "No expenses to calculate from",
+    "expenseMonths": "{count, plural, one {# month of expenses} other {# months of expenses}}",
+    "target": "of {amount}",
+    "progress": "Progress: {name}",
+    "deadline": "By {date}",
+    "monthly": "Save <strong>{amount}/month</strong>",
+    "automation": "Automatic contributions: {amount} · day {day}"
+  },
+  "status": {
+    "achieved": "Achieved",
+    "no_deadline": "No deadline",
+    "behind": "Behind schedule",
+    "on_track": "On track"
+  },
+  "chart": {
+    "actual": "Saved",
+    "forecast": "At current pace",
+    "planned": "Based on planned transactions"
+  },
+  "detail": {
+    "noDate": "No estimated date yet",
+    "beyondHorizon": "Goal not reached within 10 years",
+    "allocationHint": "A single goal without a limit receives the full balance. Shared account funds are allocated by priority up to each target or limit. Withdrawals reduce progress. Archiving a goal releases its allocation.",
+    "automationHint": "Automatic contributions require an allocation limit that covers the full target and exchange rates for higher priority goals.",
+    "addExpenses": "Add expenses for previous months to calculate the amount.",
+    "contribute": "Add money",
+    "automate": "Save automatically",
+    "recurring": "Recurring transactions",
+    "chartTitle": "Savings over time",
+    "chartDescription": "Actual savings and two separate projections: your average pace over 3 months and planned transactions. These are not added together. Projections cover up to 10 years, using today’s exchange rates and emergency fund target.",
+    "remaining": "Remaining: <strong>{amount}</strong>",
+    "pace": "Average pace over the last 3 months: <strong>{amount}/month</strong>",
+    "historicalDate": "At current pace: <strong>{date}</strong>",
+    "plannedDate": "Based on planned transfers: <strong>{date}</strong>",
+    "emergency": "Emergency fund: {count, plural, one {# month} other {# months}} × average expenses over {window, plural, one {# full month} other {# full months}}."
+  },
+  "automation": {
+    "stopTitle": "Turn off automatic contributions?",
+    "stopDescription": "Future transfers will be removed. Posted transfers remain in your history.",
+    "stopConfirm": "Turn off",
+    "stop": "Turn off automatic contributions",
+    "stopped": "Automatic contributions turned off"
+  },
+  "archive": {
+    "title": "Archive goal?",
+    "restoreTitle": "Restore goal?",
+    "description": "Future automatic contributions will stop. Your history is kept and the account funds become available to other goals.",
+    "restoreDescription": "The goal will receive account allocations again. You can set up automatic contributions again.",
+    "success": "Goal archived",
+    "restored": "Goal restored"
+  },
+  "history": {
+    "title": "Contribution history",
+    "accountDescription": "Changes to the goal’s allocated amount by account transaction date, valued using current exchange rates and allocations.",
+    "manualDescription": "Manual contributions and withdrawals. To correct an entry, add an opposite contribution with a comment.",
+    "empty": "No contributions yet.",
+    "allocationChange": "Change in allocated account balance"
+  },
+  "funding": {
+    "automated": "Automatic contributions set up",
+    "recorded": "Contribution recorded",
+    "invalid": "Enter an amount and date. For a currency transfer, also enter the amount received.",
+    "title": "Add money to goal",
+    "autoDescription": "We’ll create monthly planned transfers up to the goal’s deadline. The amount is based on the remaining contributions. Confirm each transfer when it happens.",
+    "manualDescription": "Record a contribution or withdrawal from your savings.",
+    "accountDescription": "Record a posted transfer to the savings account. Funds are allocated to goals by priority.",
+    "source": "Source account",
+    "noSource": "You need another active account.",
+    "day": "Day of month",
+    "noDates": "No available dates before the deadline",
+    "add": "Add money",
+    "take": "Withdraw",
+    "debit": "Amount sent",
+    "credit": "Amount received",
+    "date": "Date",
+    "comment": "Comment",
+    "setup": "Set up",
+    "record": "Record",
+    "schedule": "Amount received: {scheduled, select, yes {{amount} × {count, plural, one {# contribution} other {# contributions}}} other {No available dates before the deadline}}. Includes funding gaps for higher priority goals sharing the account. The rate is fixed at creation and can be adjusted when confirming each transfer."
+  },
+  "generated": {
+    "transfer": "Towards goal: {name}"
+  },
+  "warnings": {
+    "missingRate": "Missing {currency} exchange rate. Goal progress and projections are incomplete.",
+    "rateDate": "{currency}: exchange rate from {date}"
+  }
+}

@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "next-intl"
+
 import { useState } from "react"
 import { saveCategoryRuleAction } from "@/app/actions/import"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog"
@@ -13,6 +15,7 @@ import { CurrencySelect } from "@/components/app/currency-select"
 import type { Currency } from "@/lib/currencies"
 
 export function CategoryRuleEditor({ categories }: { categories: { id: string; name: string; kind: string }[] }) {
+  const t = useTranslations("import")
   const [category, setCategory] = useState("none")
   const [mode, setMode] = useState("substring")
   const [pattern, setPattern] = useState("")
@@ -37,50 +40,50 @@ export function CategoryRuleEditor({ categories }: { categories: { id: string; n
       priority,
     })
     setBusy(false)
-    setMessage(result.ok ? "Правило сохранено. Оно применится при следующем предпросмотре." : result.error)
+    setMessage(result.ok ? t("rule.saved") : result.error)
   }
   return (
     <Dialog>
       <DialogTrigger render={<Button variant="ghost" className="h-auto justify-start whitespace-normal text-left" />}>
-        Создать правило категории с условиями
+        {t("rule.create")}
       </DialogTrigger>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Правило категории</DialogTitle>
-          <DialogDescription>Для следующих импортов этой семьи.</DialogDescription>
+          <DialogTitle>{t("rule.title")}</DialogTitle>
+          <DialogDescription>{t("rule.description")}</DialogDescription>
         </DialogHeader>
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <ImportSelect
-            label="Категория правила"
+            label={t("rule.category")}
             value={category}
             onChange={setCategory}
             options={[
-              { value: "none", label: "Выберите категорию" },
+              { value: "none", label: t("bulk.chooseCategory") },
               ...categories.map((c) => ({
                 value: c.id,
-                label: `${c.kind === "income" ? "Доход" : "Расход"} · ${c.name}`,
+                label: `${c.kind === "income" ? t("category.income") : t("fields.expense")} · ${c.name}`,
               })),
             ]}
           />
           <ImportSelect
-            label="Условие описания"
+            label={t("rule.condition")}
             value={mode}
             onChange={setMode}
             options={[
-              { value: "substring", label: "Содержит подстроку" },
-              { value: "regex", label: "Регулярное выражение RE2" },
+              { value: "substring", label: t("rule.substring") },
+              { value: "regex", label: t("rule.regex") },
             ]}
           />
           <div className="grid gap-1.5">
-            <Label htmlFor="rule-pattern">Подстрока / выражение (необязательно)</Label>
+            <Label htmlFor="rule-pattern">{t("rule.pattern")}</Label>
             <Input id="rule-pattern" maxLength={200} value={pattern} onChange={(e) => setPattern(e.target.value)} />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="rule-mcc">MCC (необязательно)</Label>
+            <Label htmlFor="rule-mcc">{t("rule.mcc")}</Label>
             <Input id="rule-mcc" maxLength={4} value={mcc} onChange={(e) => setMcc(e.target.value)} />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="rule-currency">Валюта правила</Label>
+            <Label htmlFor="rule-currency">{t("rule.currency")}</Label>
             <CurrencySelect
               id="rule-currency"
               value={currency}
@@ -92,15 +95,15 @@ export function CategoryRuleEditor({ categories }: { categories: { id: string; n
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="rule-min">Модуль суммы от ({currency})</Label>
+            <Label htmlFor="rule-min">{t("rule.min", { currency })}</Label>
             <MoneyInput id="rule-min" currency={currency} value={minimum} onChange={setMinimum} />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="rule-max">Модуль суммы до ({currency})</Label>
+            <Label htmlFor="rule-max">{t("rule.max", { currency })}</Label>
             <MoneyInput id="rule-max" currency={currency} value={maximum} onChange={setMaximum} />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="rule-priority">Приоритет (больше — раньше)</Label>
+            <Label htmlFor="rule-priority">{t("rule.priority")}</Label>
             <Input
               id="rule-priority"
               type="number"
@@ -110,12 +113,9 @@ export function CategoryRuleEditor({ categories }: { categories: { id: string; n
               onChange={(e) => setPriority(Number(e.target.value))}
             />
           </div>
-          <p className="text-xs text-muted-foreground sm:col-span-2">
-            Условия объединяются через «и». Правило действует для выбранной валюты. RE2 не поддерживает lookaround и обратные ссылки. После
-            сохранения создайте предпросмотр заново.
-          </p>
+          <p className="text-xs text-muted-foreground sm:col-span-2">{t("rule.hint")}</p>
           <Button disabled={busy || category === "none"} onClick={() => void save()}>
-            Сохранить правило
+            {t("rule.save")}
           </Button>
           {message ? (
             <p role="status" className="break-words text-sm">

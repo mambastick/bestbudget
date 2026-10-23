@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "next-intl"
+
 import { useState } from "react"
 import { Target } from "lucide-react"
 import { EmptyState } from "@/components/app/empty-state"
@@ -22,6 +24,7 @@ export function GoalsView({
   currency: string
   canWrite: boolean
 }) {
+  const t = useTranslations("goals")
   const [tab, setTab] = useState("active")
   const [creating, setCreating] = useState(false)
   const visible = goals.filter((g) => (g.status === "archived") === (tab === "archived"))
@@ -29,15 +32,15 @@ export function GoalsView({
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Segmented
-          aria-label="Статус целей"
+          aria-label={t("view.status")}
           value={tab}
           onChange={setTab}
           options={[
-            { value: "active", label: "Активные" },
-            { value: "archived", label: "Архив" },
+            { value: "active", label: t("view.active") },
+            { value: "archived", label: t("view.archived") },
           ]}
         />
-        {canWrite ? <Button onClick={() => setCreating(true)}>Создать цель</Button> : null}
+        {canWrite ? <Button onClick={() => setCreating(true)}>{t("view.create")}</Button> : null}
       </div>
       {visible.length ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -48,8 +51,8 @@ export function GoalsView({
       ) : (
         <EmptyState
           icon={Target}
-          title={tab === "archived" ? "Архив пуст" : "На что копим?"}
-          description="Отпуск, машина или финансовая подушка — задайте цель и следите за прогрессом."
+          title={tab === "archived" ? t("view.emptyArchive") : t("view.emptyTitle")}
+          description={t("view.emptyDescription")}
         />
       )}
       {creating ? (

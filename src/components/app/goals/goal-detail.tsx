@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations, useLocale } from "next-intl"
+
 import { useState } from "react"
 import {
   automateGoalAction,
@@ -36,6 +38,8 @@ export function GoalDetail({
   accounts: GoalAccount[]
   canWrite: boolean
 }) {
+  const t = useTranslations("goals")
+  const locale = useLocale()
   const g = d.goal
   const [mode, setMode] = useState<"edit" | "contribute" | "auto" | null>(null)
   const { run, pending } = useAction()
@@ -46,35 +50,38 @@ export function GoalDetail({
         <GoalCard goal={g} />
         <div className="grid grid-cols-1 gap-3 rounded-xl border p-5 text-sm">
           <p>
-            Осталось: <strong>{g.target === null || g.progress === null ? "Нужен курс" : formatMoney(g.remaining, g.currency)}</strong>
+            {t.rich("detail.remaining", {
+              amount: g.target === null || g.progress === null ? t("card.rateRequired") : formatMoney(g.remaining, g.currency, { locale }),
+              strong: (chunks) => <strong>{chunks}</strong>,
+            })}
           </p>
           <p>
-            Средний темп за последние 3 месяца: <strong>{formatMoney(g.monthlyPace, g.currency)}/мес</strong>
+            {t.rich("detail.pace", {
+              amount: formatMoney(g.monthlyPace, g.currency, { locale }),
+              strong: (chunks) => <strong>{chunks}</strong>,
+            })}
           </p>
           <p>
-            При текущем темпе: <strong>{g.historicalDate ? formatDateFull(g.historicalDate) : "Пока нет даты достижения"}</strong>
+            {t.rich("detail.historicalDate", {
+              date: g.historicalDate ? formatDateFull(g.historicalDate, locale) : t("detail.noDate"),
+              strong: (chunks) => <strong>{chunks}</strong>,
+            })}
           </p>
           {d.hasPlan ? (
             <p>
-              По плановым переводам:{" "}
-              <strong>{g.plannedDate ? formatDateFull(g.plannedDate) : "Цель не достигается на горизонте 10 лет"}</strong>
+              {t.rich("detail.plannedDate", {
+                date: g.plannedDate ? formatDateFull(g.plannedDate, locale) : t("detail.beyondHorizon"),
+                strong: (chunks) => <strong>{chunks}</strong>,
+              })}
             </p>
           ) : null}
-          {g.kind === "account" ? (
-            <p className="text-xs text-muted-foreground">
-              Единственная цель без лимита получает весь баланс. Средства общего счёта распределяются по приоритету до суммы цели или
-              лимита. Снятие денег уменьшает прогресс. Архивная цель освобождает распределение.
-            </p>
-          ) : null}
+          {g.kind === "account" ? <p className="text-xs text-muted-foreground">{t("detail.allocationHint")}</p> : null}
           {active && g.kind === "account" && g.fundingGap === null && g.progress !== null ? (
-            <p className="text-xs text-muted-foreground">
-              Для автопополнения лимит распределения должен покрывать всю цель, а курсы вышестоящих целей — быть известны.
-            </p>
+            <p className="text-xs text-muted-foreground">{t("detail.automationHint")}</p>
           ) : null}
           {g.expenseMonths ? (
             <p className="text-xs text-muted-foreground">
-              Подушка: {g.expenseMonths} мес. × средние расходы за {g.expenseWindow} полных месяцев.{" "}
-              {g.target === 0 ? "Добавьте расходы за прошлые месяцы, чтобы рассчитать сумму." : ""}
+              {t("detail.emergency", { count: g.expenseMonths, window: g.expenseWindow })} {g.target === 0 ? t("detail.addExpenses") : ""}
             </p>
           ) : null}
         </div>
@@ -83,9 +90,9 @@ export function GoalDetail({
         <div className="flex flex-wrap gap-2">
           {active ? (
             <>
-              <Button onClick={() => setMode("contribute")}>Пополнить</Button>
+              <Button onClick={() => setMode("contribute")}>{t("detail.contribute")}</Button>
               <Button variant="outline" onClick={() => setMode("edit")}>
-                Изменить
+                {t("actions.edit")}
               </Button>
               {g.kind === "account" && !g.automation ? (
                 <Button
@@ -93,78 +100,67 @@ export function GoalDetail({
                   onClick={() => setMode("auto")}
                   disabled={!g.targetDate || !g.monthlyRequired || g.progress === null || g.fundingGap === null}
                 >
-                  Откладывать автоматически
+                  {t("detail.automate")}
                 </Button>
               ) : null}
               {g.automation ? (
                 <>
                   <LinkButton variant="outline" href="/transactions?tab=rules">
-                    Регулярные операции
+                    {t("detail.recurring")}
                   </LinkButton>
                   <ConfirmDialog
-                    title="Отключить автопополнение?"
-                    description="Будущие переводы будут удалены. Выполненные переводы останутся в истории."
-                    confirmLabel="Отключить"
+                    title={t("automation.stopTitle")}
+                    description={t("automation.stopDescription")}
+                    confirmLabel={t("automation.stopConfirm")}
                     destructive={false}
                     trigger={
                       <Button variant="outline" disabled={pending}>
-                        Отключить автопополнение
+                        {t("automation.stop")}
                       </Button>
                     }
-                    onConfirm={() => run(() => stopGoalAutomationAction(g.id), { success: "Автопополнение отключено" })}
+                    onConfirm={() => run(() => stopGoalAutomationAction(g.id), { success: t("automation.stopped") })}
                   />
                 </>
               ) : null}
             </>
           ) : null}
           <ConfirmDialog
-            title={active ? "Архивировать цель?" : "Восстановить цель?"}
-            description={
-              active
-                ? "Будущие автопополнения прекратятся, история сохранится. Средства счёта станут доступны другим целям."
-                : "Цель снова участвует в распределении счёта. Автопополнение можно настроить заново."
-            }
-            confirmLabel={active ? "Архивировать" : "Восстановить"}
+            title={active ? t("archive.title") : t("archive.restoreTitle")}
+            description={active ? t("archive.description") : t("archive.restoreDescription")}
+            confirmLabel={active ? t("actions.archive") : t("actions.restore")}
             destructive={false}
             trigger={
               <Button variant="outline" disabled={pending}>
-                {active ? "Архивировать" : "Восстановить"}
+                {active ? t("actions.archive") : t("actions.restore")}
               </Button>
             }
             onConfirm={() =>
-              run(() => setGoalArchivedAction(g.id, g.version, active), { success: active ? "Цель в архиве" : "Цель восстановлена" })
+              run(() => setGoalArchivedAction(g.id, g.version, active), { success: active ? t("archive.success") : t("archive.restored") })
             }
           />
         </div>
       ) : null}
-      <Section
-        title="Как растут накопления"
-        description="Факт и два отдельных сценария: средний темп за 3 месяца и плановые операции. Они не складываются. Прогноз ограничен 10 годами; будущие курсы и сумма подушки зафиксированы на сегодня."
-      >
+      <Section title={t("detail.chartTitle")} description={t("detail.chartDescription")}>
         <GoalChart data={d.chart} currency={g.currency} target={g.target} />
       </Section>
       <Section
-        title="История пополнений"
-        description={
-          g.kind === "account"
-            ? "Изменения выделенной цели суммы по датам операций счёта. История оценивается по текущему курсу и текущему распределению."
-            : "Взносы и изъятия из ручной копилки. Для исправления добавьте обратный взнос с комментарием."
-        }
+        title={t("history.title")}
+        description={g.kind === "account" ? t("history.accountDescription") : t("history.manualDescription")}
       >
         {d.history.length ? (
           <ul className="grid grid-cols-1 divide-y">
             {d.history.map((h) => (
               <li key={h.id} className="flex flex-wrap items-start justify-between gap-2 py-3 text-sm">
                 <div className="min-w-0 flex-1">
-                  <p>{formatDateFull(h.date)}</p>
+                  <p>{formatDateFull(h.date, locale)}</p>
                   <p className="text-xs text-muted-foreground break-words">{h.comment}</p>
                 </div>
-                <span className="font-medium tabular">{formatMoney(h.amount, g.currency, { sign: true })}</span>
+                <span className="font-medium tabular">{formatMoney(h.amount, g.currency, { locale, sign: true })}</span>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="py-4 text-sm text-muted-foreground">Пополнений пока нет.</p>
+          <p className="py-4 text-sm text-muted-foreground">{t("history.empty")}</p>
         )}
       </Section>
       {mode === "edit" ? (
@@ -190,6 +186,8 @@ function FundingForm({
   today: string
   onClose: () => void
 }) {
+  const t = useTranslations("goals")
+  const locale = useLocale()
   const { run, pending } = useAction()
   const sources = accounts.filter((a) => a.id !== g.accountId && a.kind !== "loan" && !a.archivedAt)
   const [sourceId, setSourceId] = useState(sources[0]?.id ?? "")
@@ -207,7 +205,7 @@ function FundingForm({
   const crossCurrency = !manual && source?.currency !== g.accountCurrency
   function submit(e: React.FormEvent) {
     e.preventDefault()
-    const success = { success: mode === "auto" ? "Автопополнение настроено" : "Пополнение записано", onSuccess: onClose }
+    const success = { success: mode === "auto" ? t("funding.automated") : t("funding.recorded"), onSuccess: onClose }
     if (mode === "auto") {
       run(() => automateGoalAction(g.id, { accountId: sourceId, day, version: g.version }), success)
       return
@@ -215,7 +213,7 @@ function FundingForm({
     const parsed = parseMoney(amount, manual ? g.currency : (source?.currency ?? g.currency))
     const received = crossCurrency ? parseMoney(toAmount, g.accountCurrency!) : undefined
     if (!parsed || !date || (crossCurrency && !received)) {
-      setError("Укажите сумму и дату, для валютного перевода — сумму зачисления.")
+      setError(t("funding.invalid"))
       return
     }
     if (manual) run(() => contributeToGoalAction(g.id, { amount: direction === "take" ? -parsed : parsed, date, comment }), success)
@@ -226,24 +224,20 @@ function FundingForm({
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
         <form onSubmit={submit} className="grid grid-cols-1 gap-4">
           <DialogHeader>
-            <DialogTitle>{mode === "auto" ? "Откладывать автоматически" : "Пополнить цель"}</DialogTitle>
+            <DialogTitle>{mode === "auto" ? t("detail.automate") : t("funding.title")}</DialogTitle>
             <DialogDescription>
-              {mode === "auto"
-                ? "Создадим ежемесячные плановые переводы до срока цели. Сумма рассчитана по числу оставшихся пополнений; каждый перевод нужно подтвердить."
-                : manual
-                  ? "Запишите взнос или сумму, взятую из копилки."
-                  : "Выполненный перевод на накопительный счёт. Средства распределятся между целями по приоритету."}
+              {mode === "auto" ? t("funding.autoDescription") : manual ? t("funding.manualDescription") : t("funding.accountDescription")}
             </DialogDescription>
           </DialogHeader>
           {!manual ? (
             <Field>
-              <FieldLabel htmlFor="fund-source">Счёт списания</FieldLabel>
+              <FieldLabel htmlFor="fund-source">{t("funding.source")}</FieldLabel>
               <AccountSelect id="fund-source" value={sourceId} onChange={setSourceId} accounts={sources} />
               {!sources.length ? (
                 <p className="text-sm text-muted-foreground">
-                  Нужен другой активный счёт.{" "}
+                  {t("funding.noSource")}{" "}
                   <LinkButton href="/accounts" variant="link">
-                    Счета
+                    {t("form.accounts")}
                   </LinkButton>
                 </p>
               ) : null}
@@ -252,16 +246,15 @@ function FundingForm({
           {mode === "auto" ? (
             <>
               <Field>
-                <FieldLabel htmlFor="fund-day">День месяца</FieldLabel>
+                <FieldLabel htmlFor="fund-day">{t("funding.day")}</FieldLabel>
                 <Input id="fund-day" type="number" min={1} max={31} value={day} onChange={(e) => setDay(Number(e.target.value))} required />
               </Field>
               <p className="text-sm text-muted-foreground">
-                Зачисление:{" "}
-                {schedule
-                  ? `${formatMoney(schedule.amount, g.accountCurrency!)} × ${schedule.count} пополнений`
-                  : "Нет доступных дат до срока цели"}
-                . Сумма учитывает недостающие средства более приоритетных целей общего счёта. Курс фиксируется при создании; при
-                подтверждении перевода его можно уточнить.
+                {t("funding.schedule", {
+                  scheduled: schedule ? "yes" : "no",
+                  amount: schedule ? formatMoney(schedule.amount, g.accountCurrency!, { locale }) : "",
+                  count: schedule?.count ?? 0,
+                })}
               </p>
             </>
           ) : (
@@ -271,13 +264,13 @@ function FundingForm({
                   value={direction}
                   onChange={setDirection}
                   options={[
-                    { value: "add", label: "Внести" },
-                    { value: "take", label: "Взять из копилки" },
+                    { value: "add", label: t("funding.add") },
+                    { value: "take", label: t("funding.take") },
                   ]}
                 />
               ) : null}
               <Field>
-                <FieldLabel htmlFor="fund-amount">{manual ? "Сумма" : "Сумма списания"}</FieldLabel>
+                <FieldLabel htmlFor="fund-amount">{manual ? t("form.amount") : t("funding.debit")}</FieldLabel>
                 <MoneyInput
                   id="fund-amount"
                   value={amount}
@@ -288,17 +281,17 @@ function FundingForm({
               </Field>
               {crossCurrency ? (
                 <Field>
-                  <FieldLabel htmlFor="fund-received">Сумма зачисления</FieldLabel>
+                  <FieldLabel htmlFor="fund-received">{t("funding.credit")}</FieldLabel>
                   <MoneyInput id="fund-received" value={toAmount} onChange={setToAmount} currency={g.accountCurrency!} required />
                 </Field>
               ) : null}
               <Field>
-                <FieldLabel htmlFor="fund-date">Дата</FieldLabel>
+                <FieldLabel htmlFor="fund-date">{t("funding.date")}</FieldLabel>
                 <DateField id="fund-date" value={date} today={today} onChange={setDate} />
               </Field>
               {manual ? (
                 <Field>
-                  <FieldLabel htmlFor="fund-comment">Комментарий</FieldLabel>
+                  <FieldLabel htmlFor="fund-comment">{t("funding.comment")}</FieldLabel>
                   <Input id="fund-comment" value={comment} onChange={(e) => setComment(e.target.value)} maxLength={1000} />
                 </Field>
               ) : null}
@@ -311,10 +304,10 @@ function FundingForm({
           ) : null}
           <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose}>
-              Отмена
+              {t("actions.cancel")}
             </Button>
             <Button type="submit" disabled={pending || (!manual && !sourceId) || (mode === "auto" && !schedule)}>
-              {mode === "auto" ? "Настроить" : "Записать"}
+              {mode === "auto" ? t("funding.setup") : t("funding.record")}
             </Button>
           </div>
         </form>

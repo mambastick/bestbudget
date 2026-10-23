@@ -1,0 +1,42 @@
+{
+  "exported": {
+    "date": "Дата",
+    "type": "Тип",
+    "status": "Статус",
+    "title": "Название",
+    "bankCategory": "Категория",
+    "account": "Счёт",
+    "toAccount": "Счёт зачисления",
+    "amount": "Сумма",
+    "currency": "Валюта",
+    "toAmount": "Зачислено",
+    "toCurrency": "Валюта зачисления",
+    "description": "Описание",
+    "externalId": "ID операции"
+  },
+  "tbank": {
+    "date": "Дата операции",
+    "bookingDate": "Дата платежа",
+    "card": "Номер карты",
+    "status": "Статус",
+    "amount": "Сумма платежа",
+    "currency": "Валюта платежа",
+    "originalAmount": "Сумма операции",
+    "originalCurrency": "Валюта операции",
+    "bankCategory": "Категория",
+    "mcc": "MCC",
+    "description": "Описание",
+    "cashback": "Кэшбэк",
+    "bonuses": "Бонусы (включая кэшбэк)"
+  },
+  "markers": {
+    "income": "приход",
+    "expense": "расход",
+    "posted": "выполнена",
+    "planned": "запланирована",
+    "skipped": "пропущена",
+    "transfer": "Перевод",
+    "expenseType": "Расход",
+    "incomeType": "Доход"
+  }
+}

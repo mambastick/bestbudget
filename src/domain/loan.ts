@@ -252,9 +252,9 @@ export function calculateLoanSchedule(
 }
 
 export const LOAN_KIND_LABELS = {
-  mortgage: "Ипотека",
-  consumer: "Потребительский",
-  car: "Автокредит",
-  credit_line: "Кредитная линия",
-  other: "Другой",
+  mortgage: "kind.mortgage",
+  consumer: "kind.consumer",
+  car: "kind.car",
+  credit_line: "kind.credit_line",
+  other: "kind.other",
 } as const

@@ -15,6 +15,7 @@ function formatter(currency: string, fractionDigits: number, locale: string) {
   if (!f) {
     f = new Intl.NumberFormat(locale, {
       style: "currency",
+      currencyDisplay: "narrowSymbol",
       currency,
       minimumFractionDigits: fractionDigits,
       maximumFractionDigits: fractionDigits,
