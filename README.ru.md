@@ -8,7 +8,7 @@ Self-hosted приложение для семейных финансов: пл�
 [![Release](https://img.shields.io/github/v/release/mambastick/bestbudget?include_prereleases)](https://github.com/mambastick/bestbudget/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**1.0.0-beta.2 — бета-версия.** Интерфейс и подробная документация сейчас на русском языке.
+**1.0.0-beta.2 — бета-версия.** Обзор, календарь, бюджеты, аналитика, операции и регулярные платежи, каркас приложения, вход и настройки поддерживают ru/en. Остальные области переводятся в фазе 2; подробная документация пока на русском.
 
 ## Скриншоты
 
