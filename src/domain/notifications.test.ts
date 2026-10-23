@@ -50,7 +50,7 @@ describe("notification selection", () => {
     const ru = noticesFor(snapshot, p, "2026-10-23", "ru")
     const en = noticesFor(snapshot, p, "2026-10-23", "en")
     expect(en.map((n) => n.key)).toEqual(ru.map((n) => n.key))
-    expect(en[0]!.text).toContain("Tomorrow: Ипотека — RUB 45,000 from Сбер")
+    expect(en[0]!.text).toContain("Tomorrow: Ипотека — ₽45,000 from Сбер")
     expect(en[1]!.text).toContain("October 28")
     expect(en[2]!.text).toBe("The “Продукты” budget is 15% over its limit")
     for (const [count, ending] of [[1, "1 день"], [2, "2 дня"], [5, "5 дней"], [21, "21 день"]] as const) {

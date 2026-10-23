@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process"
 import { randomBytes, createHash } from "node:crypto"
 import { mkdir } from "node:fs/promises"
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page } from "./fixtures"
 import postgres from "postgres"
-import { E2E_ENV, SETUP_TOKEN } from "../playwright.config"
+import { BROWSER_TIMEZONE, E2E_ENV, SETUP_TOKEN } from "../playwright.config"
 import { todayIn } from "../src/lib/dates"
 
 const user = { name: "Assets Demo", email: "assets-i18n@e2e.test", password: "assets-password-1" }
@@ -20,9 +20,15 @@ async function closeDialog(page: Page) {
 // A separate user and household keep the Russian acceptance scenarios independent.
 test("assets and import: seed demo in ru/en, both themes and widths, English actions and persisted warnings", async ({ browser }) => {
   test.setTimeout(300_000)
-  const context = await browser.newContext({ locale: "ru-RU",
-    timezoneId: "Europe/Moscow", viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" })
+  const context = await browser.newContext({
+    locale: "ru-RU",
+    timezoneId: BROWSER_TIMEZONE,
+    viewport: { width: 1280, height: 900 },
+    reducedMotion: "reduce",
+  })
   const page = await context.newPage()
+  expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(BROWSER_TIMEZONE)
+  expect(E2E_ENV.TZ).toBe("UTC")
   const db = postgres(E2E_ENV.DATABASE_URL, { max: 1, onnotice: () => {} })
   const errors: string[] = []
   page.on("pageerror", (error) => errors.push(error.message))
@@ -107,7 +113,7 @@ test("assets and import: seed demo in ru/en, both themes and widths, English act
             await expect(page.locator("html")).toHaveClass(new RegExp(theme))
             await noOverflow(page)
             if (route === "/accounts") {
-              await expect(page.getByText(locale === "en" ? "How to track a credit card" : "Как учитывать кредитную карту")).toBeVisible()
+              await expect(page.getByText(locale === "en" ? "How to track a credit card" : "Как учитывать кредитную карту").filter({ visible: true })).toBeVisible()
               await page.getByRole("button", { name: locale === "en" ? "Account" : "Счёт", exact: true }).click()
               await expect(page.getByRole("dialog")).toContainText(locale === "en" ? "New account" : "Новый счёт")
               await noOverflow(page)
