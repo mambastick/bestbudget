@@ -130,6 +130,8 @@ test("budget reviews: opt-in schedule, recommendations, apply/dismiss, repeat su
     await page.goto("/dashboard")
     await expect(page.getByTestId("ai-review-widget")).toContainText("Рекомендации по бюджету: 2")
     await page.getByTestId("ai-review-widget").getByRole("link", { name: "Открыть рекомендации", exact: true }).click()
+    await expect(page).toHaveURL(/assistant\/recommendations/)
+    await expect(cards).toHaveCount(2)
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await db`insert into transactions(household_id, type, status, amount, title, date, account_id, category_id, created_by)
       select ${owner.household_id}, 'expense', 'posted', 25000, 'Coffee after review', current_date, a.id, c.id, ${owner.id}
