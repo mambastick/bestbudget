@@ -11,6 +11,13 @@ function displayTime(value: string, timeZone: string) {
   return new Intl.DateTimeFormat("ru-RU", { timeZone, dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
 }
 async function schedule(config: ReturnType<typeof backupConfig>, service: BackupService) {
+  if (!config.BACKUP_ENABLED) {
+    const controller = new AbortController()
+    for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => controller.abort())
+    console.log("backups disabled (BACKUP_ENABLED=false)")
+    while (!controller.signal.aborted) await setTimeout(30_000, undefined, { signal: controller.signal }).catch(() => {})
+    return
+  }
   await writableDirectory(config.BACKUP_DIR)
   const file = path.join(config.BACKUP_DIR, ".schedule.json")
   const previous = await readJson<ScheduleState>(file)
@@ -60,6 +67,7 @@ async function main() {
     case "status": {
       const status = await service.status()
       if (json) console.log(JSON.stringify(status))
+      else if (!status.enabled) console.log("backups disabled (BACKUP_ENABLED=false)")
       else {
         console.log(status.lastSuccess ? `Последний бэкап: ${displayTime(status.lastSuccess.createdAt, config.TZ)}, ${status.lastSuccess.size} байт (${status.lastSuccess.name})` : "Успешных бэкапов пока нет")
         console.log(`Следующий запуск: ${status.nextRun ? displayTime(status.nextRun, config.TZ) : "нет данных"} (${status.timeZone})`)

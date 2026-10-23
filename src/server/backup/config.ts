@@ -4,6 +4,7 @@ import { z } from "zod"
 export class BackupError extends Error {}
 
 const schema = z.object({
+  BACKUP_ENABLED: z.enum(["true", "false"]).default("true").transform((value) => value === "true"),
   BACKUP_DIR: z.string().default("/app/backups"),
   BACKUP_TIME: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default("03:00"),
   BACKUP_KEEP_LAST: z.coerce.number().int().min(1).max(100000).default(7),

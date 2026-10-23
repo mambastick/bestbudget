@@ -103,6 +103,7 @@ See [`.env.example`](.env.example) for the complete list. Optional services can 
 | `POSTGRES_*`, `DATABASE_URL` | Compose database credentials; `DATABASE_URL` is needed when running outside Compose |
 | `APP_PORT`, `APP_BIND`, `TRUST_PROXY` | `3000`, `0.0.0.0`, `false`; network and trusted proxy |
 | `FX_PROVIDER` | `cbr`; `none` disables rate-provider network requests, keeping saved/manual rates |
+| `BACKUP_ENABLED` | `true`; set `false` to disable automatic Compose dumps, keeping manual backup/restore commands available |
 | `TZ`, `BACKUP_TIME`, `BACKUP_PATH`, `BACKUP_KEEP_*` | `Europe/Moscow`, `03:00`, `./backups`, newest 7 plus all from 30 days; [backups](docs/backup.md) |
 | `BACKUP_S3_BUCKET`, `AWS_*`, `BACKUP_S3_*` | Optional S3 upload; [backup settings](docs/backup.md#s3) |
 | `JOBS_ENABLED` | `true`; built-in reminder scheduler |
@@ -138,7 +139,9 @@ docker compose up -d
 
 Migrations run automatically, including upgrades from beta.1. Keep your previous version, `.env` and encryption/session secrets with the backup. Schema downgrades are not automatic.
 
-Compose backs up nightly at 03:00 in `TZ`, retaining the newest 7 copies plus every copy from the last 30 days. Keep an off-server copy and test a restore into a separate database. [Backup, S3 and restore instructions](docs/backup.md).
+Database backups are the administrator's responsibility. Built-in dumps are a convenience if you have no backups of your own; if you already back up PostgreSQL (snapshots, pgBackRest, Velero, CloudNativePG or a managed database), set `BACKUP_ENABLED=false` in Compose or `backup.enabled=false` in Helm. Compose defaults to enabled; Helm defaults to disabled. **On Helm upgrades, explicitly set `backup.enabled=true` if you use built-in backups.** A logical dump still helps with server transfers: its filename includes the app version, and migrations run when the app starts after restore.
+
+When enabled, Compose backs up nightly at 03:00 in `TZ`, retaining the newest 7 copies plus every copy from the last 30 days. Keep an off-server copy and test a restore into a separate database. [Backup, S3 and restore instructions](docs/backup.md).
 
 ## Security notes
 

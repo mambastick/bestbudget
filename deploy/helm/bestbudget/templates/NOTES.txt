@@ -15,6 +15,10 @@ Emergency CLI (reset a password, re-enable password login, grant admin):
   kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "bestbudget.fullname" . }} -- node dist-scripts/admin.mjs list-admins
 
 {{- if .Values.postgresql.enabled }}
+{{- if not .Values.backup.enabled }}
+
+Bundled PostgreSQL has no built-in backups: set backup.enabled=true or configure your own (Velero/CloudNativePG/storage snapshots).
+{{- end }}
 
 Backup of the bundled PostgreSQL:
   kubectl -n {{ .Release.Namespace }} exec {{ include "bestbudget.postgresql.fullname" . }}-0 -- pg_dump -U {{ .Values.postgresql.username }} {{ .Values.postgresql.database }} > backup.sql

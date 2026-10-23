@@ -2,6 +2,13 @@
 
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии — [SemVer](https://semver.org/lang/ru/).
 
+## [Unreleased]
+
+### Изменено
+
+- Helm: `backup.enabled` теперь по умолчанию `false` — **при обновлении задайте `backup.enabled=true` явно, если пользуетесь встроенными бэкапами**.
+- Compose: переменная `BACKUP_ENABLED` (по умолчанию `true`) позволяет выключить автоматические дампы; контейнер остаётся healthy, ручные команды бэкапа и восстановления доступны.
+
 ## [1.0.0-beta.2] — 2026-10-23
 
 ### Добавлено

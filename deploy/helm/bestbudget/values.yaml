@@ -99,8 +99,10 @@ externalDatabase:
   url: ""
 
 # Scheduled PostgreSQL custom-format dumps. Requires Kubernetes >= 1.27 (CronJob timeZone).
+# Optional convenience: enable only if you do not already back up PostgreSQL yourself.
+# On upgrade, explicitly set backup.enabled=true to keep using built-in backups.
 backup:
-  enabled: true
+  enabled: false
   schedule: "0 3 * * *"
   timeZone: Europe/Moscow
   suspend: false
