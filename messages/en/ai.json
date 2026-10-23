@@ -293,6 +293,41 @@
       "goals": "Goals",
       "preferences": "Preferences"
     },
-    "system": "This is a budget interview (kind=onboarding). First call get_interview_context. Do not ask again about known accounts, categories, loans, goals or recurring schedules. Guide the user through five steps: income — who earns, amounts and salary/advance dates; fixed — rent/utilities, loans, phone/subscriptions, childcare/school; variable — groceries, transport, entertainment; goals — emergency fund and large purchases, explicit agreement to automatic top-ups with accounts and dates; preferences — strict or flexible limits. Call interview_step with 1–2 questions and useful English quick replies on each step (e.g. “Salary twice a month”, “Rent”, “Mortgage already tracked”). Never invent amounts, dates, accounts or consent; clarify missing details and allow skipping. Conversation messages and tool outputs are the interview state: resume the last unfinished step and honor corrections. Use IDs to edit known entities rather than duplicate them. Prepare exactly ONE package with propose_budget_plan after the steps, never other propose tools. categories contains missing categories; recurring uses categoryName and complete schedules, separate salary accruals per date; budgets contains monthly limits. Offer automatic savings only with explicit user agreement and an existing savings account; otherwise offer an ordinary goal and explain the limitation. Before the card, summarize the tool-calculated monthly income, bills, limits, remaining after variable spending and savings. Explain incomplete or negative totals, cash gaps and that unscheduled variable spending is outside the daily forecast. Report any warnings returned by the tool. All tool amounts are integer minor units; format user-facing amounts in the corresponding currency. Only the user applies changes."
+    "system": "This is a budget interview (kind=onboarding). First call get_interview_context. Do not ask again about known accounts, categories, loans, goals or recurring schedules. Guide the user through five steps: income — who earns, amounts and salary/advance dates; fixed — rent/utilities, loans, phone/subscriptions, childcare/school; variable — groceries, transport, entertainment; goals — emergency fund and large purchases, explicit agreement to automatic top-ups with accounts and dates; preferences — strict or flexible limits. Call interview_step with 1–2 questions and useful English quick replies on each step (e.g. “Salary twice a month”, “Rent”, “Mortgage already tracked”). Never invent amounts, dates, accounts or consent; clarify missing details and allow skipping. Conversation messages and tool outputs are the interview state: resume the last unfinished step and honor corrections. Use IDs to edit known entities rather than duplicate them. Prepare exactly ONE package with propose_budget_plan after the steps, never other propose tools. categories contains missing categories; recurring uses categoryName and complete schedules, separate salary accruals per date; budgets contains monthly limits. Offer automatic savings only with explicit user agreement and an existing savings account; otherwise offer an ordinary goal and explain the limitation. Before the card, summarize the tool-calculated monthly income, bills, limits, remaining after variable spending and savings. Explain incomplete or negative totals, cash gaps and that unscheduled variable spending is outside the daily forecast. Report any warnings returned by the tool. All tool amounts are integer minor units; format user-facing amounts in the corresponding currency. Only the user applies changes.",
+    "conversationTitle": "Budget setup · {date}",
+    "badge": "Budget interview"
+  },
+  "renameChat": "Rename conversation",
+  "conversationTitle": "Conversation title",
+  "saveTitle": "Save title",
+  "resetTitle": "Restore automatic title",
+  "cancelTitle": "Cancel",
+  "summaries": {
+    "budget_set": "New limit · {name} — {amount} per month",
+    "budget_planned": "New category and limit · {name} — {amount} per month",
+    "category_create": "New category · {name}",
+    "account_create": "New account · {name} — opening balance {amount}",
+    "account_limit": "Credit limit {amount}",
+    "recurring_create": "{type, select, income {New recurring income} expense {New recurring payment} transfer {New recurring transfer} other {New recurring operation}} · {name} — {amount} {schedule}{type, select, income { to “{account}”} other { from “{account}”}}",
+    "goal_create": "New goal · {name} — {amount} · {kind, select, manual {manual savings} account {saving in “{account}”} other {savings}}",
+    "goal_automate": "Automatic goal top-up · {name} — {amount} {schedule} from “{account}”",
+    "goal_automation": "Top up {amount} {schedule} from “{account}”",
+    "goal_deadline": "Save by {date}",
+    "goal_allocation": "Allocate {amount} to this goal",
+    "goal_priority": "Savings priority: {priority}",
+    "goal_emergency": "Emergency fund for {months, plural, one {# month} other {# months}} of spending",
+    "transfer_destination": "Credit {amount} to “{account}”",
+    "import_rule": "New categorization rule · {category}",
+    "import_pattern": "Description {mode, select, regex {matches} other {contains}} “{pattern}”",
+    "import_mcc": "Purchase MCC {mcc}",
+    "minimum": "From {amount}",
+    "maximum": "Up to {amount}",
+    "unknown_account": "the selected account",
+    "foreign_amount": "{amount} ({currency})",
+    "monthly_day": "on the {day, selectordinal, one {#st} two {#nd} few {#rd} other {#th}}",
+    "once_date": "on {date}",
+    "period": "From {from}{end, select, yes { until {to}} other {}}",
+    "unknown": "New item · {name}",
+    "import_currency": "Only transactions in {currency}"
   }
 }

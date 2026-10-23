@@ -9,7 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { LinkButton } from "@/components/app/link-button"
 import { useAction } from "@/hooks/use-action"
 import { can, type HouseholdRole } from "@/domain/permissions"
-import { proposalChanges, proposalCurrency, proposalIsCreation, PROPOSAL_MONEY_FIELDS as MONEY_FIELDS } from "@/domain/ai/description"
+import { proposalChanges, proposalCurrency, PROPOSAL_MONEY_FIELDS as MONEY_FIELDS } from "@/domain/ai/description"
+import { proposalSummary } from "@/domain/ai/summaries"
 import type { ProposalItem } from "@/domain/ai/types"
 import { formatMoney } from "@/lib/money"
 import type { aiProposals } from "@/db/schema"
@@ -67,69 +68,70 @@ export function ProposalCard({
           <p className="text-xs text-muted-foreground">{t("interview.dependencies")}</p>
         ) : null}
         <ul className="divide-y">
-          {proposal.items.map((item) => (
-            <li key={item.id} className="space-y-2 py-3 first:pt-0">
-              <label className="flex items-start gap-3">
-                <Checkbox
-                  className="mt-0.5"
-                  aria-label={item.label || t(`kinds.${item.type.replaceAll(".", "_")}`)}
-                  checked={item.result ? true : selected.includes(item.id)}
-                  disabled={!hydrated || !open || Boolean(item.result) || !can(role, item.permission) || pending}
-                  onCheckedChange={(checked) =>
-                    setSelected((ids) =>
-                      checked
-                        ? [...new Set([...ids, ...(item.dependsOn ?? []), item.id])]
-                        : ids.filter(
-                            (id) =>
-                              id !== item.id && !proposal.items.find((candidate) => candidate.id === id)?.dependsOn?.includes(item.id),
-                          ),
-                    )
-                  }
-                />
-                <span className="min-w-0 break-words text-sm font-medium">
-                  {item.type === "budget.set" && proposalIsCreation(item) ? t("newBudget") : t(`kinds.${item.type.replaceAll(".", "_")}`)}
-                  {item.label ? ` · ${item.label}` : ""}
-                  {item.type === "budget.set" && proposalIsCreation(item) && typeof item.after.amount === "number"
-                    ? ` — ${t("perMonth", { amount: formatMoney(item.after.amount, item.currency, { locale }) })}`
-                    : ""}
-                </span>
-              </label>
-              <dl className="space-y-1 pl-7 text-xs">
-                {proposalChanges(item)
-                  .filter(({ field, after }) => {
-                    if (!t.has(`fields.${field}`) || (item.type === "budget.set" && proposalIsCreation(item))) return false
-                    if (!interview || !proposalIsCreation(item)) return true
-                    if (["color", "icon", "sortOrder"].includes(field) || after === null) return false
-                    if (field === "expenseWindow" && !item.after.expenseMonths) return false
-                    if ((field === "priority" && after === 100) || (field === "interval" && after === 1)) return false
-                    return true
-                  })
-                  .map(({ field, before, after }) => (
-                    <div key={field} className="grid grid-cols-1 gap-0.5 sm:grid-cols-[8rem_1fr]">
-                      <dt className="text-muted-foreground">{t(`fields.${field}`)}</dt>
-                      <dd className="min-w-0 break-words">
-                        {!proposalIsCreation(item) ? (
-                          <>
+          {proposal.items.map((item) => {
+            const summary = proposalSummary(item, names, locale)
+            return (
+              <li key={item.id} className="space-y-2 py-3 first:pt-0">
+                <label className="flex items-start gap-3">
+                  <Checkbox
+                    className="mt-0.5"
+                    aria-label={summary?.primary ?? (item.label || t(`kinds.${item.type.replaceAll(".", "_")}`))}
+                    checked={item.result ? true : selected.includes(item.id)}
+                    disabled={!hydrated || !open || Boolean(item.result) || !can(role, item.permission) || pending}
+                    onCheckedChange={(checked) =>
+                      setSelected((ids) =>
+                        checked
+                          ? [...new Set([...ids, ...(item.dependsOn ?? []), item.id])]
+                          : ids.filter(
+                              (id) =>
+                                id !== item.id && !proposal.items.find((candidate) => candidate.id === id)?.dependsOn?.includes(item.id),
+                            ),
+                      )
+                    }
+                  />
+                  <span className="min-w-0 break-words text-sm font-medium">
+                    {summary?.primary ?? (
+                      <>
+                        {t(`kinds.${item.type.replaceAll(".", "_")}`)}
+                        {item.label ? ` · ${item.label}` : ""}
+                      </>
+                    )}
+                  </span>
+                </label>
+                {summary ? (
+                  summary.secondary ? (
+                    <p className="break-words pl-7 text-xs text-muted-foreground" data-testid="ai-summary-details">
+                      {summary.secondary}
+                    </p>
+                  ) : null
+                ) : (
+                  <dl className="space-y-1 pl-7 text-xs">
+                    {proposalChanges(item)
+                      .filter(({ field }) => t.has(`fields.${field}`))
+                      .map(({ field, before, after }) => (
+                        <div key={field} className="grid grid-cols-1 gap-0.5 sm:grid-cols-[8rem_1fr]">
+                          <dt className="text-muted-foreground">{t(`fields.${field}`)}</dt>
+                          <dd className="min-w-0 break-words">
                             <span className="text-muted-foreground">{value(field, before, item, true)}</span>
                             <span aria-hidden> → </span>
-                          </>
-                        ) : null}
-                        <span>{field === "amount" && after === null ? t("remove") : value(field, after, item)}</span>
-                      </dd>
-                    </div>
-                  ))}
-              </dl>
-              {!can(role, item.permission) ? <p className="pl-7 text-xs text-muted-foreground">{t("noPermission")}</p> : null}
-              {item.result ? (
-                <div className="flex items-center gap-2 pl-7 text-xs">
-                  <span>{t("applied")}</span>
-                  <LinkButton href={item.result.href} size="sm" variant="link">
-                    {t("openEntity")}
-                  </LinkButton>
-                </div>
-              ) : null}
-            </li>
-          ))}
+                            <span>{field === "amount" && after === null ? t("remove") : value(field, after, item)}</span>
+                          </dd>
+                        </div>
+                      ))}
+                  </dl>
+                )}
+                {!can(role, item.permission) ? <p className="pl-7 text-xs text-muted-foreground">{t("noPermission")}</p> : null}
+                {item.result ? (
+                  <div className="flex items-center gap-2 pl-7 text-xs">
+                    <span>{t("applied")}</span>
+                    <LinkButton href={item.result.href} size="sm" variant="link">
+                      {t("openEntity")}
+                    </LinkButton>
+                  </div>
+                ) : null}
+              </li>
+            )
+          })}
         </ul>
         {interview && proposal.items.some((item) => item.result) ? (
           <div className="flex flex-wrap gap-2">

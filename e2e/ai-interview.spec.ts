@@ -71,9 +71,36 @@ for (const locale of ["ru", "en"] as const) {
       const progress = page.locator('[data-testid="ai-interview-progress"]:visible'),
         chips = page.getByTestId("ai-interview-chips")
       await expect(progress).toContainText(locale === "ru" ? "Шаг 1 из 5" : "Step 1 of 5")
+      const titlePrefix = locale === "ru" ? "Составление бюджета · " : "Budget setup · "
+      const conversationLink = page.getByRole("link", { name: new RegExp(titlePrefix) })
+      await expect(conversationLink).toBeVisible()
+      await expect(
+        conversationLink.getByRole("img", { name: locale === "ru" ? "Интервью по бюджету" : "Budget interview", exact: true }),
+      ).toBeVisible()
+      const automaticTitle = (await conversationLink.innerText()).trim()
+      const menu = (title: string) =>
+        page.getByRole("button", {
+          name: locale === "ru" ? `Действия с диалогом «${title}»` : `Conversation actions: ${title}`,
+          exact: true,
+        })
+      await menu(automaticTitle).click()
+      await page.getByRole("menuitem", { name: locale === "ru" ? "Переименовать диалог" : "Rename conversation", exact: true }).click()
+      const titleInput = page.getByLabel(locale === "ru" ? "Название диалога" : "Conversation title", { exact: true })
+      const customTitle = locale === "ru" ? "Наш бюджет" : "Our budget"
+      await titleInput.fill(customTitle)
+      await page.getByRole("button", { name: locale === "ru" ? "Сохранить название" : "Save title", exact: true }).click()
+      await expect(page.getByRole("dialog")).toHaveCount(0)
       await expect(chips.getByRole("button")).toHaveCount(1)
       await chips.getByRole("button").first().click()
       await expect(progress).toContainText(locale === "ru" ? "Шаг 2 из 5" : "Step 2 of 5")
+      await expect(page.getByRole("link", { name: new RegExp(customTitle) })).toBeVisible()
+      await menu(customTitle).click()
+      await page.getByRole("menuitem", { name: locale === "ru" ? "Переименовать диалог" : "Rename conversation", exact: true }).click()
+      await page
+        .getByRole("button", { name: locale === "ru" ? "Вернуть автоматическое название" : "Restore automatic title", exact: true })
+        .click()
+      await expect(page.getByRole("dialog")).toHaveCount(0)
+      await expect(conversationLink).toContainText(automaticTitle)
       await expect(page.getByTestId("ai-status")).toHaveCount(0)
       await page.getByRole("link", { name: locale === "ru" ? "Продолжить позже" : "Continue later", exact: true }).click()
       await expect(page).toHaveURL(/dashboard/)
@@ -104,8 +131,22 @@ for (const locale of ["ru", "en"] as const) {
       const proposal = page.getByTestId("ai-proposal")
       await expect(proposal).toBeVisible()
       await expect(page.getByTestId("ai-status")).toHaveCount(0)
+      await expect(proposal.locator("dl")).toHaveCount(0)
+      await expect(proposal).toContainText(locale === "ru" ? "Новая категория и лимит" : "New category and limit")
+      await expect(proposal).toContainText(locale === "ru" ? "ручная копилка" : "manual savings")
+      await expect(proposal).not.toContainText("RUB")
       expect(await db`select id from recurring_rules where household_id = ${family!.id}`).toHaveLength(0)
       expect(await db`select id from category_budgets where household_id = ${family!.id}`).toHaveLength(0)
+      for (const width of [1280, 375])
+        for (const theme of ["light", "dark"] as const) {
+          await page.setViewportSize({ width, height: width === 375 ? 812 : 950 })
+          await page.emulateMedia({ colorScheme: theme })
+          await proposal.locator("..").evaluate((element) => element.scrollIntoView({ block: "start" }))
+          await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+          if (process.env.UPDATE_SCREENSHOTS === "1")
+            await page.screenshot({ path: `${screenshots}/plan-${locale}-${width}-${theme}.png`, animations: "disabled" })
+        }
+      await proposal.getByRole("listitem").last().scrollIntoViewIfNeeded()
       if (process.env.UPDATE_SCREENSHOTS === "1")
         await page.screenshot({ path: `${screenshots}/plan-${locale}-375-dark.png`, animations: "disabled" })
       await proposal.locator("..").evaluate((element) => element.scrollIntoView({ block: "start" }))

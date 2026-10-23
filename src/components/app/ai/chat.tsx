@@ -6,7 +6,7 @@ import { useSyncExternalStore, useEffect, useLayoutEffect, useMemo, useRef, useS
 import { useRouter } from "next/navigation"
 import { useTranslations } from "next-intl"
 import Markdown from "react-markdown"
-import { Sparkles, Plus, Send, Square, Trash2, MessagesSquare, MoreHorizontal, ArrowDown } from "lucide-react"
+import { Sparkles, Plus, Send, Square, Trash2, MessagesSquare, MoreHorizontal, ArrowDown, Pencil } from "lucide-react"
 import { createAiConversationAction, deleteAiConversationAction } from "@/app/actions/ai"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -20,6 +20,7 @@ import { useAction } from "@/hooks/use-action"
 import type { HouseholdRole } from "@/domain/permissions"
 import { can } from "@/domain/permissions"
 import { INTERVIEW_STEPS, interviewProgress } from "@/domain/ai/interview"
+import { ConversationRename } from "./conversation-rename"
 import { InterviewStart } from "./interview-start"
 import { ProposalCard, type ProposalView } from "./proposal-card"
 
@@ -36,7 +37,7 @@ export function AiChat({
   id?: string
   kind?: "chat" | "onboarding" | "review"
   initialMessages: UIMessage[]
-  conversations: { id: string; title: string }[]
+  conversations: { id: string; title: string; kind: "chat" | "onboarding" | "review"; version: number }[]
   proposals: ProposalView[]
   role: HouseholdRole
   detailed: boolean
@@ -49,6 +50,7 @@ export function AiChat({
   const [navigating, setNavigating] = useState(false)
   const [dialogsOpen, setDialogsOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [rename, setRename] = useState<{ id: string; title: string; version: number } | null>(null)
   const [pinned, setPinned] = useState(true)
   const pin = useRef(true)
   const root = useRef<HTMLDivElement>(null)
@@ -133,7 +135,10 @@ export function AiChat({
                   else setDialogsOpen(false)
                 }}
               >
-                {c.title}
+                {c.kind === "onboarding" ? (
+                  <Sparkles className="mt-0.5 size-4 shrink-0" role="img" aria-label={t("interview.badge")} />
+                ) : null}
+                <span className="min-w-0">{c.title}</span>
               </LinkButton>
               <DropdownMenu animated={false}>
                 <DropdownMenuTrigger
@@ -149,6 +154,10 @@ export function AiChat({
                   <MoreHorizontal className="size-4" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setRename(c)}>
+                    <Pencil />
+                    {t("renameChat")}
+                  </DropdownMenuItem>
                   <DropdownMenuItem variant="destructive" onClick={() => setDeleteId(c.id)}>
                     <Trash2 />
                     {t("deleteChat")}
@@ -179,6 +188,7 @@ export function AiChat({
       className="fixed inset-x-0 top-0 z-30 grid h-dvh min-h-0 min-w-0 grid-cols-1 bg-background md:static md:z-auto md:h-auto md:flex-1 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-3"
     >
       <aside className="hidden min-h-0 min-w-0 flex-col gap-3 lg:flex">{conversationList()}</aside>
+      {rename ? <ConversationRename key={`${rename.id}:${rename.version}`} conversation={rename} onClose={() => setRename(null)} /> : null}
       <ConfirmDialog
         title={t("deleteChat")}
         description={t("deleteHint")}

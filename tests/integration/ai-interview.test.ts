@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { and, eq } from "drizzle-orm"
 import { getDb } from "@/db"
 import {
+  aiConversations,
   aiMessages,
   aiSettings,
   aiUsage,
@@ -18,7 +19,7 @@ import {
 import { setupHousehold, createUser } from "./helpers"
 import { saveAiSettings, getAiConfig, fingerprint, snapshot } from "@/server/ai/config"
 import { saveHouseholdAi } from "@/server/ai/access"
-import { createConversation, conversationMessages } from "@/server/ai/conversations"
+import { createConversation, conversationMessages, listConversations, renameConversation } from "@/server/ai/conversations"
 import { chatResponse } from "@/server/ai/chat"
 import { applyProposal, createProposal, listProposals } from "@/server/ai/proposals"
 import { prepareBudgetPlan, startBudgetInterview, type budgetPlanInput } from "@/server/ai/interview"
@@ -102,6 +103,38 @@ async function proposal(f: Awaited<ReturnType<typeof fixture>>, input = plan(f))
   }
 }
 describe("AI budget interview", () => {
+  it("localizes legacy interview titles by start date, preserves renames and rejects stale or private edits", async () => {
+    vi.setSystemTime(new Date("2026-10-22T23:30:00Z"))
+    const f = await fixture()
+    await db.update(aiConversations).set({ title: "Аренда: 30 000 ₽ 1-го; кредитов нет" }).where(eq(aiConversations.id, f.conversation.id))
+    expect((await listConversations(f.ctx))[0]).toMatchObject({ title: "Составление бюджета · 23 окт.", version: 1 })
+    expect((await listConversations({ ...f.ctx, locale: "en" }))[0]!.title).toBe("Budget setup · Oct 23")
+    await renameConversation(f.ctx, { id: f.conversation.id, title: "Наш бюджет", version: 1 })
+    await expect(renameConversation(f.ctx, { id: f.conversation.id, title: "Stale edit", version: 1 })).rejects.toMatchObject({
+      code: "conflict",
+    })
+    const response = await chatResponse(f.ctx, {
+      id: f.conversation.id,
+      message: { id: randomUUID(), role: "user", parts: [{ type: "text", text: "Составь бюджет" }] },
+    })
+    await response.text()
+    const renamed = (await listConversations(f.ctx))[0]!
+    expect(renamed.title).toBe("Наш бюджет")
+    const stranger = await createUser()
+    await db.insert(householdMembers).values({ householdId: f.ctx.householdId, userId: stranger.id, role: "admin" })
+    await expect(
+      renameConversation({ ...f.ctx, userId: stranger.id, role: "admin" }, { id: renamed.id, title: "Private", version: renamed.version }),
+    ).rejects.toMatchObject({ code: "not_found" })
+    const other = await fixture()
+    await expect(renameConversation(other.ctx, { id: renamed.id, title: "Other family", version: renamed.version })).rejects.toMatchObject({
+      code: "not_found",
+    })
+    await renameConversation(f.ctx, { id: renamed.id, title: null, version: renamed.version })
+    vi.setSystemTime(new Date("2026-11-05T09:00:00Z"))
+    expect((await listConversations(f.ctx))[0]!.title).toBe("Составление бюджета · 23 окт.")
+    expect((await listConversations({ ...f.ctx, timezone: "America/Los_Angeles", locale: "en" }))[0]!.title).toBe("Budget setup · Oct 22")
+  })
+
   it("streams five localized steps, persists quick replies and resumes before producing one read-only package", async () => {
     const f = await fixture()
     const send = async (text: string) => {
@@ -113,6 +146,7 @@ describe("AI budget interview", () => {
       expect(stream).not.toContain('"type":"error"')
       return stream
     }
+    const title = (await listConversations(f.ctx))[0]!.title
     await send("Составь бюджет")
     for (const step of ["income", "fixed", "variable", "goals", "preferences"]) {
       const messages = await conversationMessages(f.ctx, f.conversation.id)
@@ -122,6 +156,7 @@ describe("AI budget interview", () => {
       expect(progress.quickReplies).not.toHaveLength(0)
       await send(progress.quickReplies[0]!)
     }
+    expect((await listConversations(f.ctx))[0]!.title).toBe(title)
     const proposals = await listProposals(f.ctx, f.conversation.id)
     expect(proposals).toHaveLength(1)
     expect(proposals[0]!.items.map((item) => item.type)).toEqual(

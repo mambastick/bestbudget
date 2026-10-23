@@ -834,6 +834,8 @@ export const aiConversations = pgTable("ai_conversations", {
   householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
+  customTitle: text("custom_title"),
+  version: integer("version").notNull().default(1),
   kind: text("kind", { enum: ["chat", "onboarding", "review"] }).notNull().default("chat"),
   dataLevel: text("data_level", { enum: ["aggregates", "detailed"] }).notNull(),
   consentFingerprint: text("consent_fingerprint").notNull(),
