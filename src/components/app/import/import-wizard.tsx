@@ -2,7 +2,7 @@
 
 import { useTranslations } from "next-intl"
 
-import { useRef, useState, useSyncExternalStore } from "react"
+import { useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,11 +17,10 @@ import type { describeStatement } from "@/server/import/file"
 import type { ActionResult } from "@/server/errors"
 import { ImportStepper } from "./import-stepper"
 import { ImportSelect } from "./import-select"
+import { HydratedControls } from "@/components/app/hydrated-controls"
 
 type Inspection = ReturnType<typeof describeStatement>
 type SavedProfile = { id: string; name: string; config: Pick<PreviewInput, "file" | "mapping"> }
-
-const subscribe = () => () => {}
 
 export function ImportWizard({
   accounts,
@@ -31,7 +30,6 @@ export function ImportWizard({
   profiles: SavedProfile[]
 }) {
   const t = useTranslations("import")
-  const mounted = useSyncExternalStore(subscribe, () => true, () => false)
   const fields: { key: ColumnField; label: string }[] = [
     { key: "date", label: t("fields.date") },
     { key: "bookingDate", label: t("fields.bookingDate") },
@@ -142,7 +140,7 @@ export function ImportWizard({
     }
   }
   return (
-    <>
+    <HydratedControls loadingLabel={t("wizard.loading")}>
       <ImportStepper step={inspection ? 2 : 1} />
       <Section title={t("wizard.fileTitle")} description={t("wizard.fileDescription")}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -204,7 +202,7 @@ export function ImportWizard({
             />
           ) : null}
           <div className="flex flex-wrap gap-2 sm:col-span-2">
-            <Button disabled={!mounted || busy} onClick={() => void upload("inspect")}>
+            <Button disabled={busy} onClick={() => void upload("inspect")}>
               {busy ? t("wizard.reading") : t("wizard.read")}
             </Button>
             <LinkButton variant="outline" href="/api/import/template">
@@ -416,6 +414,6 @@ export function ImportWizard({
           {error}
         </p>
       ) : null}
-    </>
+    </HydratedControls>
   )
 }

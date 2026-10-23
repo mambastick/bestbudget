@@ -35,6 +35,7 @@ import bankData from "@/domain/import/bank-data.json"
 import { cn } from "@/lib/utils"
 import { ImportSelect } from "./import-select"
 import { ImportStepper } from "./import-stepper"
+import { HydratedControls } from "@/components/app/hydrated-controls"
 import { CategoryRuleEditor } from "./category-rule-editor"
 
 type Row = typeof importRows.$inferSelect
@@ -418,7 +419,7 @@ export function ImportPreview({
   ).size
   if (batch.status !== "draft")
     return (
-      <>
+      <HydratedControls loadingLabel={t("wizard.loading")}>
         <ImportStepper step={4} />
         <Section title={batch.status === "committed" ? t("actions.done") : t("result.undone")} description={t("result.description")}>
           <div className="mb-5 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:grid-cols-4">
@@ -462,10 +463,10 @@ export function ImportPreview({
             </p>
           ) : null}
         </Section>
-      </>
+      </HydratedControls>
     )
   return (
-    <>
+    <HydratedControls loadingLabel={t("wizard.loading")}>
       <ImportStepper step={3} />
       <Section
         title={t("preview.title")}
@@ -876,6 +877,6 @@ export function ImportPreview({
           />
         </DialogContent>
       </Dialog>
-    </>
+    </HydratedControls>
   )
 }
