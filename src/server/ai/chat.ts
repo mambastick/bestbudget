@@ -37,7 +37,7 @@ export async function chatResponse(ctx: HouseholdCtx, input: z.input<typeof turn
     const result = streamText({
       model: await languageModel(turn.config),
       system,
-      messages: await convertToModelMessages(turn.messages),
+      messages: await convertToModelMessages(turn.messages, { ignoreIncompleteToolCalls: true }),
       tools,
       abortSignal,
       stopWhen: stepCountIs(AI_MAX_STEPS),

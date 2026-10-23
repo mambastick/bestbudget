@@ -167,13 +167,17 @@ export async function beginTurn(ctx: HouseholdCtx, raw: z.input<typeof turnInput
           reservedTokens: AI_TURN_RESERVATION,
         })
         .returning()
+      const history = await conversationMessages(ctx, input.id)
+      const userIndex = history.findIndex((message) => message.id === input.message.id)
+      // A retry regenerates this turn, while retaining failed attempts in the private history.
+      const messages = existing ? history.slice(0, userIndex + 1) : history
       return {
         config,
         dataLevel: view.dataLevel,
         messageId,
         usageId: usage!.id,
         busyUntil,
-        messages: await conversationMessages(ctx, input.id),
+        messages,
         conversationId: input.id,
       }
     }),

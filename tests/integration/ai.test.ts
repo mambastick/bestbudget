@@ -19,7 +19,7 @@ import {
 import { setupHousehold, createUser } from "./helpers"
 import { saveAiSettings, getAiConfig, fingerprint, snapshot, resolveConfig, type AiConfig } from "@/server/ai/config"
 import { householdAiView, saveHouseholdAi } from "@/server/ai/access"
-import { beginTurn, createConversation, conversationMessages, deleteConversation } from "@/server/ai/conversations"
+import { beginTurn, finishTurn, createConversation, conversationMessages, deleteConversation } from "@/server/ai/conversations"
 import { chatResponse } from "@/server/ai/chat"
 import { applyProposal, createProposal, listProposals } from "@/server/ai/proposals"
 import { buildTools, toolRegistry } from "@/server/ai/tools"
@@ -332,6 +332,22 @@ describe("AI foundation", () => {
     await createTransaction(f.ctx, { type: "expense", status: "planned", accountId: account.id, categoryId: f.cat("Продукты"), date: todayIn(f.ctx.timezone), amount: 100 })
     const result = await toolRegistry.get("get_forecast")!.execute({ days: 7 }, { ctx: f.ctx, conversationId: f.conversation.id, messageId: randomUUID() }) as { warnings: string[] }
     expect(result.warnings.some((warning) => warning.includes("USD"))).toBe(true)
+  })
+
+  it("retries an interrupted tool call with a fresh assistant ID and keeps later turns usable", async () => {
+    const f = await enabled()
+    const input = { id: f.conversation.id, message: { id: randomUUID(), role: "user" as const, parts: [{ type: "text" as const, text: "Help me set up budgets" }] } }
+    const interrupted = await beginTurn(f.ctx, input)
+    await finishTurn(f.ctx, interrupted, { id: interrupted.messageId, role: "assistant", parts: [{ type: "text", text: "Partial response" }, { type: "tool-list_accounts", toolCallId: "interrupted", state: "input-available", input: {} }] }, 100, 0, 1, "provider_error")
+    const response = await chatResponse(f.ctx, input)
+    const stream = await response.text()
+    expect(stream).toContain("propose_budget_changes")
+    const [proposal] = await db.select().from(aiProposals).where(eq(aiProposals.conversationId, f.conversation.id))
+    expect(proposal).toBeDefined()
+    expect(stream).toContain(proposal!.messageId)
+    expect(proposal!.messageId).not.toBe(interrupted.messageId)
+    const next = await chatResponse(f.ctx, { ...input, message: { ...input.message, id: randomUUID() } })
+    expect(await next.text()).not.toContain('"type":"error"')
   })
 
 })
