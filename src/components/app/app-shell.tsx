@@ -258,7 +258,7 @@ function Header({ title }: { title: string }) {
   }, [ops])
   return (
     <>
-      <header data-slot="app-header" className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:rounded-t-xl">
+      <header data-slot="app-header" className={`${pathname.startsWith("/assistant") ? "hidden md:flex" : "flex"} sticky top-0 z-20 h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:rounded-t-xl`}>
         <Suspense><BackButton /></Suspense>
         <SidebarTrigger className="-ml-1" />
         <span className="truncate text-sm font-medium md:hidden">{title}</span>

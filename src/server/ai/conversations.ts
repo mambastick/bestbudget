@@ -1,11 +1,11 @@
 import "server-only"
 import { randomUUID } from "node:crypto"
-import { and, asc, desc, eq, gte, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gte, gt, isNotNull, isNull, lt, or, sql } from "drizzle-orm"
 import { z } from "zod"
 import type { UIMessage } from "ai"
 import { getDb, withDb } from "@/db"
 import { aiConversations, aiHouseholdSettings, aiMessages, aiUsage, households, users } from "@/db/schema"
-import { AI_TURN_RESERVATION } from "@/domain/ai/types"
+import { AI_RESERVATION_GRACE_MS, AI_TURN_RESERVATION } from "@/domain/ai/types"
 import type { HouseholdCtx } from "@/server/context"
 import { AppError, notFound } from "@/server/errors"
 import { requireAi } from "./access"
@@ -100,6 +100,17 @@ export async function beginTurn(ctx: HouseholdCtx, raw: z.input<typeof turnInput
       await db.select({ id: users.id }).from(users).where(eq(users.id, ctx.userId)).for("update")
       await db.select().from(aiHouseholdSettings).where(eq(aiHouseholdSettings.householdId, ctx.householdId)).for("update")
       const { config, view } = await requireAi(ctx)
+      // Recover crashed/legacy turns before admitting another reservation under the same household lock.
+      await db
+        .update(aiUsage)
+        .set({ reservedTokens: 0, reservationExpiresAt: null, errorCode: "interrupted" })
+        .where(
+          and(
+            eq(aiUsage.householdId, ctx.householdId),
+            gt(aiUsage.reservedTokens, 0),
+            or(lt(aiUsage.reservationExpiresAt, new Date()), isNull(aiUsage.reservationExpiresAt)),
+          ),
+        )
       const recent = await db
         .select({ id: aiUsage.id })
         .from(aiUsage)
@@ -165,6 +176,7 @@ export async function beginTurn(ctx: HouseholdCtx, raw: z.input<typeof turnInput
           model: config.model,
           createdAt: new Date(),
           reservedTokens: AI_TURN_RESERVATION,
+          reservationExpiresAt: new Date(busyUntil.getTime() + AI_RESERVATION_GRACE_MS),
         })
         .returning()
       const history = await conversationMessages(ctx, input.id)
@@ -193,21 +205,18 @@ export async function finishTurn(
   errorCode: string | null,
 ) {
   await getDb().transaction(async (db) => {
+    await db.select().from(aiHouseholdSettings).where(eq(aiHouseholdSettings.householdId, ctx.householdId)).for("update")
+    const [settled] = await db
+      .update(aiUsage)
+      .set({ inputTokens, outputTokens, reservedTokens: 0, reservationExpiresAt: null, durationMs, errorCode })
+      .where(and(eq(aiUsage.id, turn.usageId), eq(aiUsage.householdId, ctx.householdId), isNotNull(aiUsage.reservationExpiresAt)))
+      .returning({ id: aiUsage.id })
+    if (!settled) return
     if (message)
       await db
         .update(aiMessages)
         .set({ parts: message.parts, inputTokens, outputTokens })
         .where(and(eq(aiMessages.id, turn.messageId), eq(aiMessages.householdId, ctx.householdId)))
-    await db
-      .update(aiUsage)
-      .set({
-        inputTokens,
-        outputTokens,
-        reservedTokens: errorCode ? Math.max(0, AI_TURN_RESERVATION - inputTokens - outputTokens) : 0,
-        durationMs,
-        errorCode,
-      })
-      .where(eq(aiUsage.id, turn.usageId))
     await db
       .update(aiConversations)
       .set({ busyUntil: null })
@@ -219,4 +228,12 @@ export async function finishTurn(
         ),
       )
   })
+}
+
+/** Persist counters only: no prompts, responses or financial data are stored in usage checkpoints. */
+export async function checkpointTurn(ctx: HouseholdCtx, usageId: string, inputTokens: number, outputTokens: number) {
+  await getDb()
+    .update(aiUsage)
+    .set({ inputTokens, outputTokens, reservedTokens: Math.max(0, AI_TURN_RESERVATION - inputTokens - outputTokens) })
+    .where(and(eq(aiUsage.id, usageId), eq(aiUsage.householdId, ctx.householdId), isNotNull(aiUsage.reservationExpiresAt)))
 }

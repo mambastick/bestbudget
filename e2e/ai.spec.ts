@@ -5,8 +5,15 @@ import { SETUP_TOKEN, E2E_ENV } from "../playwright.config"
 import postgres from "postgres"
 
 test("AI consent, streaming proposal, selective apply and ru/en mobile layouts", async ({ browser }) => {
-  const context = await browser.newContext({ locale: "ru-RU", viewport: { width: 1280, height: 950 }, colorScheme: "light" })
+  test.setTimeout(180000)
+  const context = await browser.newContext({
+    serviceWorkers: "block",
+    locale: "ru-RU",
+    viewport: { width: 1280, height: 950 },
+    colorScheme: "light",
+  })
   const page = await context.newPage()
+  page.setDefaultTimeout(15000)
   const db = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
   const screenshots = "docs/screenshots/ai"
   await mkdir(screenshots, { recursive: true })
@@ -72,10 +79,46 @@ test("AI consent, streaming proposal, selective apply and ru/en mobile layouts",
     await expect(page.getByRole("status").filter({ hasText: "Изучаю ваш бюджет" })).toHaveCount(0)
     const proposal = page.getByTestId("ai-proposal")
     await expect(proposal.getByRole("checkbox")).toHaveCount(3)
+    await expect(proposal).not.toContainText("→")
+    await expect(proposal.getByText(/Новый лимит/)).toHaveCount(3)
     await page.screenshot({ path: `${screenshots}/chat-desktop-ru.png`, animations: "disabled" })
+    await page.emulateMedia({ colorScheme: "dark" })
+    await page.reload()
+    await page.screenshot({ path: `${screenshots}/chat-desktop-ru-dark.png`, animations: "disabled" })
+    await page.emulateMedia({ colorScheme: "light" })
+    await page.reload()
     await page.setViewportSize({ width: 375, height: 812 })
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    await page.screenshot({ path: `${screenshots}/chat-mobile-ru.png`, animations: "disabled", fullPage: true })
+    const feed = page.getByTestId("ai-messages")
+    const composer = page.getByTestId("ai-composer")
+    await feed.evaluate((el) => {
+      el.scrollTop = 0
+    })
+    await expect.poll(() => composer.evaluate((el) => Math.abs(el.getBoundingClientRect().bottom - innerHeight) < 2)).toBe(true)
+    await expect.poll(() => feed.evaluate((el) => el.scrollTop)).toBe(0)
+    await page.screenshot({ path: `${screenshots}/chat-mobile-ru.png`, animations: "disabled" })
+    await page.emulateMedia({ colorScheme: "dark" })
+    await page.reload()
+    await feed.evaluate((el) => {
+      el.scrollTop = 0
+    })
+    await page.screenshot({ path: `${screenshots}/chat-mobile-ru-dark.png`, animations: "disabled" })
+    await page.emulateMedia({ colorScheme: "light" })
+    await page.reload()
+    await page.getByRole("button", { name: "Диалоги", exact: true }).click()
+    await expect(page.getByRole("dialog").getByRole("link", { name: "Помоги настроить бюджеты", exact: true })).toBeVisible()
+    await page.screenshot({ path: `${screenshots}/dialogs-mobile-ru.png`, animations: "disabled" })
+    await page.getByRole("button", { name: "Закрыть", exact: true }).click()
+    // Emulate the visual viewport shrinking when a virtual keyboard opens.
+    await page.evaluate(() => {
+      Object.defineProperty(window.visualViewport!, "height", { configurable: true, value: 480 })
+      window.visualViewport!.dispatchEvent(new Event("resize"))
+    })
+    await expect.poll(() => composer.evaluate((el) => Math.round(el.getBoundingClientRect().bottom))).toBe(480)
+    await page.evaluate(() => {
+      delete (window.visualViewport as unknown as Record<string, unknown>).height
+      window.visualViewport!.dispatchEvent(new Event("resize"))
+    })
     await proposal.getByRole("checkbox").nth(2).uncheck()
     await proposal.getByRole("button", { name: "Применить выбранное", exact: true }).click()
     await expect(proposal.getByText("Применено частично", { exact: true })).toBeVisible()
@@ -88,18 +131,89 @@ test("AI consent, streaming proposal, selective apply and ru/en mobile layouts",
     await expect(page.getByRole("button", { name: "Apply selected", exact: true })).toBeVisible()
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     const previous = page.url()
+    await page.getByRole("button", { name: "Conversations", exact: true }).click()
     await page.getByRole("button", { name: "New conversation", exact: true }).click()
     await expect(page).not.toHaveURL(previous)
     await page.getByRole("textbox", { name: "Ask about your budget…", exact: true }).fill("Help me set up budgets")
     await page.getByRole("button", { name: "Send", exact: true }).click()
     await expect(page.getByText("Review the proposed monthly budgets below. Apply only the changes you choose.")).toBeVisible()
     await expect(page.getByTestId("ai-proposal")).toBeVisible()
-    await page.screenshot({ path: `${screenshots}/chat-mobile-en.png`, animations: "disabled", fullPage: true })
+    await expect(proposal.getByRole("checkbox")).toHaveCount(1)
+    await expect(proposal).not.toContainText("→")
+    await page.getByTestId("ai-messages").evaluate((el) => {
+      el.scrollTop = 0
+    })
+    await page.screenshot({ path: `${screenshots}/chat-mobile-en.png`, animations: "disabled" })
     await page.emulateMedia({ colorScheme: "dark" })
     await page.reload()
-    await page.screenshot({ path: `${screenshots}/chat-mobile-en-dark.png`, animations: "disabled", fullPage: true })
+    await page.getByTestId("ai-messages").evaluate((el) => {
+      el.scrollTop = 0
+    })
+    await page.screenshot({ path: `${screenshots}/chat-mobile-en-dark.png`, animations: "disabled" })
     await page.setViewportSize({ width: 1280, height: 950 })
     await page.screenshot({ path: `${screenshots}/chat-desktop-en.png`, animations: "disabled" })
+    await page.emulateMedia({ colorScheme: "light" })
+    await page.reload()
+    await page.screenshot({ path: `${screenshots}/chat-desktop-en-light.png`, animations: "disabled" })
+    // Menu belongs to each list row; deleting a different conversation keeps the active one open.
+    await page.getByRole("button", { name: "Conversation actions: Помоги настроить бюджеты", exact: true }).click()
+    await page.getByRole("menuitem", { name: "Delete conversation", exact: true }).click()
+    await page.getByRole("alertdialog").getByRole("button", { name: "Delete", exact: true }).click()
+    await expect(page.getByRole("link", { name: "Помоги настроить бюджеты", exact: true })).toHaveCount(0)
+
+    for (const locale of ["ru", "en"]) {
+      await db`update users set locale = ${locale} where email = 'ai-demo@e2e.test'`
+      for (const width of [1280, 375]) {
+        const mobile = width === 375
+        await page.setViewportSize({ width, height: mobile ? 812 : 950 })
+        await page.emulateMedia({ colorScheme: mobile ? "dark" : "light" })
+        await page.goto("/assistant")
+        if (mobile) await page.getByRole("button", { name: locale === "ru" ? "Диалоги" : "Conversations", exact: true }).click()
+        await page.getByRole("button", { name: locale === "ru" ? "Новый диалог" : "New conversation", exact: true }).click()
+        await expect(page).toHaveURL(/assistant\?id=/)
+        await expect(page.getByTestId("ai-chat")).toHaveAttribute("data-conversation-id", new URL(page.url()).searchParams.get("id")!)
+        const field = page.getByRole("textbox", { name: locale === "ru" ? "Спросите о бюджете…" : "Ask about your budget…", exact: true })
+        await field.fill(locale === "ru" ? "Помоги настроить бюджеты, пожалуйста" : "Help me set up budgets, please")
+        await page.getByRole("button", { name: locale === "ru" ? "Отправить" : "Send", exact: true }).click()
+        await expect(page.getByTestId("ai-status")).toContainText(locale === "ru" ? "Изучаю ваш бюджет" : "Exploring your budget")
+        await page.screenshot({ path: `${screenshots}/thinking-${locale}-${width}.png`, animations: "disabled" })
+        await expect(page.getByTestId("ai-status")).toContainText(locale === "ru" ? "Изучаю категории" : "Reviewing categories")
+        await page.screenshot({ path: `${screenshots}/tools-${locale}-${width}.png`, animations: "disabled" })
+        // User scrolling up must not be overridden by later streamed chunks.
+        const messages = page.getByTestId("ai-messages")
+        await messages.evaluate((el) => {
+          const spacer = document.createElement("div")
+          spacer.style.height = "1200px"
+          el.prepend(spacer)
+          el.scrollTop = 0
+          el.dispatchEvent(new Event("scroll"))
+        })
+        await page.waitForTimeout(700)
+        expect(await messages.evaluate((el) => el.scrollTop)).toBe(0)
+        await expect(page.getByTestId("ai-status")).toHaveCount(0, { timeout: 20000 })
+        await field.fill(locale === "ru" ? "Попробуй ещё раз" : "Try again")
+        await page.getByRole("button", { name: locale === "ru" ? "Отправить" : "Send", exact: true }).click()
+        await expect(page.getByTestId("ai-error")).toBeVisible()
+        await expect(
+          page.getByTestId("ai-error").getByRole("button", { name: locale === "ru" ? "Повторить" : "Retry", exact: true }),
+        ).toBeVisible()
+        await expect
+          .poll(() =>
+            page.getByTestId("ai-error").evaluate((el) => {
+              const r = el.getBoundingClientRect()
+              return r.top >= 0 && r.bottom <= innerHeight
+            }),
+          )
+          .toBe(true)
+        const errorBottom = await page
+          .getByTestId("ai-error")
+          .getByRole("paragraph")
+          .evaluate((el) => el.getBoundingClientRect().bottom)
+        const composerTop = await page.getByTestId("ai-composer").evaluate((el) => el.getBoundingClientRect().top)
+        expect(errorBottom).toBeLessThanOrEqual(composerTop)
+        await page.screenshot({ path: `${screenshots}/error-${locale}-${width}.png`, animations: "disabled" })
+      }
+    }
   } finally {
     await db.end()
     await context.close()

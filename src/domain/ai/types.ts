@@ -13,6 +13,7 @@ export interface ProposalItem {
   id: string
   type: string
   input: unknown
+  operation?: "create" | "update"
   before: Record<string, unknown> | null
   after: Record<string, unknown>
   permission: Permission
@@ -30,4 +31,5 @@ export interface ProposalItem {
 export const AI_MAX_STEPS = 8
 export const AI_MAX_OUTPUT_TOKENS = 2048
 export const AI_MAX_CONTEXT_BYTES = 64_000
+export const AI_RESERVATION_GRACE_MS = 10 * 60_000
 export const AI_TURN_RESERVATION = AI_MAX_STEPS * (AI_MAX_CONTEXT_BYTES + AI_MAX_OUTPUT_TOKENS)

@@ -1,15 +1,18 @@
 import type { ProposalItem } from "./types"
 
-/** Changed fields plus financial/date context; internal metadata stays out of cards. */
-export function proposalChanges(item: ProposalItem) {
+export function proposalIsCreation(item: Pick<ProposalItem, "operation" | "before">) {
+  return item.operation ? item.operation === "create" : !item.before?.id
+}
+
+/** Creation shows the complete entity; updates contain only effective changed fields. */
+export function proposalChanges(item: Pick<ProposalItem, "operation" | "before" | "after">) {
+  const create = proposalIsCreation(item)
   return Object.entries(item.after)
     .filter(
       ([key, value]) =>
         !["id", "version", "householdId"].includes(key) &&
         value !== undefined &&
-        (!item.before ||
-          ["amount", "targetAmount", "openingBalance", "toAmount", "date", "startDate", "endDate", "targetDate"].includes(key) ||
-          JSON.stringify(item.before[key]) !== JSON.stringify(value)),
+        (create || JSON.stringify(item.before?.[key] ?? null) !== JSON.stringify(value ?? null)),
     )
     .map(([field, after]) => ({ field, before: item.before?.[field] ?? null, after }))
 }

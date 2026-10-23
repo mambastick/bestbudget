@@ -58,7 +58,7 @@
     "usage": "Monthly usage (UTC)",
     "tokens": "Input / output / reserved",
     "noUsage": "No requests this month.",
-    "quotaHint": "Up to {tokens} tokens are reserved per request. Unused reservation is released after a successful response. Failures retain a conservative reservation."
+    "quotaHint": "Up to {tokens} tokens are reserved only while a turn runs. Completion uses provider usage or an estimate of sent context and received output. On the next request, abandoned reservations are released 10 minutes after the turn lease expires."
   },
   "consent": {
     "title": "AI for your household",
@@ -179,5 +179,9 @@
     "propose_account": "Preparing a new account…"
   },
   "conversations": "Conversations",
-  "minorUnits": "{value} minor units in the transaction currency"
+  "minorUnits": "{value} minor units in the transaction currency",
+  "newBudget": "New limit",
+  "perMonth": "{amount} per month",
+  "conversationMenu": "Conversation actions: {title}",
+  "latest": "Latest messages"
 }

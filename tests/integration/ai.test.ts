@@ -1,3 +1,6 @@
+import { MockLanguageModelV3 } from "ai/test"
+import { simulateReadableStream } from "ai"
+import * as providers from "@/server/ai/providers"
 import { randomUUID } from "node:crypto"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { and, eq } from "drizzle-orm"
@@ -19,14 +22,21 @@ import {
 import { setupHousehold, createUser } from "./helpers"
 import { saveAiSettings, getAiConfig, fingerprint, snapshot, resolveConfig, type AiConfig } from "@/server/ai/config"
 import { householdAiView, saveHouseholdAi } from "@/server/ai/access"
-import { beginTurn, finishTurn, createConversation, conversationMessages, deleteConversation } from "@/server/ai/conversations"
+import {
+  beginTurn,
+  checkpointTurn,
+  finishTurn,
+  createConversation,
+  conversationMessages,
+  deleteConversation,
+} from "@/server/ai/conversations"
 import { chatResponse } from "@/server/ai/chat"
 import { applyProposal, createProposal, listProposals } from "@/server/ai/proposals"
 import { buildTools, toolRegistry } from "@/server/ai/tools"
 import { setBudget } from "@/server/services/budgets"
 import { createRules } from "@/server/services/recurring"
 import { proposalCurrency } from "@/domain/ai/description"
-import { createAccount, updateAccount, updateCategory } from "@/server/services/catalog"
+import { createAccount, updateAccount, updateCategory, listCategories } from "@/server/services/catalog"
 import { todayIn } from "@/lib/dates"
 import { createTransaction } from "@/server/services/transactions"
 import { createGoal } from "@/server/services/goals"
@@ -37,7 +47,10 @@ beforeEach(async () => {
   vi.stubEnv("AI_PROVIDER", "")
   await db.delete(aiSettings)
 })
-afterEach(() => vi.unstubAllEnvs())
+afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.restoreAllMocks()
+})
 async function enabled(level: "aggregates" | "detailed" = "aggregates") {
   const fixture = await setupHousehold("AI synthetic")
   await saveAiSettings(fixture.owner.id, { provider: "mock", model: "test-budget", enabled: true })
@@ -67,6 +80,7 @@ async function pending(fixture: Awaited<ReturnType<typeof enabled>>, items?: { t
     title: "Budget",
     items: items ?? cats.map((c, i) => ({ type: "budget.set", input: { categoryId: c.id, amount: (i + 1) * 10000 } })),
   })
+  if (!proposal.proposalId) throw new Error("Expected pending proposal")
   return (await db.select().from(aiProposals).where(eq(aiProposals.id, proposal.proposalId)))[0]!
 }
 describe("AI foundation", () => {
@@ -233,6 +247,115 @@ describe("AI foundation", () => {
     await db.update(aiHouseholdSettings).set({ enabled: false }).where(eq(aiHouseholdSettings.householdId, f.ctx.householdId))
     await expect(send()).rejects.toMatchObject({ code: "not_found" })
   })
+  it("releases reservations on HTTP and connection errors before any response", async () => {
+    const f = await enabled()
+    await db.update(aiSettings).set({ monthlyTokenLimit: 1000000 }).where(eq(aiSettings.id, 1))
+    for (const status of [401, 429, 500, 0]) {
+      vi.spyOn(providers, "languageModel").mockResolvedValue(
+        new MockLanguageModelV3({
+          doStream: async () => {
+            throw Object.assign(new Error("SyntheticProviderFailure"), { statusCode: status })
+          },
+        }),
+      )
+      const response = await chatResponse(f.ctx, {
+        id: f.conversation.id,
+        message: { id: randomUUID(), role: "user", parts: [{ type: "text", text: "test" }] },
+      })
+      await response.text()
+    }
+    const rows = await db.select().from(aiUsage).where(eq(aiUsage.householdId, f.ctx.householdId))
+    expect(rows).toHaveLength(4)
+    expect(
+      rows.every((r) => r.reservedTokens === 0 && r.inputTokens === 0 && r.outputTokens === 0 && r.reservationExpiresAt === null),
+    ).toBe(true)
+  })
+  it("settles a broken stream using its sent context and received text estimate", async () => {
+    const f = await enabled()
+    vi.spyOn(providers, "languageModel").mockResolvedValue(
+      new MockLanguageModelV3({
+        doStream: async () => ({
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "stream-start", warnings: [] },
+              { type: "text-start", id: "partial" },
+              { type: "text-delta", id: "partial", delta: "Partial response" },
+              { type: "error", error: new Error("SyntheticDisconnect") },
+            ],
+          }),
+        }),
+      }),
+    )
+    const response = await chatResponse(f.ctx, {
+      id: f.conversation.id,
+      message: { id: randomUUID(), role: "user", parts: [{ type: "text", text: "test" }] },
+    })
+    await response.text()
+    const [row] = await db.select().from(aiUsage).where(eq(aiUsage.householdId, f.ctx.householdId))
+    expect(row!.reservedTokens).toBe(0)
+    expect(row!.inputTokens).toBeGreaterThan(0)
+    expect(row!.inputTokens + row!.outputTokens).toBeLessThan(AI_TURN_RESERVATION / 4)
+    expect(row!.outputTokens).toBe(Buffer.byteLength("Partial response"))
+    expect(row!.errorCode).toBe("provider_error")
+  })
+  it("recovers expired crashed turns by TTL and keeps checkpoint estimates", async () => {
+    const f = await enabled(),
+      second = await createConversation(f.ctx)
+    const input = (id: string) => ({
+      id,
+      message: { id: randomUUID(), role: "user" as const, parts: [{ type: "text" as const, text: "test" }] },
+    })
+    const crashed = await beginTurn(f.ctx, input(f.conversation.id))
+    await checkpointTurn(f.ctx, crashed.usageId, 500, 20)
+    await db
+      .update(aiSettings)
+      .set({ monthlyTokenLimit: AI_TURN_RESERVATION + 1000 })
+      .where(eq(aiSettings.id, 1))
+    await expect(beginTurn(f.ctx, input(second.id))).rejects.toMatchObject({ messageKey: "ai.monthlyLimit" })
+    vi.setSystemTime(new Date(crashed.busyUntil.getTime() + 10 * 60000 + 1))
+    const next = await beginTurn(f.ctx, input(second.id))
+    const [row] = await db.select().from(aiUsage).where(eq(aiUsage.id, crashed.usageId))
+    expect(row).toMatchObject({
+      reservedTokens: 0,
+      inputTokens: 500,
+      outputTokens: 20,
+      errorCode: "interrupted",
+      reservationExpiresAt: null,
+    })
+    await finishTurn(f.ctx, crashed, undefined, 0, 0, 0, null)
+    expect((await db.select().from(aiUsage).where(eq(aiUsage.id, crashed.usageId)))[0]?.inputTokens).toBe(500)
+    await finishTurn(f.ctx, next, undefined, 5, 2, 10, null)
+  })
+  it("omits unchanged proposal items and reports an empty package without persisting it", async () => {
+    const f = await enabled()
+    await setBudget(f.ctx, { categoryId: f.cat("Продукты"), amount: 10000 })
+    const p = await pending(f, [
+      { type: "budget.set", input: { categoryId: f.cat("Продукты"), amount: 10000 } },
+      { type: "budget.set", input: { categoryId: f.cat("ЖКХ"), amount: 20000 } },
+    ])
+    expect(p.items).toHaveLength(1)
+    expect(p.items[0]?.operation).toBe("create")
+    const result = await createProposal(f.ctx, f.conversation.id, p.messageId, {
+      title: "Unchanged",
+      items: [
+        { type: "budget.set", input: { categoryId: f.cat("Продукты"), amount: 10000 } },
+        { type: "budget.set", input: { categoryId: f.cat("Транспорт"), amount: null } },
+      ],
+    })
+    expect(result).toMatchObject({ proposalId: null, status: "unchanged", skippedUnchanged: 2 })
+    expect(await db.select().from(aiProposals).where(eq(aiProposals.conversationId, f.conversation.id))).toHaveLength(1)
+  })
+  it("explains that no changes are needed when the mock model proposes matching budgets", async () => {
+    const f = await enabled()
+    const cats = (await listCategories(f.ctx)).filter((c) => c.kind === "expense").slice(0, 3)
+    for (const [i, cat] of cats.entries()) await setBudget(f.ctx, { categoryId: cat.id, amount: (i + 1) * 100000 })
+    const response = await chatResponse(
+      { ...f.ctx, locale: "en" },
+      { id: f.conversation.id, message: { id: randomUUID(), role: "user", parts: [{ type: "text", text: "Help me set up budgets" }] } },
+    )
+    expect(await response.text()).toContain("No changes are needed")
+    expect(await db.select().from(aiProposals).where(eq(aiProposals.conversationId, f.conversation.id))).toHaveLength(0)
+  })
   it("ENV config takes priority, keeps secrets server-side and requires a new tool check", async () => {
     const f = await enabled()
     const [row] = await db.select().from(aiSettings).where(eq(aiSettings.id, 1))
@@ -282,8 +405,13 @@ describe("AI foundation", () => {
       id,
       message: { id: randomUUID(), role: "user" as const, parts: [{ type: "text" as const, text: "test" }] },
     })
-    await beginTurn(f.ctx, input(f.conversation.id))
-    await expect(beginTurn(f.ctx, input(second.id))).rejects.toMatchObject({ messageKey: "ai.monthlyLimit" })
+    const attempts = await Promise.allSettled([beginTurn(f.ctx, input(f.conversation.id)), beginTurn(f.ctx, input(second.id))])
+    expect(attempts.filter((r) => r.status === "fulfilled")).toHaveLength(1)
+    expect(attempts.find((r) => r.status === "rejected")).toMatchObject({ reason: { messageKey: "ai.monthlyLimit" } })
+    const reserved = await db.select().from(aiUsage).where(eq(aiUsage.householdId, f.ctx.householdId))
+    expect(reserved.reduce((n, row) => n + row.reservedTokens + row.inputTokens + row.outputTokens, 0)).toBeLessThanOrEqual(
+      AI_TURN_RESERVATION + 1,
+    )
     await db.update(aiSettings).set({ monthlyTokenLimit: 0 }).where(eq(aiSettings.id, 1))
     await db
       .insert(aiUsage)

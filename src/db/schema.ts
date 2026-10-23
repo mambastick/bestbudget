@@ -884,6 +884,7 @@ export const aiUsage = pgTable("ai_usage", {
   inputTokens: integer("input_tokens").notNull().default(0),
   outputTokens: integer("output_tokens").notNull().default(0),
   reservedTokens: integer("reserved_tokens").notNull().default(0),
+  reservationExpiresAt: timestamp("reservation_expires_at", { withTimezone: true }),
   errorCode: text("error_code"),
   durationMs: integer("duration_ms"),
   createdAt: createdAt(),

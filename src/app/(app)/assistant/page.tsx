@@ -26,8 +26,8 @@ export default async function AssistantPage({ searchParams }: { searchParams: Pr
     listCategories(ctx, { includeArchived: true }),
   ])
   return (
-    <div className="flex h-[calc(100dvh-5rem)] min-h-0 min-w-0 flex-col gap-3 sm:h-[calc(100dvh-7rem)]">
-      <div className="hidden shrink-0 sm:block">
+    <div className="flex h-[calc(100dvh-6rem)] min-h-0 min-w-0 flex-col gap-3">
+      <div className="hidden shrink-0 md:block">
         <PageHeader title={t("title")} description={t("subtitle")} />
       </div>
       <AiChat

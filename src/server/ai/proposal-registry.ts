@@ -18,6 +18,7 @@ export type Snapshot = Record<string, unknown> | null
 export interface ProposalHandler {
   schema: z.ZodType
   permission: Permission
+  operation(input: unknown, before: Snapshot): "create" | "update"
   snapshot(ctx: HouseholdCtx, input: unknown, lock?: boolean): Promise<Snapshot>
   after(ctx: HouseholdCtx, input: unknown, before: Snapshot): Record<string, unknown>
   apply(ctx: HouseholdCtx, input: unknown, before: Snapshot): Promise<{ href: string; entityId?: string }>
@@ -28,6 +29,7 @@ export function registerProposal<T>(
   schema: z.ZodType<T>,
   handler: {
     permission: Permission
+    operation?: "create" | ((input: NoInfer<T>, before: Snapshot) => "create" | "update")
     snapshot?(ctx: HouseholdCtx, input: NoInfer<T>, lock: boolean): Promise<Snapshot>
     after?(ctx: HouseholdCtx, input: NoInfer<T>, before: Snapshot): Record<string, unknown>
     apply(ctx: HouseholdCtx, input: NoInfer<T>, before: Snapshot): Promise<{ href: string; entityId?: string }>
@@ -37,6 +39,8 @@ export function registerProposal<T>(
   proposalHandlers.set(type, {
     schema,
     permission: handler.permission,
+    operation: (input, before) =>
+      typeof handler.operation === "function" ? handler.operation(schema.parse(input), before) : (handler.operation ?? "update"),
     snapshot: (ctx, input, lock = false) => handler.snapshot?.(ctx, schema.parse(input), lock) ?? Promise.resolve(null),
     after: (ctx, input, before) => handler.after?.(ctx, schema.parse(input), before) ?? (schema.parse(input) as Record<string, unknown>),
     apply: (ctx, input, before) => handler.apply(ctx, schema.parse(input), before),
@@ -86,6 +90,7 @@ const versioned = (table: Parameters<typeof owned>[1]) => async (ctx: HouseholdC
   const data = input as Record<string, unknown>
   return {
     ...before,
+    ...(table === categories ? { archived: Boolean(before.archivedAt) } : {}),
     references: await referenceSnapshot(
       ctx,
       [before, data, typeof data.rule === "object" && data.rule ? (data.rule as Record<string, unknown>) : {}],
@@ -97,6 +102,7 @@ const referenced = async (ctx: HouseholdCtx, input: Record<string, unknown>, loc
   references: await referenceSnapshot(ctx, [input], lock),
 })
 registerProposal("budget.set", budgetInput, {
+  operation: (input, before) => (before?.amount == null && input.amount !== null ? "create" : "update"),
   permission: "catalog.manage",
   async snapshot(ctx, input, lock) {
     const category = await owned(ctx, categories, input.categoryId, lock)
@@ -107,7 +113,7 @@ registerProposal("budget.set", budgetInput, {
     const [row] = await (lock ? query.for("update") : query)
     return row
       ? { id: row.id, version: row.version, categoryId: row.categoryId, amount: row.amount, categorySnapshot: category }
-      : { categorySnapshot: category }
+      : { categorySnapshot: category, categoryId: input.categoryId, amount: null }
   },
   apply: async (ctx, input) => {
     await setBudget(ctx, input)
@@ -115,6 +121,7 @@ registerProposal("budget.set", budgetInput, {
   },
 })
 registerProposal("category.create", categoryInput, {
+  operation: "create",
   permission: "catalog.manage",
   apply: async (ctx, input) => ({ href: "/settings?tab=categories", entityId: (await createCategory(ctx, input)).id }),
 })
@@ -136,10 +143,12 @@ registerProposal("category.archive", idInput, {
   },
 })
 registerProposal("account.create", accountInput, {
+  operation: "create",
   permission: "catalog.manage",
   apply: async (ctx, input) => ({ href: "/accounts", entityId: (await createAccount(ctx, input)).id }),
 })
 registerProposal("recurring.create", ruleInput, {
+  operation: "create",
   permission: "finance.write",
   snapshot: referenced,
   apply: async (ctx, input) => ({
@@ -166,6 +175,7 @@ registerProposal("recurring.pause", idInput.extend({ endDate: isoDate }), {
   },
 })
 registerProposal("goal.create", goalInput, {
+  operation: "create",
   permission: "finance.write",
   snapshot: referenced,
   apply: async (ctx, input) => {
@@ -182,6 +192,7 @@ registerProposal("goal.update", goalChangeInput, {
   },
 })
 registerProposal("goal.automate", automationInput.extend(idInput.shape), {
+  operation: "create",
   permission: "finance.write",
   snapshot: async (ctx, input, lock) => {
     const goal = await owned(ctx, goals, input.id, lock)
@@ -231,6 +242,7 @@ registerProposal("transaction.recategorize", idInput.extend({ categoryId: z.uuid
   },
 })
 registerProposal("import.rule", categoryRuleInput, {
+  operation: "create",
   permission: "finance.write",
   snapshot: referenced,
   apply: async (ctx, input) => ({ href: "/transactions/import", entityId: await saveCategoryRule(ctx, input) }),

@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { LinkButton } from "@/components/app/link-button"
 import { useAction } from "@/hooks/use-action"
 import { can, type HouseholdRole } from "@/domain/permissions"
-import { proposalChanges, proposalCurrency } from "@/domain/ai/description"
+import { proposalChanges, proposalCurrency, proposalIsCreation } from "@/domain/ai/description"
 import type { ProposalItem } from "@/domain/ai/types"
 import { formatMoney } from "@/lib/money"
 import type { aiProposals } from "@/db/schema"
@@ -71,18 +71,21 @@ export function ProposalCard({
                   onCheckedChange={(checked) => setSelected((ids) => (checked ? [...ids, item.id] : ids.filter((id) => id !== item.id)))}
                 />
                 <span className="min-w-0 break-words text-sm font-medium">
-                  {t(`kinds.${item.type.replaceAll(".", "_")}`)}
+                  {item.type === "budget.set" && proposalIsCreation(item) ? t("newBudget") : t(`kinds.${item.type.replaceAll(".", "_")}`)}
                   {item.label ? ` · ${item.label}` : ""}
+                  {item.type === "budget.set" && proposalIsCreation(item) && typeof item.after.amount === "number"
+                    ? ` — ${t("perMonth", { amount: formatMoney(item.after.amount, item.currency, { locale }) })}`
+                    : ""}
                 </span>
               </label>
               <dl className="space-y-1 pl-7 text-xs">
                 {proposalChanges(item)
-                  .filter(({ field }) => t.has(`fields.${field}`))
+                  .filter(({ field }) => t.has(`fields.${field}`) && !(item.type === "budget.set" && proposalIsCreation(item)))
                   .map(({ field, before, after }) => (
                     <div key={field} className="grid grid-cols-1 gap-0.5 sm:grid-cols-[8rem_1fr]">
                       <dt className="text-muted-foreground">{t(`fields.${field}`)}</dt>
                       <dd className="min-w-0 break-words">
-                        {item.before ? (
+                        {!proposalIsCreation(item) ? (
                           <>
                             <span className="text-muted-foreground">{value(field, before, item, true)}</span>
                             <span aria-hidden> → </span>

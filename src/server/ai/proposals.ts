@@ -5,6 +5,7 @@ import { z } from "zod"
 import { getDb, withDb } from "@/db"
 import { aiConversations, aiHouseholdSettings, aiProposals, householdMembers, households, aiSettings } from "@/db/schema"
 import { can } from "@/domain/permissions"
+import { proposalChanges } from "@/domain/ai/description"
 import type { ProposalItem } from "@/domain/ai/types"
 import { audit, withAiAudit } from "@/server/audit"
 import type { HouseholdCtx } from "@/server/context"
@@ -40,6 +41,7 @@ export async function createProposal(
   if (conversation.consentFingerprint !== fingerprint(view.provider) || conversation.dataLevel !== view.dataLevel)
     throw new AppError("ai.consentChanged")
   const items: ProposalItem[] = []
+  let skippedUnchanged = 0
   const targets = new Set<string>()
   for (const item of raw.items) {
     const handler = proposalHandlers.get(item.type)
@@ -57,6 +59,11 @@ export async function createProposal(
     if (target) targets.add(target)
     const before = await handler.snapshot(ctx, input)
     const after = handler.after(ctx, input, before)
+    const operation = handler.operation(input, before)
+    if (operation === "update" && !proposalChanges({ operation, before, after }).length) {
+      skippedUnchanged++
+      continue
+    }
     let label = String(after.name ?? after.title ?? before?.name ?? before?.title ?? "")
     if (typeof after.categoryId === "string") {
       const { listCategories } = await import("@/server/services/catalog")
@@ -74,6 +81,7 @@ export async function createProposal(
     items.push({
       id: randomUUID(),
       type: item.type,
+      operation,
       input,
       before,
       after,
@@ -89,11 +97,23 @@ export async function createProposal(
       beforeFieldCurrencies: beforeAllocationCurrency ? { allocatedAmount: beforeAllocationCurrency } : undefined,
     })
   }
+  if (!items.length)
+    return {
+      proposalId: null,
+      status: "unchanged",
+      skippedUnchanged,
+      instruction: "All requested items already match current data. No proposal was created. Tell the user no changes are needed.",
+    }
   const [proposal] = await getDb()
     .insert(aiProposals)
     .values({ householdId: ctx.householdId, conversationId, messageId, title: raw.title, items, expiresAt: proposalExpiry() })
     .returning()
-  return { proposalId: proposal!.id, status: "pending" }
+  return {
+    proposalId: proposal!.id,
+    status: "pending",
+    skippedUnchanged,
+    instruction: skippedUnchanged ? "Unchanged items were omitted. Only describe the remaining proposed changes." : undefined,
+  }
 }
 export async function listProposals(ctx: HouseholdCtx, conversationId: string) {
   await getConversation(ctx, conversationId)

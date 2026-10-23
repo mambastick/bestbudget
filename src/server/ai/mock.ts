@@ -18,12 +18,23 @@ export function mockModel(): LanguageModel {
       warnings: [],
     }),
     doStream: async (options) => {
+      const latestUser = JSON.stringify(options.prompt.findLast((m) => m.role === "user"))
+      if (/Попробуй ещё раз|Try again/.test(latestUser)) throw new Error("SyntheticProviderUnavailable")
+      const slow = /Помоги настроить бюджеты, пожалуйста|Help me set up budgets, please/.test(latestUser)
       const outputs = options.prompt.filter((m) => m.role === "tool").flatMap((m) => m.content)
       const categoryResult = outputs.find((o) => o.type === "tool-result" && o.toolName === "list_categories")
       const english = options.prompt.some((m) => m.role === "system" && typeof m.content === "string" && m.content.includes("locale=en"))
       const userText = JSON.stringify(options.prompt.filter((m) => m.role === "user"))
       const wantsBudgets = /budget|бюджет/i.test(userText)
       const hasSearch = options.tools?.some((t) => t.type === "function" && t.name === "search_transactions")
+      const proposed = outputs.find((o) => o.type === "tool-result" && o.toolName === "propose_budget_changes")
+      const unchanged =
+        proposed?.type === "tool-result" &&
+        proposed.output.type === "json" &&
+        proposed.output.value &&
+        typeof proposed.output.value === "object" &&
+        "status" in proposed.output.value &&
+        proposed.output.value.status === "unchanged"
       const searchDone = outputs.some((o) => o.type === "tool-result" && o.toolName === "search_transactions")
       let call: { toolName: string; input: string } | undefined
       if (!wantsBudgets && hasSearch && !searchDone)
@@ -48,24 +59,40 @@ export function mockModel(): LanguageModel {
       }
       return {
         stream: simulateReadableStream({
-          initialDelayInMs: 0,
-          chunkDelayInMs: 0,
+          initialDelayInMs: slow ? 1200 : 0,
+          chunkDelayInMs: slow ? 350 : 0,
           chunks: [
             { type: "stream-start" as const, warnings: [] },
             ...(call
-              ? [{ type: "tool-call" as const, toolCallId: crypto.randomUUID(), ...call }]
+              ? (() => {
+                  const toolCallId = crypto.randomUUID()
+                  return [
+                    ...(slow
+                      ? [
+                          { type: "tool-input-start" as const, id: toolCallId, toolName: call.toolName },
+                          { type: "tool-input-delta" as const, id: toolCallId, delta: call.input },
+                          { type: "tool-input-end" as const, id: toolCallId },
+                        ]
+                      : []),
+                    { type: "tool-call" as const, toolCallId, ...call },
+                  ]
+                })()
               : [
                   { type: "text-start" as const, id: "text" },
                   {
                     type: "text-delta" as const,
                     id: "text",
-                    delta: !wantsBudgets
+                    delta: unchanged
                       ? english
-                        ? "I reviewed the transaction data. You can ask about spending by category or period."
-                        : "Я посмотрел операции. Можно уточнить расходы по категории или периоду."
-                      : english
-                        ? "Review the proposed monthly budgets below. Apply only the changes you choose."
-                        : "Предлагаю месячные лимиты. Выберите нужные пункты в карточке и примените их.",
+                        ? "The current budgets already match. No changes are needed."
+                        : "Текущие лимиты уже совпадают. Изменения не нужны."
+                      : !wantsBudgets
+                        ? english
+                          ? "I reviewed the transaction data. You can ask about spending by category or period."
+                          : "Я посмотрел операции. Можно уточнить расходы по категории или периоду."
+                        : english
+                          ? "Review the proposed monthly budgets below. Apply only the changes you choose."
+                          : "Предлагаю месячные лимиты. Выберите нужные пункты в карточке и примените их.",
                   },
                   { type: "text-end" as const, id: "text" },
                 ]),
