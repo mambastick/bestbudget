@@ -35,6 +35,7 @@ export async function seedDemo(browser: Browser, prefix: string, name: string) {
     env: { ...process.env, ...E2E_ENV, ADMIN_NAME: name, ADMIN_EMAIL: email, ADMIN_PASSWORD: password }, stdio: "pipe",
   })
   const context = await browser.newContext({ serviceWorkers: "block", locale: "ru-RU", timezoneId: BROWSER_TIMEZONE })
+  let state: StorageState
   try {
     const response = await context.request.post("/api/auth/sign-in/email", {
       headers: { Origin: E2E_ENV.APP_URL }, data: { email, password },
@@ -47,16 +48,19 @@ export async function seedDemo(browser: Browser, prefix: string, name: string) {
     await expect(page).toHaveURL(/\/dashboard/)
     expect(E2E_ENV.TZ).toBe("UTC")
     expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(BROWSER_TIMEZONE)
-    execFileSync(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/seed-demo.ts", email], {
-      env: { ...process.env, ...E2E_ENV }, stdio: "pipe",
-    })
-    const owner = await withDb(async (sql) => {
-      const [row] = await sql<{ id: string; household_id: string }[]>`select u.id, hm.household_id from users u join household_members hm on hm.user_id=u.id where u.email=${email} and hm.role='owner'`
-      if (!row) throw new Error("Synthetic owner is missing")
-      return row
-    })
-    return { ...owner, state: await context.storageState() }
+    await page.waitForLoadState("networkidle")
+    state = await context.storageState()
   } finally { await context.close() }
+  // PGlite multiplexes one session: browser prefetches must finish before the seed CLI starts.
+  execFileSync(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/seed-demo.ts", email], {
+    env: { ...process.env, ...E2E_ENV }, stdio: "pipe",
+  })
+  const owner = await withDb(async (sql) => {
+    const [row] = await sql<{ id: string; household_id: string }[]>`select u.id, hm.household_id from users u join household_members hm on hm.user_id=u.id where u.email=${email} and hm.role='owner'`
+    if (!row) throw new Error("Synthetic owner is missing")
+    return row
+  })
+  return { ...owner, state }
 }
 
 export async function screenshot(page: Page, path: string, fullPage = false) {
