@@ -40,9 +40,10 @@ cleanup() {
   exit "$result"
 }
 trap cleanup EXIT
+version=$(node -p 'require(process.argv[1]).version' "$ROOT/package.json")
 image=ghcr.io/mambastick/bestbudget:backup-smoke
-docker build --build-arg VERSION=1.0.0-beta.1 -t "$image" "$ROOT"
-docker build --target app-runtime --build-arg VERSION=1.0.0-beta.1 -t bestbudget-size-baseline "$ROOT"
+docker build --build-arg VERSION="$version" -t "$image" "$ROOT"
+docker build --target app-runtime --build-arg VERSION="$version" -t bestbudget-size-baseline "$ROOT"
 new_size=$(docker image inspect "$image" --format '{{.Size}}')
 base_size=$(docker image inspect bestbudget-size-baseline --format '{{.Size}}')
 size_report="Image growth: $((new_size - base_size)) bytes ($base_size -> $new_size), PostgreSQL clients + tzdata + bundled backup CLI"
