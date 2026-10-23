@@ -10,9 +10,10 @@ import { PasswordInput } from "@/components/auth/password-input"
 import { Button } from "@/components/ui/button"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { useAction } from "@/hooks/use-action"
+import { formatDateTime } from "@/lib/dates"
 import type { notificationAdmin } from "@/server/notifications/view"
 
-export function NotificationAdmin(props: Awaited<ReturnType<typeof notificationAdmin>>) {
+export function NotificationAdmin(props: Awaited<ReturnType<typeof notificationAdmin>> & { timeZone: string }) {
   const t = useTranslations("admin")
   const locale = useLocale()
   const [token, setToken] = useState("")
@@ -30,7 +31,7 @@ export function NotificationAdmin(props: Awaited<ReturnType<typeof notificationA
           {t("botStatus", { bot: props.username ? `@${props.username}` : t("notConfigured"), jobs: t(props.jobsEnabled ? "jobsEnabled" : "jobsDisabled") })}
         </p>
         <p className="mb-3 text-xs text-muted-foreground">
-          {t("lastUpdate", { date: props.lastUpdate ? new Date(props.lastUpdate).toLocaleString(locale) : t("none") })}
+          {t("lastUpdate", { date: props.lastUpdate ? formatDateTime(props.lastUpdate, props.timeZone, locale) : t("none") })}
           {props.transportError ? ` · ${t("transportError", { error: props.transportError })}` : ""}
         </p>
         {props.fromEnv ? (
@@ -98,7 +99,7 @@ export function NotificationAdmin(props: Awaited<ReturnType<typeof notificationA
         <ul className="divide-y">
           {props.errors.map((e) => (
             <li key={e.id} className="break-words py-2 text-xs">
-              {new Date(e.createdAt).toLocaleString(locale)} · {e.channel} · {t.has(`deliveryKind.${e.kind}`) ? t(`deliveryKind.${e.kind}`) : e.kind} · {t.has(`deliveryStatus.${e.status}`) ? t(`deliveryStatus.${e.status}`) : e.status} · {e.error} ·
+              {formatDateTime(e.createdAt, props.timeZone, locale)} · {e.channel} · {t.has(`deliveryKind.${e.kind}`) ? t(`deliveryKind.${e.kind}`) : e.kind} · {t.has(`deliveryStatus.${e.status}`) ? t(`deliveryStatus.${e.status}`) : e.status} · {e.error} ·
               {t("attempts", { count: e.attempts })}
             </li>
           ))}

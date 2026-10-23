@@ -75,7 +75,6 @@ export function HouseholdSettings({
   const [leaveOpen, setLeaveOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const isOwner = can(role, "household.manage")
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -132,7 +131,7 @@ export function HouseholdSettings({
                   <Link2 className="size-4 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate">
                     {i.note || t("household.invitation")} · {roles(i.role)}
-                    <span className="block text-xs text-muted-foreground">{t("household.until")}{" "}{formatDateTime(i.expiresAt, tz, locale)}</span>
+                    <span className="block text-xs text-muted-foreground">{t("household.until")}{" "}{formatDateTime(i.expiresAt, household.timezone, locale)}</span>
                   </span>
                   <Button variant="ghost" size="sm" onClick={() => run(() => revokeInvitationAction(i.id), { success: t("household.invitationRevoked") })}>
                     {t("household.revoke")}{" "}</Button>

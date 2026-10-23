@@ -1,6 +1,7 @@
 // shadcn/ui - MIT License; see THIRD_PARTY_NOTICES.md.
 "use client"
 
+import { useLocale } from "next-intl"
 import * as React from "react"
 import { cn } from "@/lib/utils"
 import * as RechartsPrimitive from "recharts"
@@ -145,6 +146,7 @@ function ChartTooltipContent({
     "accessibilityLayer"
   >) {
   const { config } = useChart()
+  const locale = useLocale()
 
   const tooltipLabel = React.useMemo(() => {
     if (hideLabel || !payload?.length) {
@@ -255,7 +257,7 @@ function ChartTooltipContent({
                       {item.value != null && (
                         <span className="font-mono font-medium text-foreground tabular-nums">
                           {typeof item.value === "number"
-                            ? item.value.toLocaleString()
+                            ? item.value.toLocaleString(locale)
                             : String(item.value)}
                         </span>
                       )}

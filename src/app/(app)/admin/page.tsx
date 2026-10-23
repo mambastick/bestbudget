@@ -16,7 +16,7 @@ import { formatDateTime } from "@/lib/dates"
 import { env } from "@/lib/env"
 import { smtpEnabled } from "@/lib/mail"
 import { notificationAdmin } from "@/server/notifications/view"
-import { requireSystemAdmin } from "@/server/session"
+import { requireHousehold, requireSystemAdmin } from "@/server/session"
 import { defaultRedirectUri, getAppSettings, getAuthMethods, getOidcConfig } from "@/server/services/settings"
 import { listHouseholdsForAdmin, listSystemEvents, listUsersForAdmin } from "@/server/services/users"
 
@@ -27,11 +27,9 @@ export async function generateMetadata(): Promise<Metadata> {
 
 const tabKeys = ["users", "households", "auth", "rates", "events", "notifications"] as const
 
-// Server-only page: the admin needs the system time zone for timestamps.
-const TZ = process.env.TZ || "Europe/Moscow"
-
 export default async function AdminPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const admin = await requireSystemAdmin()
+  const { timezone: timeZone } = await requireHousehold()
   const t = await getTranslations("admin")
   const locale = await getLocale()
   const TABS = tabKeys.map((key) => ({ key, label: t(key) }))
@@ -62,6 +60,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     content = (
       <UsersTable
         currentUserId={admin.id}
+        timeZone={timeZone}
         users={users.map((u) => ({ ...u, createdAt: u.createdAt.toISOString(), lastSeen: u.lastSeen ? new Date(u.lastSeen).toISOString() : null }))}
       />
     )
@@ -87,7 +86,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
                   <TableCell>{h.owner ? `${h.owner.name} (${h.owner.email})` : "—"}</TableCell>
                   <TableCell className="text-right">{h.members}</TableCell>
                   <TableCell>{h.timezone}</TableCell>
-                  <TableCell>{formatDateTime(h.createdAt, TZ, locale)}</TableCell>
+                  <TableCell>{formatDateTime(h.createdAt, timeZone, locale)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -128,7 +127,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   } else if (tab === "rates") {
     content = <ExchangeRatesSettings rates={await listExchangeRates()} today={todayIn("Europe/Moscow")} provider={env().FX_PROVIDER} />
   } else if (tab === "notifications") {
-    content = <NotificationAdmin {...await notificationAdmin()} />
+    content = <NotificationAdmin {...await notificationAdmin()} timeZone={timeZone} />
   } else {
     const events = await listSystemEvents(200)
     content = (
@@ -136,7 +135,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
         <ul className="divide-y">
           {events.map((e) => (
             <li key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-2 text-sm">
-              <span className="w-36 shrink-0 text-xs text-muted-foreground tabular">{formatDateTime(e.createdAt, TZ, locale)}</span>
+              <span className="w-36 shrink-0 text-xs text-muted-foreground tabular">{formatDateTime(e.createdAt, timeZone, locale)}</span>
               <span className="min-w-0 flex-1">{EVENT_LABELS[e.action] ?? e.action}</span>
               <span className="text-xs text-muted-foreground">{e.actorEmail ?? t("system")}</span>
             </li>

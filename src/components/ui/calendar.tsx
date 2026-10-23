@@ -1,6 +1,7 @@
 // shadcn/ui - MIT License; see THIRD_PARTY_NOTICES.md.
 "use client"
 
+import { useLocale } from "next-intl"
 import * as React from "react"
 import { cn } from "@/lib/utils"
 import {
@@ -20,12 +21,14 @@ function Calendar({
   captionLayout = "label",
   buttonVariant = "ghost",
   locale,
+  timeZone = "UTC",
   formatters,
   components,
   ...props
 }: React.ComponentProps<typeof DayPicker> & {
   buttonVariant?: React.ComponentProps<typeof Button>["variant"]
 }) {
+  const activeLocale = useLocale()
   const defaultClassNames = getDefaultClassNames()
 
   return (
@@ -39,9 +42,10 @@ function Calendar({
       )}
       captionLayout={captionLayout}
       locale={locale}
+      timeZone={timeZone}
       formatters={{
         formatMonthDropdown: (date) =>
-          date.toLocaleString(locale?.code, { month: "short" }),
+          date.toLocaleString(locale?.code ?? activeLocale, { month: "short", timeZone }),
         ...formatters,
       }}
       classNames={{
@@ -163,7 +167,7 @@ function Calendar({
           )
         },
         DayButton: ({ ...props }) => (
-          <CalendarDayButton locale={locale} {...props} />
+          <CalendarDayButton locale={locale} timeZone={timeZone} {...props} />
         ),
         WeekNumber: ({ children, ...props }) => {
           return (
@@ -186,8 +190,10 @@ function CalendarDayButton({
   day,
   modifiers,
   locale,
+  timeZone = "UTC",
   ...props
-}: React.ComponentProps<typeof DayButton> & { locale?: Partial<Locale> }) {
+}: React.ComponentProps<typeof DayButton> & { locale?: Partial<Locale>; timeZone?: string }) {
+  const activeLocale = useLocale()
   const defaultClassNames = getDefaultClassNames()
 
   const ref = React.useRef<HTMLButtonElement>(null)
@@ -199,7 +205,7 @@ function CalendarDayButton({
     <Button
       variant="ghost"
       size="icon"
-      data-day={day.date.toLocaleDateString(locale?.code)}
+      data-day={day.date.toLocaleDateString(locale?.code ?? activeLocale, { timeZone })}
       data-selected-single={
         modifiers.selected &&
         !modifiers.range_start &&

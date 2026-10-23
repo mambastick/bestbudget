@@ -35,11 +35,13 @@ export function ProfileSettings({
   user,
   hasPassword,
   localEnabled,
+  timeZone,
   sso,
 }: {
   user: { name: string; email: string }
   hasPassword: boolean
   localEnabled: boolean
+  timeZone: string
   sso: { name: string; linked: boolean } | null
 }) {
   const locale = useLocale()
@@ -181,7 +183,7 @@ export function ProfileSettings({
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {s.ipAddress ? `${s.ipAddress} · ` : ""}
-                      {formatDateTime(s.updatedAt, Intl.DateTimeFormat().resolvedOptions().timeZone, locale)}
+                      {formatDateTime(s.updatedAt, timeZone, locale)}
                     </div>
                   </div>
                   {!isCurrent ? (

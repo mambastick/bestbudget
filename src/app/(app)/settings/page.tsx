@@ -60,6 +60,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     content = (
       <>
         <ProfileSettings
+          timeZone={ctx.timezone}
           user={{ name: ctx.user.name, email: ctx.user.email }}
           hasPassword={providers.includes("credential")}
           localEnabled={methods.local}

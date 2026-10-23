@@ -27,14 +27,14 @@ interface AdminUser {
   lastSeen: string | null
 }
 
-export function UsersTable({ users, currentUserId }: { users: AdminUser[]; currentUserId: string }) {
+export function UsersTable({ users, currentUserId, timeZone }: { users: AdminUser[]; currentUserId: string; timeZone: string }) {
   const t = useTranslations("admin")
   const [password, setPassword] = useState<string | null>(null)
   return (
     <Section title={t("users")} description={t("userCount", { count: users.length })}>
       <ul className="divide-y">
         {users.map((u) => (
-          <UserRow key={u.id} user={u} isSelf={u.id === currentUserId} onPassword={setPassword} />
+          <UserRow key={u.id} user={u} isSelf={u.id === currentUserId} onPassword={setPassword} timeZone={timeZone} />
         ))}
       </ul>
       <Dialog open={password !== null} onOpenChange={(o) => !o && setPassword(null)}>
@@ -66,12 +66,11 @@ export function UsersTable({ users, currentUserId }: { users: AdminUser[]; curre
   )
 }
 
-function UserRow({ user: u, isSelf, onPassword }: { user: AdminUser; isSelf: boolean; onPassword: (p: string) => void }) {
+function UserRow({ user: u, isSelf, onPassword, timeZone }: { user: AdminUser; isSelf: boolean; onPassword: (p: string) => void; timeZone: string }) {
   const t = useTranslations("admin")
   const locale = useLocale()
   const { run } = useAction()
   const [confirm, setConfirm] = useState<"ban" | "reset" | null>(null)
-  const tz = Intl.DateTimeFormat(locale).resolvedOptions().timeZone
   return (
     <li className="flex flex-wrap items-center gap-3 py-3">
       <div className="min-w-0 flex-1">
@@ -83,7 +82,7 @@ function UserRow({ user: u, isSelf, onPassword }: { user: AdminUser; isSelf: boo
         </div>
         <div className="truncate text-xs text-muted-foreground">
           {t("userDetails", { email: u.email, providers: u.providers.map((p) => (p === "credential" ? t("password") : p === "oidc" ? "SSO" : p)).join(", ") || "—", count: u.households })}
-          {u.lastSeen ? ` · ${t("lastSeen", { date: formatDateTime(u.lastSeen, tz, locale) })}` : ""}
+          {u.lastSeen ? ` · ${t("lastSeen", { date: formatDateTime(u.lastSeen, timeZone, locale) })}` : ""}
         </div>
       </div>
       {!isSelf ? (

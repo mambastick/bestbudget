@@ -8,6 +8,7 @@ import { defineConfig, devices } from "@playwright/test"
  */
 const PORT = 3200
 const DB_PORT = 54330
+export const BROWSER_TIMEZONE = "Asia/Vladivostok"
 export const SETUP_TOKEN = "e2e-setup-token"
 
 const env = {
@@ -21,6 +22,7 @@ const env = {
   JOBS_ENABLED: "false",
   PORT: String(PORT),
   HOSTNAME: "127.0.0.1",
+  TZ: "UTC",
 }
 
 export { env as E2E_ENV }
@@ -36,7 +38,7 @@ export default defineConfig({
   use: {
     baseURL: env.APP_URL,
     locale: "ru-RU",
-    timezoneId: "Europe/Moscow",
+    timezoneId: BROWSER_TIMEZONE,
     trace: "retain-on-failure",
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {},
   },

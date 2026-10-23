@@ -1,7 +1,7 @@
 import { randomBytes, createHash } from "node:crypto"
 import { mkdir } from "node:fs/promises"
 import postgres from "postgres"
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page } from "./fixtures"
 import { E2E_ENV, SETUP_TOKEN } from "../playwright.config"
 
 const screenshotDir = "docs/screenshots/i18n"

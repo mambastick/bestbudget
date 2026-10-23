@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test"
+import { test, expect, type Page } from "./fixtures"
 import postgres from "postgres"
 import { E2E_ENV, SETUP_TOKEN } from "../playwright.config"
 
