@@ -104,7 +104,7 @@ test.describe.serial("acceptance scenario", () => {
 
     // Next month: planned salary is part of the forecast but not of the actual balance.
     await page.getByRole("link", { name: "Следующий месяц" }).click()
-    await expect(page.getByTestId("planned-income")).toContainText("366 000")
+    await expect(page.getByTestId("planned-income").filter({ visible: true })).toContainText("366 000")
     await expect(balanceCard(page)).toContainText("−5 000")
 
     // Confirm the nearest salary from the upcoming list.
