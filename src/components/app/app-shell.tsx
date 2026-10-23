@@ -1,7 +1,7 @@
 "use client"
 
 import { AnimateIcon } from "@animate-ui/react/icons"
-import { Check, ChevronsUpDown, PiggyBank, Plus } from "lucide-react"
+import { Check, ChevronsUpDown, PiggyBank, Plus, Target } from "lucide-react"
 import { CalendarDays } from "@/components/animate-ui/icons/calendar-days"
 import { ChartLine } from "@/components/animate-ui/icons/chart-line"
 import { Gauge } from "@/components/animate-ui/icons/gauge"
@@ -57,6 +57,7 @@ const NAV = [
   { href: "/calendar", label: "Календарь", icon: CalendarDays },
   { href: "/budgets", label: "Бюджеты", icon: Gauge },
   { href: "/analytics", label: "Аналитика", icon: ChartLine },
+  { href: "/goals", label: "Цели", icon: Target },
   { href: "/accounts", label: "Счета", icon: Wallet },
   { href: "/settings", label: "Настройки", icon: Settings },
 ]

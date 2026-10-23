@@ -89,10 +89,9 @@ export async function normalizeOperation(db: DbOrTx, ctx: HouseholdCtx, input: O
   }
 }
 
-export async function createTransaction(ctx: HouseholdCtx, raw: TransactionInput) {
+export async function createTransaction(ctx: HouseholdCtx, raw: TransactionInput, db: DbOrTx = getDb()) {
   assertCan(ctx, "finance.write")
   const input = transactionInput.parse(raw)
-  const db = getDb()
   const values = await normalizeOperation(db, ctx, input)
   const [row] = await db
     .insert(transactions)
@@ -113,7 +112,7 @@ export async function createTransaction(ctx: HouseholdCtx, raw: TransactionInput
     householdId: ctx.householdId,
     actorId: ctx.userId,
     meta: { type: row!.type, amount: row!.amount, date: row!.date, status: row!.status },
-  })
+  }, db)
   return row!
 }
 

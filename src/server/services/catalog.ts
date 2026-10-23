@@ -2,7 +2,7 @@ import "server-only"
 import { and, asc, eq, isNull, or, sql } from "drizzle-orm"
 import { z } from "zod"
 import { getDb } from "@/db"
-import { accountKind, categories, financialAccounts, recurringRules, transactions } from "@/db/schema"
+import { accountKind, categories, financialAccounts, goals, recurringRules, transactions } from "@/db/schema"
 import { CURRENCY_CODES } from "@/lib/currencies"
 import { audit, diff } from "../audit"
 import { assertCan, type HouseholdCtx } from "../context"
@@ -126,7 +126,7 @@ export async function listAccounts(ctx: HouseholdCtx, opts: { includeArchived?: 
       sortOrder: a.sortOrder,
       delta: balanceDelta,
       operations: sql<number>`(select count(*)::int from transactions u where u.household_id = ${a.householdId} and (u.account_id = ${a.id} or u.to_account_id = ${a.id}))`,
-      currencyLocked: sql<boolean>`exists(select 1 from transactions u where u.household_id = ${a.householdId} and (u.account_id = ${a.id} or u.to_account_id = ${a.id})) or exists(select 1 from recurring_rules r where r.household_id = ${a.householdId} and (r.account_id = ${a.id} or r.to_account_id = ${a.id}))`,
+      currencyLocked: sql<boolean>`exists(select 1 from transactions u where u.household_id = ${a.householdId} and (u.account_id = ${a.id} or u.to_account_id = ${a.id})) or exists(select 1 from recurring_rules r where r.household_id = ${a.householdId} and (r.account_id = ${a.id} or r.to_account_id = ${a.id})) or exists(select 1 from goals g where g.household_id = ${a.householdId} and g.account_id = ${a.id})`,
     })
     .from(a)
     .leftJoin(t, and(eq(t.status, "posted"), eq(t.householdId, a.householdId), or(eq(t.accountId, a.id), eq(t.toAccountId, a.id))))
@@ -159,7 +159,8 @@ export async function updateAccount(ctx: HouseholdCtx, id: string, raw: z.input<
   if (input.currency && input.currency !== before.currency) {
     const [used] = await db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.householdId, ctx.householdId), or(eq(transactions.accountId, id), eq(transactions.toAccountId, id)))).limit(1)
     const [rule] = await db.select({ id: recurringRules.id }).from(recurringRules).where(and(eq(recurringRules.householdId, ctx.householdId), or(eq(recurringRules.accountId, id), eq(recurringRules.toAccountId, id)))).limit(1)
-    if (used || rule) throw new AppError("Нельзя изменить валюту счёта с операциями или расписаниями")
+    const [goal] = await db.select({ id: goals.id }).from(goals).where(and(eq(goals.householdId, ctx.householdId), eq(goals.accountId, id))).limit(1)
+    if (used || rule || goal) throw new AppError("Нельзя изменить валюту счёта с операциями, расписаниями или целями")
   }
   const version = z.number().int().positive().parse(raw.version ?? before.version)
   const updated = await db.update(financialAccounts).set({ ...input, version: sql`${financialAccounts.version} + 1` }).where(and(eq(financialAccounts.id, id), eq(financialAccounts.householdId, ctx.householdId), eq(financialAccounts.version, version))).returning()
@@ -207,6 +208,8 @@ export async function deleteAccount(ctx: HouseholdCtx, id: string) {
     .from(financialAccounts)
     .where(and(eq(financialAccounts.householdId, ctx.householdId), isNull(financialAccounts.archivedAt)))
   if ((active?.n ?? 0) <= 1) throw new AppError("Нельзя удалить единственный счёт")
+  const [goal] = await db.select({ id: goals.id }).from(goals).where(and(eq(goals.householdId, ctx.householdId), eq(goals.accountId, id))).limit(1)
+  if (goal) throw new AppError("Счёт связан с целью. Архивируйте счёт — история сохранится.")
   const res = await db
     .delete(financialAccounts)
     .where(and(eq(financialAccounts.id, id), eq(financialAccounts.householdId, ctx.householdId)))
