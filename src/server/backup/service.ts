@@ -67,23 +67,23 @@ export class BackupService {
       const name = await this.dump(command)
       await atomicJson(path.join(this.config.BACKUP_DIR, ".status.json"), {})
       await this.rotate()
-      console.log(`Бэкап создан: ${name}`)
+      console.log(`Backup created: ${name}`)
       await this.upload()
       return name
     })
   }
 
   async restore(input: string, confirmed: boolean) {
-    if (!confirmed) throw new BackupError("Восстановление заменяет данные. Добавьте --yes и сначала остановите app")
+    if (!confirmed) throw new BackupError("Restore replaces data. Add --yes and stop app first")
     return withDatabase(this.config, async (sql, command) => {
       const name = await this.verify(input, command)
       const [connections] = await sql<{ count: number }[]>`select count(*)::int as count from pg_stat_activity where datname=current_database() and pid<>pg_backend_pid() and backend_type='client backend'`
-      if (connections?.count) throw new BackupError("В БД есть активные подключения. Остановите app и другие клиенты, затем повторите restore")
+      if (connections?.count) throw new BackupError("The database has active connections. Stop app and other clients, then retry restore")
       const safety = await this.dump(command, true)
-      console.log(`Страховочная копия: ${safety}`)
+      console.log(`Safety backup: ${safety}`)
       await command("pg_restore", ["--dbname=", "--no-password", "--clean", "--if-exists", "--no-owner", "--no-acl", "--single-transaction", path.join(this.config.BACKUP_DIR, name)])
       await this.rotate([name, safety])
-      console.log(`Восстановлено: ${name}`)
+      console.log(`Restored: ${name}`)
     })
   }
 

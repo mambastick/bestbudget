@@ -26,6 +26,16 @@ function env(enabled = "false") {
 }
 
 describe("backup opt-out", () => {
+  it("keeps CLI output and usage errors in English regardless of the process language", async () => {
+    const settings = { ...env("true"), LANG: "ru_RU.UTF-8" }
+    expect((await exec(process.execPath, [...args, "list"], { env: settings })).stdout).toBe("No backups yet\n")
+    const { stdout } = await exec(process.execPath, [...args, "status"], { env: settings })
+    expect(stdout).toContain("No successful backups yet\nNext run: unavailable (UTC)\nS3: disabled\n")
+    await expect(exec(process.execPath, [...args, "verify"], { env: settings })).rejects.toMatchObject({
+      code: 1, stderr: "Specify a file: verify backups/<name>.dump\n",
+    })
+  })
+
   it("defaults to enabled and parses false without boolean coercion", () => {
     expect(backupConfig({ NODE_ENV: "test" }).BACKUP_ENABLED).toBe(true)
     expect(backupConfig({ NODE_ENV: "test", BACKUP_ENABLED: "true" }).BACKUP_ENABLED).toBe(true)

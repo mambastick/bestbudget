@@ -90,9 +90,21 @@ failed_s3() {
 if failed_s3 now > s3-failure.log 2>&1; then echo 'FAIL: inaccessible S3 reported success'; exit 1; fi
 failed_s3 status --json | python3 -c 'import json,sys; s=json.load(sys.stdin); assert s["s3"]["status"]=="error" and s["lastSuccess"]'
 backup now
-# An app with an open connection must block restore, even with --yes.
-if backup restore "backups/$dump" --yes > refused.log 2>&1; then echo 'FAIL: restore allowed while app was running'; exit 1; fi
-grep -q 'подключения' refused.log
+# An app with an open connection must block restore before creating a safety dump or changing data.
+health
+[ "$(printf "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND backend_type='client backend';\n" | sql)" -ge 1 ]
+sql <<'SQL'
+UPDATE users SET name='Preserved on refused restore' WHERE email='smoke@example.com';
+SQL
+files_before_refusal=$(find backups -type f -printf '%f %s %T@\n' | sort)
+if backup restore "backups/$dump" --yes > refused.log 2>&1; then
+  echo 'FAIL: restore allowed while app was running'; exit 1
+else
+  # Assert the CLI failure code without depending on localized error text.
+  [ "$?" -eq 1 ] || { cat refused.log; exit 1; }
+fi
+[ "$(find backups -type f -printf '%f %s %T@\n' | sort)" = "$files_before_refusal" ]
+[ "$(printf "SELECT name FROM users WHERE email='smoke@example.com';\n" | sql)" = 'Preserved on refused restore' ]
 
 docker compose stop app
 # Force a dependency failure and verify transactional rollback plus the safety dump.
@@ -125,8 +137,7 @@ export BACKUP_ENABLED=false
 printf '%s\n' '{"firstDue":"2000-01-01T00:00:00Z","nextRun":"2000-01-01T00:00:00Z"}' > backups/.schedule.json
 files_before=$(find backups -type f -printf '%f %s %T@\n' | sort)
 docker compose up -d --wait --wait-timeout 180
-docker compose logs --no-color --no-log-prefix backup > disabled.log
-[ "$(cat disabled.log)" = 'backups disabled (BACKUP_ENABLED=false)' ]
+# --wait and the JSON health contract establish scheduler state without matching log wording.
 [ "$(find backups -type f -printf '%f %s %T@\n' | sort)" = "$files_before" ]
 backup status --json --health | python3 -c 'import json,sys; s=json.load(sys.stdin); assert s["enabled"] is False and s["healthy"] is True and s["nextRun"] is None'
 backup list --json | python3 -c 'import json,sys; assert json.load(sys.stdin)'

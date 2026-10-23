@@ -21,9 +21,3 @@ export type Permission = keyof typeof MATRIX
 export function can(role: HouseholdRole, permission: Permission): boolean {
   return (MATRIX[permission] as readonly HouseholdRole[]).includes(role)
 }
-
-export const ROLE_LABELS: Record<HouseholdRole, string> = {
-  owner: "Владелец",
-  admin: "Администратор",
-  member: "Участник",
-}

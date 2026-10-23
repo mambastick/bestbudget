@@ -22,7 +22,7 @@ describe("published backup files", () => {
     await writeFile(path.join(dir, "bestbudget-20261025T030000Z.dump.sha256"), "anything")
     await writeFile(path.join(dir, "notes.dump"), "owner data")
     expect((await listBackups(dir)).map((file) => file.name)).toEqual([name])
-    await expect(verifyChecksum(dir, "bestbudget-20261025T030000Z.dump")).rejects.toThrow("символические")
+    await expect(verifyChecksum(dir, "bestbudget-20261025T030000Z.dump")).rejects.toThrow("symlinks")
   })
   it("detects changed data and checksum path injection", async () => {
     await fixture()
@@ -35,7 +35,7 @@ describe("published backup files", () => {
   })
   it("accepts the documented restore path and rejects files outside the mount", () => {
     expect(restoreName(`backups/${name}`, dir)).toBe(name)
-    expect(() => restoreName(`../${name}`, dir)).toThrow("каталога")
+    expect(() => restoreName(`../${name}`, dir)).toThrow("backup directory")
   })
   it("replaces status files atomically", async () => {
     const file = path.join(dir, ".status.json")

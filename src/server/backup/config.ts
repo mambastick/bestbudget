@@ -20,8 +20,8 @@ const schema = z.object({
 
 export function backupConfig(env: NodeJS.ProcessEnv = process.env) {
   const parsed = schema.safeParse(Object.fromEntries(Object.entries(env).filter(([, value]) => value !== "")))
-  if (!parsed.success) throw new BackupError(`Проверьте настройки: ${parsed.error.issues.map((issue) => issue.path.join(".")).join(", ")}`)
-  try { new Intl.DateTimeFormat("en", { timeZone: parsed.data.TZ }).format() } catch { throw new BackupError("Некорректный часовой пояс TZ") }
+  if (!parsed.success) throw new BackupError(`Check settings: ${parsed.error.issues.map((issue) => issue.path.join(".")).join(", ")}`)
+  try { new Intl.DateTimeFormat("en", { timeZone: parsed.data.TZ }).format() } catch { throw new BackupError("Invalid TZ time zone") }
   return { ...parsed.data, BACKUP_DIR: path.resolve(parsed.data.BACKUP_DIR) }
 }
 export type BackupConfig = ReturnType<typeof backupConfig>
