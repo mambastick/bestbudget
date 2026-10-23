@@ -1,4 +1,9 @@
 import { AiReviewWidget } from "@/components/app/ai/review-widget"
+import { InterviewStart } from "@/components/app/ai/interview-start"
+import { can } from "@/domain/permissions"
+import { getDb } from "@/db"
+import { categoryBudgets, recurringRules } from "@/db/schema"
+import { eq } from "drizzle-orm"
 import { householdAiView } from "@/server/ai/access"
 import { useTranslations } from "next-intl"
 import { getTranslations, getLocale } from "next-intl/server"
@@ -41,6 +46,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const month = parseMonthKey((await searchParams).month, today)
   const ai = await householdAiView(ctx)
   const aiT = await getTranslations("ai")
+  const [hasBudget, hasRule] = ai.enabled && can(ctx.role, "catalog.manage") ? await Promise.all([
+    getDb().select({ id: categoryBudgets.id }).from(categoryBudgets).where(eq(categoryBudgets.householdId, ctx.householdId)).limit(1),
+    getDb().select({ id: recurringRules.id }).from(recurringRules).where(eq(recurringRules.householdId, ctx.householdId)).limit(1),
+  ]) : [[{ id: "disabled" }], [{ id: "disabled" }]]
   const d = await getDashboard(ctx, month, locale)
   const cur = ctx.currency
   const isCurrent = monthKey(month) === monthKey(today)
@@ -60,6 +69,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <PageHeader title={t("title")} description={t("description", { month: formatMonth(month, locale) })} actions={<MonthSwitcher month={month} today={today} basePath="/dashboard" />} />
 
       {ai.enabled ? <div className="grid grid-cols-1 gap-3"><LinkButton href="/assistant" variant="outline" className="justify-self-start">{aiT("title")}</LinkButton><AiReviewWidget ctx={ctx} /></div> : null}
+      {ai.enabled && can(ctx.role, "catalog.manage") && (!hasBudget.length || !hasRule.length) ? <InterviewStart card /> : null}
       {empty ? (
         <EmptyState
           icon={Plus}

@@ -1,6 +1,7 @@
 import "server-only"
 import { MockLanguageModelV3 } from "ai/test"
 import { simulateReadableStream, type LanguageModel } from "ai"
+import { mockInterview } from "./mock-interview"
 import { mockAllowed } from "./config"
 
 /** Deterministic SDK model for isolated tests. Never contacts a provider. */
@@ -146,6 +147,8 @@ export function mockModel(): LanguageModel {
           }),
         }
       }
+      const interview = mockInterview(options)
+      if (interview) call = interview.call
       return {
         stream: simulateReadableStream({
           initialDelayInMs: slow ? 1200 : 0,
@@ -171,7 +174,7 @@ export function mockModel(): LanguageModel {
                   {
                     type: "text-delta" as const,
                     id: "text",
-                    delta: unchanged
+                    delta: interview ? interview.text : unchanged
                       ? english
                         ? "The current budgets already match. No changes are needed."
                         : "Текущие лимиты уже совпадают. Изменения не нужны."

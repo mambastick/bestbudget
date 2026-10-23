@@ -2,11 +2,11 @@
 
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, isToolUIPart, getToolName, type UIMessage } from "ai"
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useSyncExternalStore, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useTranslations } from "next-intl"
 import Markdown from "react-markdown"
-import { Sparkles, Plus, Send, Square, Trash2, MessagesSquare, MoreHorizontal, ArrowDown } from "lucide-react"
+import { Sparkles, Plus, Send, Square, Trash2, MessagesSquare, MoreHorizontal, ArrowDown, Pencil } from "lucide-react"
 import { createAiConversationAction, deleteAiConversationAction } from "@/app/actions/ai"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -18,10 +18,15 @@ import { SidebarTrigger } from "@/components/ui/sidebar"
 import { LinkButton } from "@/components/app/link-button"
 import { useAction } from "@/hooks/use-action"
 import type { HouseholdRole } from "@/domain/permissions"
+import { can } from "@/domain/permissions"
+import { INTERVIEW_STEPS, interviewProgress } from "@/domain/ai/interview"
+import { ConversationRename } from "./conversation-rename"
+import { InterviewStart } from "./interview-start"
 import { ProposalCard, type ProposalView } from "./proposal-card"
 
 export function AiChat({
   id,
+  kind,
   initialMessages,
   conversations,
   proposals,
@@ -30,8 +35,9 @@ export function AiChat({
   names,
 }: {
   id?: string
+  kind?: "chat" | "onboarding" | "review"
   initialMessages: UIMessage[]
-  conversations: { id: string; title: string }[]
+  conversations: { id: string; title: string; kind: "chat" | "onboarding" | "review"; version: number }[]
   proposals: ProposalView[]
   role: HouseholdRole
   detailed: boolean
@@ -44,6 +50,7 @@ export function AiChat({
   const [navigating, setNavigating] = useState(false)
   const [dialogsOpen, setDialogsOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [rename, setRename] = useState<{ id: string; title: string; version: number } | null>(null)
   const [pinned, setPinned] = useState(true)
   const pin = useRef(true)
   const root = useRef<HTMLDivElement>(null)
@@ -64,6 +71,13 @@ export function AiChat({
     generateId: () => crypto.randomUUID(),
     onFinish: () => router.refresh(),
   })
+  const hydrated = useSyncExternalStore(
+    subscribe,
+    () => true,
+    () => false,
+  )
+  const progress = kind === "onboarding" ? interviewProgress(messages) : null
+  const restricted = kind === "onboarding" && !can(role, "catalog.manage")
   const busy = status === "submitted" || status === "streaming"
   useEffect(() => {
     const viewport = window.visualViewport
@@ -85,7 +99,7 @@ export function AiChat({
   }, [])
   useLayoutEffect(() => {
     if (pin.current && feed.current) feed.current.scrollTop = feed.current.scrollHeight
-  }, [messages, status, proposals])
+  }, [hydrated, messages, status, proposals])
   function scrollToLatest() {
     pin.current = true
     setPinned(true)
@@ -103,7 +117,7 @@ export function AiChat({
   function conversationList() {
     return (
       <>
-        <Button className="w-full" variant="outline" disabled={pending || busy || navigating} onClick={newConversation}>
+        <Button className="w-full" variant="outline" disabled={!hydrated || pending || busy || navigating} onClick={newConversation}>
           <Plus className="size-4" />
           {t("newChat")}
         </Button>
@@ -121,7 +135,10 @@ export function AiChat({
                   else setDialogsOpen(false)
                 }}
               >
-                {c.title}
+                {c.kind === "onboarding" ? (
+                  <Sparkles className="mt-0.5 size-4 shrink-0" role="img" aria-label={t("interview.badge")} />
+                ) : null}
+                <span className="min-w-0">{c.title}</span>
               </LinkButton>
               <DropdownMenu animated={false}>
                 <DropdownMenuTrigger
@@ -129,7 +146,7 @@ export function AiChat({
                     <Button
                       variant="ghost"
                       size="icon"
-                      disabled={pending || busy || navigating}
+                      disabled={!hydrated || pending || busy || navigating}
                       aria-label={t("conversationMenu", { title: c.title })}
                     />
                   }
@@ -137,6 +154,10 @@ export function AiChat({
                   <MoreHorizontal className="size-4" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setRename(c)}>
+                    <Pencil />
+                    {t("renameChat")}
+                  </DropdownMenuItem>
                   <DropdownMenuItem variant="destructive" onClick={() => setDeleteId(c.id)}>
                     <Trash2 />
                     {t("deleteChat")}
@@ -167,6 +188,7 @@ export function AiChat({
       className="fixed inset-x-0 top-0 z-30 grid h-dvh min-h-0 min-w-0 grid-cols-1 bg-background md:static md:z-auto md:h-auto md:flex-1 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-3"
     >
       <aside className="hidden min-h-0 min-w-0 flex-col gap-3 lg:flex">{conversationList()}</aside>
+      {rename ? <ConversationRename key={`${rename.id}:${rename.version}`} conversation={rename} onClose={() => setRename(null)} /> : null}
       <ConfirmDialog
         title={t("deleteChat")}
         description={t("deleteHint")}
@@ -192,7 +214,7 @@ export function AiChat({
           </h1>
           <LinkButton href="/assistant/recommendations" size="sm" variant="ghost">{t("review.title")}</LinkButton>
           <Sheet open={dialogsOpen} onOpenChange={setDialogsOpen}>
-            <SheetTrigger render={<Button variant="outline" size="sm" />}>
+            <SheetTrigger render={<Button variant="outline" size="sm" disabled={!hydrated} />}>
               <MessagesSquare className="size-4" />
               {t("conversations")}
             </SheetTrigger>
@@ -204,58 +226,123 @@ export function AiChat({
             </SheetContent>
           </Sheet>
         </header>
-        <div
-          ref={feed}
-          data-testid="ai-messages"
-          className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-4"
-          aria-live="polite"
-          onScroll={() => {
-            const el = feed.current
-            if (el) {
-              pin.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-              setPinned(pin.current)
-            }
-          }}
-        >
-          {!messages.length ? (
-            <>
-              <EmptyState icon={Sparkles} title={t("emptyTitle")} description={t("emptyHint")} />
-              <div className="flex flex-wrap gap-2">
-                {starters.map((key) => (
-                  <Button
-                    key={key}
-                    variant="outline"
-                    className="h-auto max-w-full whitespace-normal text-left"
-                    onClick={() => edit(t(`starters.${key}`))}
-                  >
-                    {t(`starters.${key}`)}
-                  </Button>
-                ))}
-              </div>
-            </>
-          ) : null}
-          {messages.map((m) => (
-            <div key={m.id} className="min-w-0 space-y-3">
-              {m.parts
-                .filter((p) => p.type === "text")
-                .map((p, i) => (
-                  <div
-                    key={i}
-                    className={`min-w-0 space-y-2 break-words text-sm [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_code]:break-all [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 ${m.role === "user" ? "ml-auto max-w-[90%] rounded-xl bg-muted px-4 py-3" : "px-1 py-2"}`}
-                  >
-                    <Markdown skipHtml components={{ img: () => null, a: ({ children }) => <span>{children}</span> }}>
-                      {p.type === "text" ? p.text : ""}
-                    </Markdown>
-                  </div>
-                ))}
-              {proposals
-                .filter((p) => p.messageId === m.id)
-                .map((p) => (
-                  <ProposalCard key={p.id} proposal={p} role={role} names={names} onEdit={edit} />
-                ))}
+        {kind === "onboarding" ? (
+          <div className="shrink-0 space-y-2 border-b p-3" data-testid="ai-interview-progress">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <p className="font-medium">
+                {t("interview.step", { step: progress ? INTERVIEW_STEPS.indexOf(progress.step) + 1 : 1 })} ·{" "}
+                {t(`interview.steps.${progress?.step ?? "income"}`)}
+              </p>
+              <LinkButton
+                href="/dashboard"
+                variant="ghost"
+                size="sm"
+                aria-disabled={busy}
+                onClick={(e) => {
+                  if (busy) e.preventDefault()
+                }}
+              >
+                {t("interview.pause")}
+              </LinkButton>
             </div>
-          ))}
-        </div>
+            <ol className="grid grid-cols-5 gap-1" aria-label={t("interview.title")}>
+              {INTERVIEW_STEPS.map((step, index) => (
+                <li
+                  key={step}
+                  aria-current={step === (progress?.step ?? "income") ? "step" : undefined}
+                  title={t(`interview.steps.${step}`)}
+                  className={`h-1 rounded-full ${index <= (progress ? INTERVIEW_STEPS.indexOf(progress.step) : 0) ? "bg-primary" : "bg-muted"}`}
+                />
+              ))}
+            </ol>
+            <p className="text-xs text-muted-foreground">{t("interview.saved")}</p>
+          </div>
+        ) : null}
+        {/* Streaming SSR can replay hidden boundaries; mount the live scroll container only after hydration. */}
+        {hydrated ? (
+          <div
+            ref={feed}
+            data-testid="ai-messages"
+            className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-4"
+            aria-live="polite"
+            onScroll={() => {
+              const el = feed.current
+              if (el) {
+                pin.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+                setPinned(pin.current)
+              }
+            }}
+          >
+            {!messages.length ? (
+              <>
+                <EmptyState icon={Sparkles} title={t("emptyTitle")} description={t("emptyHint")} />
+                {kind !== "onboarding" && can(role, "catalog.manage") ? <InterviewStart /> : null}
+                <div className="flex flex-wrap gap-2">
+                  {(kind === "onboarding" ? [] : starters).map((key) => (
+                    <Button
+                      key={key}
+                      variant="outline"
+                      className="h-auto max-w-full whitespace-normal text-left"
+                      disabled={!hydrated}
+                      onClick={() => edit(t(`starters.${key}`))}
+                    >
+                      {t(`starters.${key}`)}
+                    </Button>
+                  ))}
+                </div>
+              </>
+            ) : null}
+            {messages.map((m) => (
+              <div key={m.id} className="min-w-0 space-y-3">
+                {m.parts
+                  .filter((p) => p.type === "text")
+                  .map((p, i) => (
+                    <div
+                      key={i}
+                      className={`min-w-0 space-y-2 break-words text-sm [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_code]:break-all [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 ${m.role === "user" ? "ml-auto max-w-[90%] rounded-xl bg-muted px-4 py-3" : "px-1 py-2"}`}
+                    >
+                      <Markdown skipHtml components={{ img: () => null, a: ({ children }) => <span>{children}</span> }}>
+                        {p.type === "text" ? p.text : ""}
+                      </Markdown>
+                    </div>
+                  ))}
+                {proposals
+                  .filter((p) => p.messageId === m.id)
+                  .map((p) => (
+                    <ProposalCard key={p.id} interview={kind === "onboarding"} proposal={p} role={role} names={names} onEdit={edit} />
+                  ))}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div role="status" className="min-h-0 flex-1 p-4 text-sm text-muted-foreground">
+            {t("loadingMessages")}
+          </div>
+        )}
+        {restricted ? (
+          <p role="alert" className="border-t p-3 text-sm text-muted-foreground">
+            {t("noPermission")}
+          </p>
+        ) : null}
+        {progress && !busy && !error && !proposals.some((p) => p.messageId === messages.at(-1)?.id) ? (
+          <div className="flex shrink-0 flex-wrap gap-2 border-t px-3 py-2" data-testid="ai-interview-chips">
+            {progress.quickReplies.map((reply) => (
+              <Button
+                key={reply}
+                size="sm"
+                variant="outline"
+                className="h-auto max-w-full whitespace-normal text-left"
+                disabled={!hydrated || restricted || pending}
+                onClick={() => {
+                  scrollToLatest()
+                  void sendMessage({ text: reply })
+                }}
+              >
+                {reply}
+              </Button>
+            ))}
+          </div>
+        ) : null}
         {!pinned ? (
           <Button variant="secondary" size="sm" className="mx-auto my-1 shrink-0" onClick={scrollToLatest}>
             <ArrowDown className="size-4" />
@@ -295,7 +382,7 @@ export function AiChat({
           className="flex shrink-0 items-end gap-2 border-t bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
           onSubmit={(e) => {
             e.preventDefault()
-            if (!input.trim() || busy) return
+            if (!hydrated || restricted || !input.trim() || busy) return
             if (!id) {
               run(createAiConversationAction, {
                 onSuccess: (data) => {
@@ -319,7 +406,7 @@ export function AiChat({
           />
           <Textarea
             ref={field}
-            disabled={pending || navigating}
+            disabled={!hydrated || restricted || pending || navigating}
             value={input}
             maxLength={4000}
             placeholder={t("placeholder")}
@@ -338,7 +425,12 @@ export function AiChat({
               <Square className="size-4" />
             </Button>
           ) : (
-            <Button type="submit" size="icon" disabled={!input.trim() || pending || navigating} aria-label={t("send")}>
+            <Button
+              type="submit"
+              size="icon"
+              disabled={!hydrated || restricted || !input.trim() || pending || navigating}
+              aria-label={t("send")}
+            >
               <Send className="size-4" />
             </Button>
           )}
@@ -361,3 +453,5 @@ function DraftLoader({ id, onDraft }: { id?: string; onDraft: (text: string) => 
   }, [id, onDraft])
   return null
 }
+
+const subscribe = () => () => {}

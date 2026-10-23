@@ -2,6 +2,7 @@ import type { ProposalItem } from "./types"
 
 export const PROPOSAL_MONEY_FIELDS = new Set([
   "amount",
+  "topupAmount",
   "targetAmount",
   "openingBalance",
   "creditLimit",

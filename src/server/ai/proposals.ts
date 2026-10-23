@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm"
 import { z } from "zod"
 import { getDb, withDb } from "@/db"
 import { aiConversations, aiHouseholdSettings, aiProposals, householdMembers, households, aiSettings } from "@/db/schema"
+import { assertCan } from "@/server/context"
 import { can } from "@/domain/permissions"
 import { proposalChanges } from "@/domain/ai/description"
 import type { ProposalItem } from "@/domain/ai/types"
@@ -20,13 +21,19 @@ export async function createProposal(
   ctx: HouseholdCtx,
   conversationId: string,
   messageId: string,
-  raw: { title: string; items: { type: string; input: unknown }[] },
+  raw: { title: string; items: { type: string; input: unknown; dependsOn?: number[] }[] },
 ) {
   raw = z
     .object({
       title: z.string().trim().min(1).max(120),
       items: z
-        .array(z.object({ type: z.string().min(1).max(100), input: z.unknown() }))
+        .array(
+          z.object({
+            type: z.string().min(1).max(100),
+            input: z.unknown(),
+            dependsOn: z.array(z.number().int().min(0)).max(20).optional(),
+          }),
+        )
         .min(1)
         .max(20),
     })
@@ -48,7 +55,10 @@ export async function createProposal(
   const items: ProposalItem[] = []
   let skippedUnchanged = 0
   const targets = new Set<string>()
-  for (const item of raw.items) {
+  const itemIds = new Map<number, string>()
+  for (const [index, item] of raw.items.entries()) {
+    const dependencies = item.dependsOn ?? []
+    if (dependencies.some((dependency) => dependency >= index || !itemIds.has(dependency))) throw new AppError("ai.invalidProposal")
     const handler = proposalHandlers.get(item.type)
     if (!handler) throw new AppError("ai.invalidProposal")
     if (item.type === "transaction.recategorize" && view.dataLevel !== "detailed") throw forbidden()
@@ -86,8 +96,11 @@ export async function createProposal(
       typeof before?.currency === "string" ? before.currency : (accountCurrency(before?.accountId) ?? ctx.currency)
     const allocationCurrency = accountCurrency(after.accountId ?? before?.accountId)
     const beforeAllocationCurrency = accountCurrency(before?.accountId)
+    const id = randomUUID()
+    itemIds.set(index, id)
     items.push({
-      id: randomUUID(),
+      id,
+      dependsOn: dependencies.map((dependency) => itemIds.get(dependency)!),
       type: item.type,
       operation,
       input,
@@ -101,7 +114,12 @@ export async function createProposal(
       beforeCurrency,
       toCurrency: accountCurrency(after.toAccountId ?? before?.toAccountId),
       beforeToCurrency: accountCurrency(before?.toAccountId),
-      fieldCurrencies: allocationCurrency ? { allocatedAmount: allocationCurrency } : undefined,
+      fieldCurrencies: {
+        ...(allocationCurrency ? { allocatedAmount: allocationCurrency } : {}),
+        ...(item.type === "goal.create_automated"
+          ? { topupAmount: String((before?.automationPreview as Record<string, unknown>).currency) }
+          : {}),
+      },
       beforeFieldCurrencies: beforeAllocationCurrency ? { allocatedAmount: beforeAllocationCurrency } : undefined,
     })
   }
@@ -192,6 +210,7 @@ export async function applyProposal(ctx: HouseholdCtx, proposalId: string, itemI
           proposalId,
           ids.every((id) => proposal.items.some((i) => i.id === id && i.result)),
         )
+      if (conversation.kind === "onboarding") assertCan(fresh, "catalog.manage")
       if (conversation.consentFingerprint !== fingerprint(view.provider) || conversation.dataLevel !== view.dataLevel)
         throw new AppError("ai.consentChanged")
       if (proposal.expiresAt <= new Date()) throw new AppError("ai.expired")
@@ -199,6 +218,8 @@ export async function applyProposal(ctx: HouseholdCtx, proposalId: string, itemI
       const selected = proposal.items.filter((item) => ids.includes(item.id))
       if (selected.length !== ids.length) throw new AppError("ai.invalidProposal")
       for (const item of selected) {
+        if (item.dependsOn?.some((id) => !proposal.items.find((dependency) => dependency.id === id)?.result && !ids.includes(id)))
+          throw new AppError("ai.invalidProposal")
         if (item.householdCurrency !== fresh.currency || item.householdTimezone !== fresh.timezone) throw conflict()
         const handler = proposalHandlers.get(item.type)
         if (!handler || !can(fresh.role, handler.permission)) throw forbidden()
@@ -210,7 +231,13 @@ export async function applyProposal(ctx: HouseholdCtx, proposalId: string, itemI
       if (!unapplied.length) return { applied: 0 }
       await withAiAudit(proposalId, async () => {
         for (const item of selected) {
-          if (!item.result) item.result = await proposalHandlers.get(item.type)!.apply(fresh, item.input, item.before)
+          if (!item.result)
+            item.result = await proposalHandlers.get(item.type)!.apply(
+              fresh,
+              item.input,
+              item.before,
+              proposal.items.filter((dependency) => item.dependsOn?.includes(dependency.id)),
+            )
         }
         const status = proposal.items.every((item) => item.result) ? "applied" : "partially_applied"
         await db

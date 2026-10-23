@@ -2,32 +2,52 @@ import "server-only"
 import { randomUUID } from "node:crypto"
 import { and, asc, desc, eq, gte, gt, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm"
 import { z } from "zod"
+import { interviewConversationTitle } from "@/domain/ai/conversation-title"
+import { assertCan } from "@/server/context"
 import type { UIMessage } from "ai"
 import { getDb, withDb } from "@/db"
 import { aiConversations, aiHouseholdSettings, aiMessages, aiUsage, households, users } from "@/db/schema"
 import { AI_RESERVATION_GRACE_MS, AI_TURN_RESERVATION } from "@/domain/ai/types"
 import type { HouseholdCtx } from "@/server/context"
-import { AppError, notFound } from "@/server/errors"
+import { AppError, conflict, notFound } from "@/server/errors"
 import { requireAi } from "./access"
 import { fingerprint } from "./config"
 
 export async function listConversations(ctx: HouseholdCtx) {
-  return getDb()
-    .select({ id: aiConversations.id, title: aiConversations.title, kind: aiConversations.kind })
+  const rows = await getDb()
+    .select({
+      id: aiConversations.id,
+      title: aiConversations.title,
+      kind: aiConversations.kind,
+      createdAt: aiConversations.createdAt,
+      customTitle: aiConversations.customTitle,
+      version: aiConversations.version,
+    })
     .from(aiConversations)
     .where(and(eq(aiConversations.householdId, ctx.householdId), eq(aiConversations.userId, ctx.userId), ne(aiConversations.kind, "review")))
     .orderBy(desc(aiConversations.createdAt))
     .limit(100)
+  return rows.map(({ createdAt, customTitle, ...row }) => ({
+    ...row,
+    title: customTitle ?? (row.kind === "onboarding" ? interviewConversationTitle(createdAt, ctx.timezone, ctx.locale) : row.title),
+  }))
 }
 export async function createConversation(ctx: HouseholdCtx, kind: "chat" | "onboarding" | "review" = "chat") {
-  const { view } = await requireAi(ctx)
+  const { view, ctx: fresh } = await requireAi(ctx)
+  if (kind === "onboarding") assertCan(fresh, "catalog.manage")
+  const createdAt = new Date()
   const [row] = await getDb()
     .insert(aiConversations)
     .values({
       householdId: ctx.householdId,
       userId: ctx.userId,
-      title: ctx.locale === "en" ? "New conversation" : "Новый диалог",
-      createdAt: new Date(),
+      title:
+        kind === "onboarding"
+          ? interviewConversationTitle(createdAt, ctx.timezone, ctx.locale)
+          : ctx.locale === "en"
+            ? "New conversation"
+            : "Новый диалог",
+      createdAt,
       kind: z.enum(["chat", "onboarding", "review"]).parse(kind),
       dataLevel: view.dataLevel,
       consentFingerprint: fingerprint(view.provider),
@@ -127,6 +147,7 @@ export async function beginTurn(ctx: HouseholdCtx, raw: z.input<typeof turnInput
       if (config.monthlyTokenLimit && (used?.tokens ?? 0) + AI_TURN_RESERVATION > config.monthlyTokenLimit)
         throw new AppError("ai.monthlyLimit")
       const conversation = await getConversation(ctx, input.id)
+      if (conversation.kind === "onboarding") assertCan((await requireAi(ctx)).ctx, "catalog.manage")
       if (conversation.busyUntil && conversation.busyUntil > new Date()) throw new AppError("ai.busy")
       if (conversation.consentFingerprint !== fingerprint(view.provider) || conversation.dataLevel !== view.dataLevel)
         throw new AppError("ai.consentChanged")
@@ -166,7 +187,11 @@ export async function beginTurn(ctx: HouseholdCtx, raw: z.input<typeof turnInput
       })
       await db
         .update(aiConversations)
-        .set({ title: input.message.parts[0]!.text.slice(0, 80), busyUntil })
+        .set({
+          ...(conversation.kind === "onboarding" ? {} : { title: input.message.parts[0]!.text.slice(0, 80) }),
+          busyUntil,
+          version: sql`${aiConversations.version} + 1`,
+        })
         .where(eq(aiConversations.id, input.id))
       const [usage] = await db
         .insert(aiUsage)
@@ -237,4 +262,31 @@ export async function checkpointTurn(ctx: HouseholdCtx, usageId: string, inputTo
     .update(aiUsage)
     .set({ inputTokens, outputTokens, reservedTokens: Math.max(0, AI_TURN_RESERVATION - inputTokens - outputTokens) })
     .where(and(eq(aiUsage.id, usageId), eq(aiUsage.householdId, ctx.householdId), isNotNull(aiUsage.reservationExpiresAt)))
+}
+
+export const renameConversationInput = z.object({
+  id: z.uuid(),
+  title: z.string().trim().min(1).max(80).nullable(),
+  version: z.number().int().positive(),
+})
+export async function renameConversation(ctx: HouseholdCtx, raw: z.input<typeof renameConversationInput>) {
+  const input = renameConversationInput.parse(raw)
+  await requireAi(ctx)
+  const conversation = await getConversation(ctx, input.id)
+  const now = new Date()
+  if (conversation.busyUntil && conversation.busyUntil > now) throw new AppError("ai.busy")
+  const rows = await getDb()
+    .update(aiConversations)
+    .set({ customTitle: input.title, version: sql`${aiConversations.version} + 1` })
+    .where(
+      and(
+        eq(aiConversations.id, input.id),
+        eq(aiConversations.householdId, ctx.householdId),
+        eq(aiConversations.userId, ctx.userId),
+        eq(aiConversations.version, input.version),
+        or(isNull(aiConversations.busyUntil), lt(aiConversations.busyUntil, now)),
+      ),
+    )
+    .returning({ id: aiConversations.id })
+  if (!rows.length) throw conflict()
 }
