@@ -1,3 +1,4 @@
+// Adapted from shadcn/ui (MIT) and Animate UI (MIT + Commons Clause); see THIRD_PARTY_NOTICES.md.
 "use client"
 
 import { Switch as SwitchPrimitive } from "@animate-ui/react/primitives/base-ui/switch"

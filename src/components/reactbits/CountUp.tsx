@@ -1,3 +1,4 @@
+// React Bits - MIT + Commons Clause License Condition v1.0; see THIRD_PARTY_NOTICES.md.
 'use client';
 // Vendored from React Bits (https://reactbits.dev), TS + Tailwind variant. Keep local edits minimal.
 

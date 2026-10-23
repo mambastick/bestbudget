@@ -195,3 +195,6 @@ Issues and pull requests are welcome. Describe the problem and reproduction step
 ## License
 
 [MIT](LICENSE), copyright © 2026 BestBudget.
+
+Vendored components retain their [third-party licenses](THIRD_PARTY_NOTICES.md),
+including Commons Clause restrictions for React Bits and Animate UI.

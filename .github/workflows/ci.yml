@@ -5,11 +5,16 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: 10.27.0
@@ -32,6 +37,8 @@ jobs:
     needs: checks
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: 10.27.0
@@ -48,6 +55,8 @@ jobs:
     needs: checks
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Docker Compose smoke test (build, persistence, backup and restore)
         run: ./scripts/compose-smoke.sh
 
@@ -55,6 +64,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: azure/setup-helm@v4
       - name: Validate shell scripts
         run: |

@@ -1,3 +1,4 @@
+// shadcn/ui - MIT License; see THIRD_PARTY_NOTICES.md.
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"

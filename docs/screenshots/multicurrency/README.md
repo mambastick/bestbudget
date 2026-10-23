@@ -18,7 +18,7 @@
 Воспроизведение из корня репозитория (перед запуском убедиться, что 3200/54330 свободны):
 
 ```bash
-export TMPDIR=/var/tmp/codex-golodn1y/bestbudget-multicurrency-screenshots
+export TMPDIR="${TMPDIR:-/tmp}"
 mkdir -p "$TMPDIR"
 npx -y pnpm@10.27.0 exec playwright install chromium --only-shell
 npx -y pnpm@10.27.0 test:screenshots

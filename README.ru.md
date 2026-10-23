@@ -195,3 +195,6 @@ Issues и PR приветствуются. Опишите проблему и в
 ## Лицензия
 
 [MIT](LICENSE), copyright © 2026 BestBudget.
+
+Вендорные компоненты сохраняют [лицензии своих авторов](THIRD_PARTY_NOTICES.md),
+включая ограничения Commons Clause у React Bits и Animate UI.
