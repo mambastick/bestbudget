@@ -1,8 +1,10 @@
 "use client"
 
+import { useTranslations, useLocale } from "next-intl"
+
 import { CalendarIcon } from "lucide-react"
 import { useState } from "react"
-import { ru } from "react-day-picker/locale"
+import { ru, enUS } from "react-day-picker/locale"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -23,7 +25,7 @@ export function DateField({
   value,
   onChange,
   today,
-  placeholder = "Выберите дату",
+  placeholder,
   quick = true,
   clearable,
   id,
@@ -38,6 +40,8 @@ export function DateField({
   id?: string
   className?: string
 }) {
+  const locale = useLocale()
+  const t = useTranslations("common")
   const [open, setOpen] = useState(false)
   const pick = (d: IsoDate | null) => {
     onChange(d)
@@ -51,30 +55,26 @@ export function DateField({
         }
       >
         <CalendarIcon className="text-muted-foreground" />
-        {value ? formatDateFull(value) : placeholder}
+        {value ? formatDateFull(value, locale) : (placeholder ?? t("dateField.chooseADate"))}
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
         {quick ? (
           <div className="flex flex-wrap gap-1 border-b p-2">
             <Button type="button" size="xs" variant="secondary" onClick={() => pick(addDays(today, -1))}>
-              Вчера
-            </Button>
+              {t("dateField.yesterday")}{" "}</Button>
             <Button type="button" size="xs" variant="secondary" onClick={() => pick(today)}>
-              Сегодня
-            </Button>
+              {t("dateField.today")}{" "}</Button>
             <Button type="button" size="xs" variant="secondary" onClick={() => pick(addDays(today, 1))}>
-              Завтра
-            </Button>
+              {t("dateField.tomorrow")}{" "}</Button>
             {clearable && value ? (
               <Button type="button" size="xs" variant="ghost" onClick={() => pick(null)}>
-                Очистить
-              </Button>
+                {t("dateField.clear")}{" "}</Button>
             ) : null}
           </div>
         ) : null}
         <Calendar
           mode="single"
-          locale={ru}
+          locale={locale === "ru" ? ru : enUS}
           weekStartsOn={1}
           selected={value ? toDate(value) : undefined}
           defaultMonth={toDate(value ?? today)}

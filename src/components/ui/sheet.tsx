@@ -1,6 +1,8 @@
 // Adapted from shadcn/ui (MIT) and Animate UI (MIT + Commons Clause); see THIRD_PARTY_NOTICES.md.
 "use client"
 
+import { useTranslations } from "next-intl"
+
 import * as React from "react"
 import { Dialog as SheetPrimitive } from "@animate-ui/react/primitives/base-ui/dialog"
 import { cn } from "@/lib/utils"
@@ -47,6 +49,7 @@ function SheetContent({
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
 }) {
+  const t = useTranslations("common")
   return (
     <SheetPortal>
       <SheetOverlay />
@@ -73,7 +76,7 @@ function SheetContent({
           >
             <XIcon
             />
-            <span className="sr-only">Close</span>
+            <span className="sr-only">{t("close")}</span>
           </SheetPrimitive.Close>
         )}
       </SheetPrimitive.Popup>

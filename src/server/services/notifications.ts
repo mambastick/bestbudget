@@ -69,7 +69,7 @@ export function allowedPushEndpoint(value: string) {
   }
 }
 export const subscriptionInput = z.object({
-  endpoint: z.string().max(4096).refine(allowedPushEndpoint, "Неизвестная служба Web Push"),
+  endpoint: z.string().max(4096).refine(allowedPushEndpoint, "validation.pushService"),
   keys: z.object({ p256dh: z.string().regex(/^[A-Za-z0-9_-]{87}$/), auth: z.string().regex(/^[A-Za-z0-9_-]{22}$/) }),
 })
 export async function subscribePush(userId: string, raw: z.input<typeof subscriptionInput>, userAgent: string) {
@@ -77,7 +77,7 @@ export async function subscribePush(userId: string, raw: z.input<typeof subscrip
   const db = getDb()
   const [existing] = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.endpoint, s.endpoint))
   if (existing && existing.userId !== userId)
-    throw new AppError("Подписка принадлежит другому аккаунту. Отключите её в браузере и повторите.")
+    throw new AppError("notifications.subscriptionOwner")
   const keys = { p256dh: s.keys.p256dh, auth: encryptSecret(s.keys.auth) }
   await db
     .insert(pushSubscriptions)

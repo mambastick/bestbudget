@@ -1,5 +1,7 @@
 "use client"
 
+import { useLocale, useTranslations } from "next-intl"
+
 import { KeyRound, Laptop, LogOut, Smartphone } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useState } from "react"
@@ -11,6 +13,7 @@ import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { authClient, authErrorMessage } from "@/lib/auth-client"
 import { formatDateTime } from "@/lib/dates"
+import { PreferencesForm } from "@/components/app/preferences"
 import { Section } from "./section"
 
 interface SessionInfo {
@@ -21,9 +24,9 @@ interface SessionInfo {
   updatedAt: Date | string
 }
 
-function deviceName(ua?: string | null) {
-  if (!ua) return "Неизвестное устройство"
-  const browser = /Firefox\//.test(ua) ? "Firefox" : /Edg\//.test(ua) ? "Edge" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "Браузер"
+function deviceName(ua: string | null | undefined, t: (key: string) => string) {
+  if (!ua) return t("profile.unknownDevice")
+  const browser = /Firefox\//.test(ua) ? "Firefox" : /Edg\//.test(ua) ? "Edge" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : t("profile.browser")
   const os = /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS" : /Windows/.test(ua) ? "Windows" : /Mac OS/.test(ua) ? "macOS" : /Linux/.test(ua) ? "Linux" : ""
   return [browser, os].filter(Boolean).join(", ")
 }
@@ -39,6 +42,8 @@ export function ProfileSettings({
   localEnabled: boolean
   sso: { name: string; linked: boolean } | null
 }) {
+  const locale = useLocale()
+  const t = useTranslations("settings")
   const router = useRouter()
   const [name, setName] = useState(user.name)
   const [current, setCurrent] = useState("")
@@ -65,30 +70,32 @@ export function ProfileSettings({
   async function saveName(e: React.FormEvent) {
     e.preventDefault()
     const { error } = await authClient.updateUser({ name: name.trim() })
-    if (error) return void toast.error(authErrorMessage(error))
-    toast.success("Имя сохранено")
+    if (error) return void toast.error(authErrorMessage(error, locale))
+    toast.success(t("profile.nameSaved"))
     router.refresh()
   }
 
   async function changePassword(e: React.FormEvent) {
     e.preventDefault()
-    if (next.length < 10) return void toast.error("Новый пароль должен быть не короче 10 символов")
+    if (next.length < 10) return void toast.error(t("profile.newPasswordMustBeAtLeastCharacters"))
     setBusy(true)
     const { error } = await authClient.changePassword({ currentPassword: current, newPassword: next, revokeOtherSessions: true })
     setBusy(false)
-    if (error) return void toast.error(authErrorMessage(error))
+    if (error) return void toast.error(authErrorMessage(error, locale))
     setCurrent("")
     setNext("")
-    toast.success("Пароль изменён, остальные сеансы завершены")
+    toast.success(t("profile.passwordChangedOtherSessionsHaveBeenSignedOut"))
     loadSessions()
   }
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Section title="Профиль">
+      <Section title={t("profile.profile")}>
+        <PreferencesForm />
+        <div className="h-4" />
         <form onSubmit={saveName} className="grid grid-cols-1 gap-4">
           <Field>
-            <FieldLabel htmlFor="p-name">Имя</FieldLabel>
+            <FieldLabel htmlFor="p-name">{t("profile.name")}</FieldLabel>
             <Input id="p-name" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field>
@@ -96,55 +103,53 @@ export function ProfileSettings({
             <Input id="p-email" value={user.email} disabled />
           </Field>
           <Button type="submit" className="justify-self-start" disabled={!name.trim() || name === user.name}>
-            Сохранить
-          </Button>
+            {t("profile.save")}{" "}</Button>
         </form>
       </Section>
 
-      <Section title="Пароль" description={hasPassword ? "После смены пароля остальные сеансы будут завершены." : "Вы входите только через SSO."}>
+      <Section title={t("profile.password")} description={hasPassword ? t("profile.changingYourPasswordSignsOutOtherSessions") : t("profile.youSignInWithSsoOnly")}>
         {hasPassword && localEnabled ? (
           <form onSubmit={changePassword} className="grid grid-cols-1 gap-4">
             <Field>
-              <FieldLabel htmlFor="p-current">Текущий пароль</FieldLabel>
+              <FieldLabel htmlFor="p-current">{t("profile.currentPassword")}</FieldLabel>
               <PasswordInput id="p-current" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
             </Field>
             <Field>
-              <FieldLabel htmlFor="p-next">Новый пароль</FieldLabel>
+              <FieldLabel htmlFor="p-next">{t("profile.newPassword")}</FieldLabel>
               <PasswordInput id="p-next" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />
             </Field>
             <Button type="submit" className="justify-self-start" disabled={busy || !current || !next}>
-              Сменить пароль
-            </Button>
+              {t("profile.changePassword")}{" "}</Button>
           </form>
         ) : (
-          <p className="text-sm text-muted-foreground">{hasPassword ? "Вход по паролю отключён администратором." : "Пароль не задан."}</p>
+          <p className="text-sm text-muted-foreground">{hasPassword ? t("profile.passwordSignInIsDisabledByTheAdministrator") : t("profile.noPasswordSet")}</p>
         )}
       </Section>
 
       {sso ? (
-        <Section title="Единый вход (SSO)" description="Привязка позволяет входить через корпоративного или семейного провайдера идентификации.">
+        <Section title={t("profile.singleSignOnSso")} description={t("profile.linkAnAccountToSignInWithYour")}>
           {sso.linked ? (
             <div className="flex items-center gap-2 text-sm">
               <KeyRound className="size-4 text-muted-foreground" /> {sso.name}
-              <Badge variant="secondary">привязан</Badge>
+              <Badge variant="secondary">{t("profile.linked")}</Badge>
             </div>
           ) : (
             <Button
               variant="outline"
               onClick={async () => {
                 const { error } = await authClient.linkSocial({ provider: "oidc", callbackURL: "/settings?tab=profile" })
-                if (error) toast.error(authErrorMessage(error))
+                if (error) toast.error(authErrorMessage(error, locale))
               }}
             >
-              <KeyRound /> Привязать {sso.name}
+              <KeyRound /> {t("profile.link")}{" "}{sso.name}
             </Button>
           )}
         </Section>
       ) : null}
 
       <Section
-        title="Активные сеансы"
-        description="Устройства, на которых выполнен вход."
+        title={t("profile.activeSessions")}
+        description={t("profile.devicesSignedInToYourAccount")}
         action={
           sessions && sessions.length > 1 ? (
             <Button
@@ -152,17 +157,16 @@ export function ProfileSettings({
               size="sm"
               onClick={async () => {
                 await authClient.revokeOtherSessions()
-                toast.success("Остальные сеансы завершены")
+                toast.success(t("profile.otherSessionsSignedOut"))
                 loadSessions()
               }}
             >
-              Завершить остальные
-            </Button>
+              {t("profile.signOutOtherSessions")}{" "}</Button>
           ) : null
         }
       >
         {sessions === null ? (
-          <p className="text-sm text-muted-foreground">Загрузка…</p>
+          <p className="text-sm text-muted-foreground">{t("profile.loading")}</p>
         ) : (
           <ul className="divide-y">
             {sessions.map((s) => {
@@ -173,18 +177,18 @@ export function ProfileSettings({
                   {mobile ? <Smartphone className="size-4 text-muted-foreground" /> : <Laptop className="size-4 text-muted-foreground" />}
                   <div className="min-w-0 flex-1">
                     <div className="truncate">
-                      {deviceName(s.userAgent)} {isCurrent ? <Badge className="ml-1">это устройство</Badge> : null}
+                      {deviceName(s.userAgent, t)} {isCurrent ? <Badge className="ml-1">{t("profile.thisDevice")}</Badge> : null}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {s.ipAddress ? `${s.ipAddress} · ` : ""}
-                      {formatDateTime(s.updatedAt, Intl.DateTimeFormat().resolvedOptions().timeZone)}
+                      {formatDateTime(s.updatedAt, Intl.DateTimeFormat().resolvedOptions().timeZone, locale)}
                     </div>
                   </div>
                   {!isCurrent ? (
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      aria-label="Завершить сеанс"
+                      aria-label={t("profile.signOutSession")}
                       onClick={async () => {
                         await authClient.revokeSession({ token: s.token })
                         loadSessions()

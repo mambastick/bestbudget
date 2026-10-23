@@ -1,12 +1,17 @@
 import type { MetadataRoute } from "next"
+import { getLocale, getTranslations } from "next-intl/server"
+
+export const dynamic = "force-dynamic"
 
 /** Web app manifest: lets people install BestBudget on a phone's home screen. */
-export default function manifest(): MetadataRoute.Manifest {
+export default async function manifest(): Promise<MetadataRoute.Manifest> {
+  const t = await getTranslations("common")
+  const locale = await getLocale()
   return {
-    name: "BestBudget — семейный бюджет",
+    name: t("appName"),
     short_name: "BestBudget",
-    description: "Доходы, расходы, регулярные платежи и прогноз остатка для всей семьи",
-    lang: "ru",
+    description: t("appDescription"),
+    lang: locale,
     start_url: "/dashboard",
     scope: "/",
     display: "standalone",

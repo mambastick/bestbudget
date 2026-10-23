@@ -21,7 +21,8 @@
     "db:dev": "tsx scripts/dev-db.ts",
     "admin": "tsx scripts/admin.ts",
     "db:seed-demo": "node --conditions=react-server --import tsx scripts/seed-demo.ts",
-    "test:screenshots": "playwright test --config playwright.screenshots.config.ts"
+    "test:screenshots": "playwright test --config playwright.screenshots.config.ts",
+    "i18n:check": "tsx scripts/check-i18n.ts"
   },
   "dependencies": {
     "@animate-ui/react": "^2.0.0",
@@ -37,6 +38,7 @@
     "lucide-react": "^1.61.0",
     "motion": "^14.6.0",
     "next": "^16.4.2",
+    "next-intl": "^4.14.9",
     "next-themes": "^0.4.6",
     "nodemailer": "^10.2.0",
     "postgres": "^3.4.9",

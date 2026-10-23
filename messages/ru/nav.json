@@ -1,0 +1,21 @@
+{
+  "appShell": {
+    "overview": "Обзор",
+    "transactions": "Операции",
+    "calendar": "Календарь",
+    "budgets": "Бюджеты",
+    "savingsGoals": "Цели",
+    "loans": "Кредиты",
+    "analytics": "Аналитика",
+    "accounts": "Счета",
+    "settings": "Настройки",
+    "households": "Семейные пространства",
+    "newHousehold": "Новое пространство",
+    "administration": "Администрирование",
+    "beta": "бета",
+    "profileAndSecurity": "Профиль и безопасность",
+    "signOut": "Выйти",
+    "transaction": "Операция",
+    "addTransaction": "Добавить операцию"
+  }
+}

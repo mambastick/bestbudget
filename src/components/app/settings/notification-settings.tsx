@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "next-intl"
+
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -24,7 +26,7 @@ function applicationKey(key: string): ArrayBuffer {
   const base64 = key.replace(/-/g, "+").replace(/_/g, "/")
   return Uint8Array.from(atob(base64 + "=".repeat((4 - (base64.length % 4)) % 4)), (c) => c.charCodeAt(0)).buffer
 }
-function deviceName(ua: string) {
+function deviceName(ua: string, t: (key: string) => string) {
   const browser = /Firefox/.test(ua)
     ? "Firefox"
     : /Edg/.test(ua)
@@ -33,7 +35,7 @@ function deviceName(ua: string) {
         ? "Chrome"
         : /Safari/.test(ua)
           ? "Safari"
-          : "Браузер"
+          : t("notification.browser")
   const os = /iPhone|iPad/.test(ua)
     ? "iOS"
     : /Android/.test(ua)
@@ -48,6 +50,7 @@ function deviceName(ua: string) {
   return `${browser}${os ? ` · ${os}` : ""}`
 }
 export function NotificationSettings(props: Awaited<ReturnType<typeof notificationProfile>>) {
+  const t = useTranslations("settings")
   const router = useRouter()
   const [p, setP] = useState(props.preferences)
   const [link, setLink] = useState<string | null>(null)
@@ -55,13 +58,13 @@ export function NotificationSettings(props: Awaited<ReturnType<typeof notificati
   const action = useAction()
   async function enablePush() {
     if (!window.isSecureContext || !("serviceWorker" in navigator) || !("PushManager" in window)) {
-      toast.error("Web Push требует HTTPS и поддерживаемый браузер. На iPhone откройте приложение с экрана «Домой».")
+      toast.error(t("notification.webPushRequiresHttpsAndASupportedBrowser"))
       return
     }
     setEnabling(true)
     try {
       if ((await Notification.requestPermission()) !== "granted") {
-        toast.error("Разрешите уведомления в настройках браузера и повторите.")
+        toast.error(t("notification.allowNotificationsInYourBrowserSettingsAndTry"))
         return
       }
       await navigator.serviceWorker.register("/sw.js", { scope: "/" })
@@ -89,10 +92,10 @@ export function NotificationSettings(props: Awaited<ReturnType<typeof notificati
             endpoint: json.endpoint!,
             keys: { p256dh: json.keys!.p256dh!, auth: json.keys!.auth! },
           }),
-        { success: "Браузер подключён. Включите канал для этой семьи ниже." },
+        { success: t("notification.browserConnectedEnableNotificationsForThisHouseholdBelow") },
       )
     } catch {
-      toast.error("Не удалось подключить Web Push. Проверьте разрешение браузера и соединение.")
+      toast.error(t("notification.couldnTEnableWebPushCheckYourBrowser"))
     } finally {
       setEnabling(false)
     }
@@ -100,106 +103,96 @@ export function NotificationSettings(props: Awaited<ReturnType<typeof notificati
   return (
     <div className="grid grid-cols-1 gap-4">
       <Section
-        title="Каналы уведомлений"
-        description="Подключения общие для профиля. События и каналы включаются отдельно для каждой семьи ниже."
+        title={t("notification.notificationChannels")}
+        description={t("notification.connectionsBelongToYourProfileChooseEventsAnd")}
       >
         <div className="grid grid-cols-1 gap-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm">
-              Telegram: {props.telegramConnected ? "подключён" : props.botReady ? "не подключён" : "бот не настроен"}
+              Telegram: {props.telegramConnected ? t("notification.connected") : props.botReady ? t("notification.notConnected") : t("notification.botNotConfigured")}
             </span>
             {props.telegramConnected ? (
               <Button
                 variant="outline"
                 disabled={action.pending}
-                onClick={() => action.run(disconnectTelegramAction, { success: "Telegram отключён" })}
+                onClick={() => action.run(disconnectTelegramAction, { success: t("notification.telegramDisconnected") })}
               >
-                Отключить Telegram
-              </Button>
+                {t("notification.disconnectTelegram")}{" "}</Button>
             ) : (
               <Button
                 variant="outline"
                 disabled={!props.botReady || action.pending}
                 onClick={() => action.run(connectTelegramAction, { onSuccess: (d) => setLink(d.url) })}
               >
-                Подключить Telegram
-              </Button>
+                {t("notification.connectTelegram")}{" "}</Button>
             )}
           </div>
           {link ? (
             <div className="text-sm">
               <div className="flex flex-wrap gap-2">
                 <LinkButton href={link} target="_blank" rel="noopener noreferrer">
-                  Открыть Telegram
-                </LinkButton>
+                  {t("notification.openTelegram")}{" "}</LinkButton>
                 <Button variant="outline" onClick={() => router.refresh()}>
-                  Проверить подключение
-                </Button>
+                  {t("notification.checkConnection")}{" "}</Button>
               </div>
               <p className="mt-2 text-muted-foreground">
-                Ссылка одноразовая, действует 10 минут. Нажмите «Запустить» в боте.
-              </p>
+                {t("notification.thisSingleUseLinkExpiresInMinutesTap")}{" "}</p>
             </div>
           ) : null}
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" disabled={enabling || action.pending} onClick={enablePush}>
-              Включить уведомления в браузере
-            </Button>
+              {t("notification.enableBrowserNotifications")}{" "}</Button>
             <Button
               variant="outline"
               disabled={action.pending || !props.devices.length}
-              onClick={() => action.run(testPushAction, { success: "Тест отправлен на подключённые устройства" })}
+              onClick={() => action.run(testPushAction, { success: t("notification.testSentToConnectedDevices") })}
             >
-              Тест Web Push
-            </Button>
+              {t("notification.testWebPush")}{" "}</Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Нужен HTTPS (или localhost). На iPhone/iPad: Safari → «Поделиться» → «На экран Домой», затем откройте
-            приложение оттуда и разрешите уведомления.
-          </p>
+            {t("notification.httpsOrLocalhostIsRequiredOnIphoneIpad")}{" "}</p>
           <ul className="divide-y">
             {props.devices.map((d) => (
               <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
-                <span>{deviceName(d.userAgent)}</span>
+                <span>{deviceName(d.userAgent, t)}</span>
                 <Button
                   variant="ghost"
                   size="sm"
                   disabled={action.pending}
-                  onClick={() => action.run(() => removePushAction(d.id), { success: "Устройство удалено" })}
+                  onClick={() => action.run(() => removePushAction(d.id), { success: t("notification.deviceRemoved") })}
                 >
-                  Удалить устройство
-                </Button>
+                  {t("notification.removeDevice")}{" "}</Button>
               </li>
             ))}
             {!props.devices.length ? (
-              <li className="text-sm text-muted-foreground">Подключённых браузеров нет</li>
+              <li className="text-sm text-muted-foreground">{t("notification.noBrowsersConnected")}</li>
             ) : null}
           </ul>
         </div>
       </Section>
       <Section
-        title="Напоминания для этой семьи"
-        description={`Часовой пояс: ${props.timezone}. Суммы и названия будут видны на экране блокировки и передаваться выбранной службе доставки.`}
+        title={t("notification.remindersForThisHousehold")}
+        description={t("notification.timeZoneAmountsAndTitlesMayAppearOn", { timezone: props.timezone })}
       >
         <form
           className="grid grid-cols-1 gap-4"
           onSubmit={(e) => {
             e.preventDefault()
             action.run(() => saveNotificationPreferencesAction(p), {
-              success: "Настройки уведомлений сохранены",
+              success: t("notification.notificationSettingsSaved"),
               onSuccess: setP,
             })
           }}
         >
-          <Toggle label="Уведомления в Telegram" checked={p.telegram} onChange={(v) => setP({ ...p, telegram: v })} />
-          <Toggle label="Уведомления Web Push" checked={p.push} onChange={(v) => setP({ ...p, push: v })} />
-          <Toggle label="Ближайшие платежи" checked={p.due} onChange={(v) => setP({ ...p, due: v })} />
-          <Toggle label="Просроченные платежи" checked={p.overdue} onChange={(v) => setP({ ...p, overdue: v })} />
-          <Toggle label="Кассовый разрыв" checked={p.cashGap} onChange={(v) => setP({ ...p, cashGap: v })} />
-          <Toggle label="Превышение бюджета" checked={p.budget} onChange={(v) => setP({ ...p, budget: v })} />
+          <Toggle label={t("notification.telegramNotifications")} checked={p.telegram} onChange={(v) => setP({ ...p, telegram: v })} />
+          <Toggle label={t("notification.webPushNotifications")} checked={p.push} onChange={(v) => setP({ ...p, push: v })} />
+          <Toggle label={t("notification.upcomingPayments")} checked={p.due} onChange={(v) => setP({ ...p, due: v })} />
+          <Toggle label={t("notification.overduePayments")} checked={p.overdue} onChange={(v) => setP({ ...p, overdue: v })} />
+          <Toggle label={t("notification.cashGap")} checked={p.cashGap} onChange={(v) => setP({ ...p, cashGap: v })} />
+          <Toggle label={t("notification.budgetOverrun")} checked={p.budget} onChange={(v) => setP({ ...p, budget: v })} />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field>
-              <FieldLabel htmlFor="notice-days">За сколько дней напоминать</FieldLabel>
+              <FieldLabel htmlFor="notice-days">{t("notification.daysBeforePayment")}</FieldLabel>
               <Input
                 id="notice-days"
                 type="number"
@@ -210,7 +203,7 @@ export function NotificationSettings(props: Awaited<ReturnType<typeof notificati
               />
             </Field>
             <Field>
-              <FieldLabel htmlFor="notice-threshold">Порог превышения бюджета, %</FieldLabel>
+              <FieldLabel htmlFor="notice-threshold">{t("notification.budgetOverrunThreshold")}</FieldLabel>
               <Input
                 id="notice-threshold"
                 type="number"
@@ -222,12 +215,12 @@ export function NotificationSettings(props: Awaited<ReturnType<typeof notificati
             </Field>
           </div>
           <Toggle
-            label="Ежедневная сводка вместо отдельных сообщений"
+            label={t("notification.dailyDigestInsteadOfIndividualMessages")}
             checked={p.digest}
             onChange={(v) => setP({ ...p, digest: v })}
           />
           <Field>
-            <FieldLabel htmlFor="notice-digest">Время сводки</FieldLabel>
+            <FieldLabel htmlFor="notice-digest">{t("notification.digestTime")}</FieldLabel>
             <Input
               id="notice-digest"
               type="time"
@@ -238,7 +231,7 @@ export function NotificationSettings(props: Awaited<ReturnType<typeof notificati
           </Field>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field>
-              <FieldLabel htmlFor="notice-quiet-start">Тихие часы с</FieldLabel>
+              <FieldLabel htmlFor="notice-quiet-start">{t("notification.quietHoursStart")}</FieldLabel>
               <Input
                 id="notice-quiet-start"
                 type="time"
@@ -248,7 +241,7 @@ export function NotificationSettings(props: Awaited<ReturnType<typeof notificati
               />
             </Field>
             <Field>
-              <FieldLabel htmlFor="notice-quiet-end">Тихие часы до</FieldLabel>
+              <FieldLabel htmlFor="notice-quiet-end">{t("notification.quietHoursEnd")}</FieldLabel>
               <Input
                 id="notice-quiet-end"
                 type="time"
@@ -259,12 +252,9 @@ export function NotificationSettings(props: Awaited<ReturnType<typeof notificati
             </Field>
           </div>
           <p className="text-xs text-muted-foreground">
-            Одинаковое начало и конец отключают тихие часы. В тихие часы сообщения откладываются. Платёж и просрочка —
-            по одному напоминанию; бюджет — один раз на порог в месяц. Прогноз — на 30 дней.
-          </p>
+            {t("notification.setTheSameStartAndEndTimeTo")}{" "}</p>
           <Button type="submit" className="justify-self-start" disabled={action.pending}>
-            Сохранить уведомления
-          </Button>
+            {t("notification.saveNotifications")}{" "}</Button>
         </form>
       </Section>
     </div>

@@ -19,12 +19,12 @@ import { amount, isoDate } from "./transactions"
 
 const rate = z
   .string()
-  .regex(/^\d{1,3}(\.\d{1,6})?$/, "Укажите ставку до 6 знаков после запятой")
-  .refine((s) => Number(s) <= 100, "Ставка должна быть от 0 до 100%")
+  .regex(/^\d{1,3}(\.\d{1,6})?$/, "validation.loanRatePrecision")
+  .refine((s) => Number(s) <= 100, "validation.loanRateRange")
 export const loanInput = z
   .object({
-    name: z.string().trim().min(1, "Укажите название").max(60),
-    lender: z.string().trim().min(1, "Укажите банк").max(120),
+    name: z.string().trim().min(1, "validation.titleRequired").max(60),
+    lender: z.string().trim().min(1, "validation.lender").max(120),
     kind: z.enum(["mortgage", "consumer", "car", "credit_line", "other"]),
     principal: amount,
     trackingBalance: amount,
@@ -40,10 +40,10 @@ export const loanInput = z
     paymentAccountId: z.uuid(),
     interestCategoryId: z.uuid().optional(),
   })
-  .refine((p) => p.trackingBalance <= p.principal, { message: "Остаток превышает исходную сумму", path: ["trackingBalance"] })
-  .refine((p) => p.startDate <= p.trackingDate, { message: "Начало кредита позже начала учёта", path: ["startDate"] })
+  .refine((p) => p.trackingBalance <= p.principal, { message: "validation.loanBalance", path: ["trackingBalance"] })
+  .refine((p) => p.startDate <= p.trackingDate, { message: "validation.loanStart", path: ["startDate"] })
   .refine((p) => p.termMonths || (p.scheduleType === "annuity" && p.paymentAmount), {
-    message: "Укажите оставшийся срок или аннуитетный платёж",
+    message: "validation.loanTerm",
     path: ["termMonths"],
   })
 export type LoanInput = z.input<typeof loanInput>
@@ -52,7 +52,7 @@ function checkedCalculation<T>(calculate: () => T): T {
   try {
     return calculate()
   } catch (e) {
-    if (e instanceof LoanCalculationError) throw new AppError(e.message)
+    if (e instanceof LoanCalculationError) throw new AppError(e.messageKey)
     throw e
   }
 }
@@ -72,13 +72,13 @@ function schedule(p: Loan, events: LoanEvent[], posted: LoanPayment[]) {
 }
 
 async function owned(db: DbOrTx, ctx: Pick<HouseholdCtx, "householdId">, id: string, lock = false) {
-  if (!z.uuid().safeParse(id).success) throw notFound("Кредит не найден")
+  if (!z.uuid().safeParse(id).success) throw notFound("loan.notFound")
   const query = db
     .select()
     .from(loans)
     .where(and(eq(loans.id, id), eq(loans.householdId, ctx.householdId)))
   const [row] = await (lock ? query.for("update") : query)
-  if (!row) throw notFound("Кредит не найден")
+  if (!row) throw notFound("loan.notFound")
   return row
 }
 
@@ -112,7 +112,7 @@ export async function createLoan(ctx: HouseholdCtx, raw: LoanInput) {
   const termMonths =
     input.termMonths ?? checkedCalculation(() => termForPayment(input.trackingBalance, input.annualRate, input.paymentAmount!))
   checkedCalculation(() => calculateLoanSchedule({ ...input, termMonths }))
-  if (input.trackingDate > todayIn(ctx.timezone)) throw new AppError("Начало учёта не может быть в будущем")
+  if (input.trackingDate > todayIn(ctx.timezone)) throw new AppError("loan.futureTracking")
   return getDb().transaction(async (tx) => {
     const [paymentAccount] = await tx
       .select()
@@ -125,7 +125,7 @@ export async function createLoan(ctx: HouseholdCtx, raw: LoanInput) {
         ),
       )
       .for("update")
-    if (!paymentAccount || paymentAccount.kind === "loan") throw new AppError("Выберите активный счёт оплаты")
+    if (!paymentAccount || paymentAccount.kind === "loan") throw new AppError("loan.activePaymentAccount")
     let categoryId = input.interestCategoryId
     if (!categoryId) {
       await tx
@@ -163,7 +163,7 @@ export async function createLoan(ctx: HouseholdCtx, raw: LoanInput) {
           isNull(categories.archivedAt),
         ),
       )
-    if (!category) throw notFound("Категория процентов не найдена")
+    if (!category) throw notFound("loan.interestCategoryMissing")
     const [account] = await tx
       .insert(financialAccounts)
       .values({
@@ -271,7 +271,7 @@ export async function materializeLoanPayment(ctx: HouseholdCtx, id: string, date
         sql`${transactions.loanPart} <> 'prepayment'`,
       ),
     )
-  if (!row) throw notFound("Платёж не найден")
+  if (!row) throw notFound("loan.paymentNotFound")
   return row.id
 }
 
@@ -365,7 +365,7 @@ export async function addLoanEvent(ctx: HouseholdCtx, id: string, version: numbe
   return getDb().transaction(async (tx) => {
     const loan = await owned(tx, ctx, id, true)
     if (loan.version !== version) throw conflict()
-    if (loan.status !== "active") throw new AppError("Кредит закрыт")
+    if (loan.status !== "active") throw new AppError("loan.closed")
     const data = await ledger(tx, loan)
     if (
       input.date < loan.trackingDate ||
@@ -373,11 +373,11 @@ export async function addLoanEvent(ctx: HouseholdCtx, id: string, version: numbe
       data.events.some((e) => e.date >= input.date) ||
       data.rows.some((r) => r.status === "posted" && r.loanPart !== "prepayment" && (r.loanDueDate! > input.date || r.date > input.date))
     )
-      throw new AppError("Добавляйте события по порядку, после подтверждённых платежей и не позже сегодня")
+      throw new AppError("loan.eventOrder")
     if (input.type === "reconciliation" && data.rows.some((r) => r.status === "planned" && r.version > 1 && r.loanDueDate! <= input.date))
-      throw new AppError("Сначала подтвердите изменённые вручную платежи до даты сверки")
+      throw new AppError("loan.unpostedManualPayments")
     if (input.type !== "reconciliation" && data.rows.some((r) => r.status === "planned" && r.loanDueDate! <= input.date))
-      throw new AppError("Сначала подтвердите предыдущие платежи или сверьте остаток")
+      throw new AppError("loan.previousPayments")
     const [account] = await tx
       .select()
       .from(financialAccounts)
@@ -392,7 +392,7 @@ export async function addLoanEvent(ctx: HouseholdCtx, id: string, version: numbe
         : input.type === "reconciliation"
           ? { ...input, balanceDelta: actualDebt - input.balance }
           : input
-    if (input.type === "prepayment" && actualDebt <= 0) throw new AppError("Основной долг уже погашен")
+    if (input.type === "prepayment" && actualDebt <= 0) throw new AppError("loan.principalRepaid")
     const [event] = await tx
       .insert(loanEvents)
       .values({ ...values, loanId: id, householdId: ctx.householdId, createdBy: ctx.userId })
@@ -456,41 +456,41 @@ export const loanConfirmInput = z.object({
 export async function confirmLoanPayment(ctx: HouseholdCtx, transactionId: string, raw: z.input<typeof loanConfirmInput>) {
   assertCan(ctx, "finance.write")
   const input = loanConfirmInput.parse(raw)
-  if (input.date > todayIn(ctx.timezone)) throw new AppError("Фактическая дата не может быть в будущем")
+  if (input.date > todayIn(ctx.timezone)) throw new AppError("loan.futureActualDate")
   const db = getDb()
   const [reference] = await db
     .select()
     .from(transactions)
     .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.id, z.uuid().parse(transactionId))))
-  if (!reference?.loanId || reference.loanPart === "prepayment") throw notFound("Платёж не найден")
+  if (!reference?.loanId || reference.loanPart === "prepayment") throw notFound("loan.paymentNotFound")
   return db.transaction(async (tx) => {
     const loan = await owned(tx, ctx, reference.loanId!, true)
-    if (loan.status !== "active") throw new AppError("Кредит закрыт")
+    if (loan.status !== "active") throw new AppError("loan.closed")
     const data = await ledger(tx, loan)
     const parts = data.rows.filter((r) => r.loanPaymentKey === reference.loanPaymentKey)
     const ref = parts.find((r) => r.id === transactionId)
     if (!ref || ref.version !== input.version) throw conflict()
-    if (parts.some((r) => r.status !== "planned")) throw new AppError("Платёж уже подтверждён или пропущен")
+    if (parts.some((r) => r.status !== "planned")) throw new AppError("loan.paymentResolved")
     if (data.rows.some((r) => r.status === "planned" && r.loanPart !== "prepayment" && r.loanDueDate! < ref.loanDueDate!))
-      throw new AppError("Сначала подтвердите предыдущий платёж")
+      throw new AppError("loan.previousPayment")
     if (
       input.date < loan.trackingDate ||
       data.events.some((e) => e.date > input.date) ||
       data.rows.some((r) => r.status === "posted" && r.date > input.date)
     )
-      throw new AppError("Фактическая дата раньше предыдущего события или платежа")
+      throw new AppError("loan.actualDateOrder")
     const plannedPrincipal = parts.find((r) => r.loanPart === "principal")?.amount ?? 0
     const plannedInterest = parts.find((r) => r.loanPart === "interest")?.amount ?? 0
     const principal =
       input.allocation === "manual" ? input.principal : input.allocation === "principal" ? input.amount - plannedInterest : plannedPrincipal
     if (principal === undefined || principal < 0 || principal > input.amount)
-      throw new AppError("Проверьте разбивку платежа на тело и проценты")
+      throw new AppError("loan.paymentSplit")
     const interest = input.amount - principal
     const debt =
       loan.trackingBalance -
       data.rows.filter((r) => r.status === "posted" && r.type === "transfer").reduce((s, r) => s + r.amount, 0) -
       data.events.reduce((s, e) => s + (e.balanceDelta ?? 0), 0)
-    if (principal > debt) throw new AppError("Тело платежа превышает остаток долга")
+    if (principal > debt) throw new AppError("loan.paymentExceedsBalance")
     const allocation = { principal, interest }
     for (const part of ["principal", "interest"] as const) {
       const before = parts.find((r) => r.loanPart === part)
@@ -563,9 +563,9 @@ export async function closeLoan(ctx: HouseholdCtx, id: string, version: number) 
       loan.trackingBalance -
       data.rows.filter((r) => r.status === "posted" && r.type === "transfer").reduce((s, r) => s + r.amount, 0) -
       data.events.reduce((s, e) => s + (e.balanceDelta ?? 0), 0)
-    if (debt !== 0) throw new AppError("Сначала погасите долг или сверьте нулевой остаток с банком")
+    if (debt !== 0) throw new AppError("loan.debtRemaining")
     if (data.rows.some((r) => r.status === "planned" && r.loanPart === "interest"))
-      throw new AppError("Сначала подтвердите оставшиеся проценты")
+      throw new AppError("loan.interestRemaining")
     await tx
       .delete(transactions)
       .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.loanId, id), eq(transactions.status, "planned")))
@@ -593,7 +593,7 @@ export async function deleteLoan(ctx: HouseholdCtx, id: string, version: number)
         ),
       )
       .limit(1)
-    if (used) throw new AppError("Есть подтверждённые операции: закройте кредит, история сохранится")
+    if (used) throw new AppError("loan.historyExists")
     await tx.delete(transactions).where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.loanId, id)))
     await tx.delete(loans).where(and(eq(loans.householdId, ctx.householdId), eq(loans.id, id)))
     await tx

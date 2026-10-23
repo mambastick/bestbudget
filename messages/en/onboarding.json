@@ -1,0 +1,47 @@
+{
+  "onboarding": {
+    "ourHousehold": "Our household",
+    "newHousehold": "New household",
+    "hello": "Hello, {userName}!",
+    "aHouseholdIsASharedBudgetWithAccounts": "A household is a shared budget with accounts, categories, transactions and members. We'll create default categories and a main account. You can then invite your family.",
+    "name": "Name",
+    "timeZone": "Time zone",
+    "determinesTodayForPlannedTransactionsAndForecasts": "Determines “today” for planned transactions and forecasts.",
+    "creating": "Creating…",
+    "create": "Create",
+    "cancel": "Cancel",
+    "household": "Household"
+  },
+  "defaults": {
+    "income": {
+      "salary": "Salary",
+      "salaryAdvance": "Salary advance",
+      "bonus": "Bonus",
+      "sideIncome": "Side income",
+      "investments": "Investments",
+      "gifts": "Gifts",
+      "refunds": "Refunds",
+      "otherIncome": "Other income"
+    },
+    "expense": {
+      "groceries": "Groceries",
+      "dining": "Dining and delivery",
+      "utilities": "Utilities",
+      "rent": "Rent",
+      "mortgage": "Mortgage",
+      "loanInterest": "Loan interest",
+      "loans": "Loans",
+      "subscriptions": "Subscriptions",
+      "transport": "Transport",
+      "car": "Car",
+      "health": "Health",
+      "clothing": "Clothing",
+      "entertainment": "Entertainment",
+      "education": "Education",
+      "travel": "Travel",
+      "family": "Family",
+      "other": "Other"
+    },
+    "account": "Main account"
+  }
+}

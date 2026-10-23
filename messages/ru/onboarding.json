@@ -1,0 +1,47 @@
+{
+  "onboarding": {
+    "ourHousehold": "Наша семья",
+    "newHousehold": "Новое семейное пространство",
+    "hello": "Здравствуйте, {userName}!",
+    "aHouseholdIsASharedBudgetWithAccounts": "Семейное пространство — это общий бюджет: счета, категории, операции и участники. Мы создадим базовые категории и основной счёт, затем вы сможете пригласить супруга или супругу.",
+    "name": "Название",
+    "timeZone": "Часовой пояс",
+    "determinesTodayForPlannedTransactionsAndForecasts": "Определяет «сегодня» для плановых операций и прогноза.",
+    "creating": "Создание…",
+    "create": "Создать",
+    "cancel": "Отмена",
+    "household": "Семейное пространство"
+  },
+  "defaults": {
+    "income": {
+      "salary": "Зарплата",
+      "salaryAdvance": "Аванс",
+      "bonus": "Премия",
+      "sideIncome": "Подработка",
+      "investments": "Инвестиции",
+      "gifts": "Подарки",
+      "refunds": "Возвраты",
+      "otherIncome": "Прочие доходы"
+    },
+    "expense": {
+      "groceries": "Продукты",
+      "dining": "Рестораны и доставка",
+      "utilities": "ЖКХ",
+      "rent": "Аренда",
+      "mortgage": "Ипотека",
+      "loanInterest": "Проценты по кредитам",
+      "loans": "Кредиты",
+      "subscriptions": "Подписки",
+      "transport": "Транспорт",
+      "car": "Автомобиль",
+      "health": "Здоровье",
+      "clothing": "Одежда",
+      "entertainment": "Развлечения",
+      "education": "Образование",
+      "travel": "Путешествия",
+      "family": "Семья",
+      "other": "Прочее"
+    },
+    "account": "Основной счёт"
+  }
+}

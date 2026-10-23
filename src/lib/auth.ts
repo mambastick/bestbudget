@@ -6,6 +6,10 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { nextCookies } from "better-auth/next-js"
 import { admin } from "better-auth/plugins/admin"
 import { genericOAuth } from "better-auth/plugins/generic-oauth"
+import { isLocale, LOCALE_COOKIE, resolveLocale } from "@/i18n/locale"
+import { getUserLocale } from "@/server/services/preferences"
+import { loadMessages } from "@/i18n/messages"
+import { createTranslator } from "next-intl"
 import { getDb } from "@/db"
 import { authAccounts, rateLimits, sessions, users, verifications } from "@/db/schema"
 import { audit } from "@/server/audit"
@@ -72,15 +76,18 @@ function build(methods: AuthMethods) {
       maxPasswordLength: 128,
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: smtpEnabled()
-        ? async ({ user, url }) => {
+        ? async ({ user, url }, request) => {
+            const locale = resolveLocale({ user: await getUserLocale(user.id), cookie: readCookie(request?.headers.get("cookie"), LOCALE_COOKIE), acceptLanguage: request?.headers.get("accept-language") })
+            const t = createTranslator({ locale, messages: await loadMessages(locale), namespace: "auth" })
             await sendMail({
               to: user.email,
-              subject: "Восстановление доступа к BestBudget",
-              text: `Чтобы задать новый пароль, перейдите по ссылке (действует 1 час):\n\n${url}\n\nЕсли вы не запрашивали восстановление, просто проигнорируйте письмо.`,
+              subject: t("email.resetSubject"),
+              text: t("email.resetBody", { url }),
             })
           }
         : undefined,
     },
+    user: { additionalFields: { locale: { type: "string", required: false, input: false } } },
     account: {
       // SSO identities are never merged into existing accounts by e-mail; linking is explicit, from a signed-in session.
       accountLinking: { enabled: true, disableImplicitLinking: true, allowDifferentEmails: true },
@@ -104,14 +111,12 @@ function build(methods: AuthMethods) {
       user: {
         create: {
           before: async (user, ctx) => {
-            if (signupGate.getStore()?.allowed) return
-            if (methods.publicRegistration) return
             const isOidc = ctx?.path?.includes(`/callback/${OIDC_PROVIDER_ID}`) ?? false
-            if (isOidc && oidc?.allowSignup) return
             const token = readCookie(ctx?.headers?.get("cookie"), INVITE_COOKIE)
-            if (token && (await findValidInvitation(token))) return
-            void user
-            return false
+            const allowed = signupGate.getStore()?.allowed || methods.publicRegistration || (isOidc && oidc?.allowSignup) || (token && await findValidInvitation(token))
+            if (!allowed) return false
+            const locale = readCookie(ctx?.headers?.get("cookie"), LOCALE_COOKIE)
+            return { data: { ...user, locale: isLocale(locale) ? locale : null } }
           },
           after: async (user) => {
             // Not awaited: Better Auth may still hold the new row in an open transaction.
@@ -121,7 +126,11 @@ function build(methods: AuthMethods) {
       },
       session: {
         create: {
-          after: async (session) => {
+          after: async (session, ctx) => {
+            const locale = await getUserLocale(session.userId)
+            ctx?.setCookie(LOCALE_COOKIE, isLocale(locale) ? locale : "", {
+              httpOnly: true, sameSite: "lax", secure, path: "/", maxAge: isLocale(locale) ? 60 * 60 * 24 * 365 : 0,
+            })
             void audit({ action: "auth.sign_in", entityType: "session", actorId: session.userId, meta: { userAgent: session.userAgent?.slice(0, 120) ?? null } }).catch(() => {})
           },
         },
@@ -148,7 +157,7 @@ function build(methods: AuthMethods) {
                     name:
                       (typeof profile.name === "string" && profile.name) ||
                       (typeof profile.preferred_username === "string" && profile.preferred_username) ||
-                      String(profile.email ?? "Пользователь"),
+                      String(profile.email ?? "User"),
                   }),
                 },
               ],

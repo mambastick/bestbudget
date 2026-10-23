@@ -1,7 +1,8 @@
+import type { ErrorKey } from "@/i18n/errors"
 import "server-only"
 import { Unzip, UnzipInflate, zipSync } from "fflate"
 import readXlsxFile from "read-excel-file/node"
-import { decodeCsv, detectDelimiter, parseCsv } from "@/domain/import/csv"
+import { CsvError, decodeCsv, detectDelimiter, parseCsv } from "@/domain/import/csv"
 import { cellText, type StatementCell } from "@/domain/import/normalize"
 import { detectProfile, profileMapping } from "@/domain/import/profiles"
 import { MAX_COLUMNS, MAX_FILE_BYTES, MAX_ROWS, type FileOptions } from "@/domain/import/types"
@@ -18,36 +19,36 @@ export function inspectXlsx(bytes: Uint8Array): Uint8Array {
     expandedCells = 0,
     expandedRows = 0
   let failure: AppError | undefined
-  const reject = (message: string) => {
+  const reject = (message: ErrorKey) => {
     failure ??= new AppError(message)
   }
   const names = new Set<string>()
   const checkedXml: Record<string, Uint8Array> = Object.create(null)
   const unzip = new Unzip((file) => {
     if (++entries > MAX_ENTRIES || (file.originalSize ?? 0) > MAX_UNPACKED) {
-      reject("XLSX превышает лимит распаковки (40 МБ / 1000 файлов)")
+      reject("file.unpackLimit")
       return
     }
     if (names.has(file.name) || /(^\/|\.\.|\\)/.test(file.name)) {
-      reject("Некорректные пути в XLSX")
+      reject("file.paths")
       return
     }
     names.add(file.name)
     if (/vba|externalLinks|embeddings|activeX/i.test(file.name)) {
-      reject("Макросы, вложения и внешние ссылки XLSX не поддерживаются. Сохраните значения в новую книгу.")
+      reject("file.embeddings")
       return
     }
     const chunks: Uint8Array[] = []
     file.ondata = (error, data, final) => {
       if (error) {
-        reject("Повреждённый XLSX")
+        reject("file.corrupt")
         return
       }
       if (failure) return
       total += data.length
       if (total > MAX_UNPACKED) {
         file.terminate()
-        reject("XLSX превышает лимит распаковки (40 МБ)")
+        reject("file.unpackBytes")
         return
       }
       if (/\.(xml|rels)$/i.test(file.name)) chunks.push(data)
@@ -59,16 +60,16 @@ export function inspectXlsx(bytes: Uint8Array): Uint8Array {
         try {
           xml = decodeCsv(content)
         } catch {
-          reject("Неподдерживаемая кодировка XML внутри XLSX")
+          reject("file.xmlEncoding")
           return
         }
         checkedXml[file.name] = content
         if (/<(?:\w+:)?(?:f|formula)\b|<!DOCTYPE|<!ENTITY|TargetMode\s*=\s*["'](?!Internal["'])|macroEnabled/i.test(xml)) {
-          reject("Формулы, макросы и внешние ссылки XLSX не поддерживаются. Сохраните только значения.")
+          reject("file.formulas")
           return
         }
         if (file.name === "xl/workbook.xml" && [...xml.matchAll(/<(?:\w+:)?sheet\b/g)].length > 100) {
-          reject("В книге больше 100 листов")
+          reject("file.sheets")
           return
         }
         if (/worksheets\/.*\.xml$/i.test(file.name)) {
@@ -78,7 +79,7 @@ export function inspectXlsx(bytes: Uint8Array): Uint8Array {
             let column = 0
             for (const char of match[1]!.toUpperCase()) column = column * 26 + char.charCodeAt(0) - 64
             if (column > MAX_COLUMNS || Number(match[2]) > MAX_ROWS + 1000) {
-              reject("XLSX превышает лимит строк или колонок")
+              reject("file.dimensions")
               return
             }
             maxColumn = Math.max(maxColumn, column)
@@ -86,7 +87,7 @@ export function inspectXlsx(bytes: Uint8Array): Uint8Array {
           }
           for (const match of xml.matchAll(/<(?:\w+:)?row\b[^>]*\br\s*=\s*["'](\d+)["']/g)) {
             if (Number(match[1]) > MAX_ROWS + 1000) {
-              reject("XLSX превышает лимит строк")
+              reject("file.rowLimit")
               return
             }
             maxRow = Math.max(maxRow, Number(match[1]))
@@ -94,11 +95,11 @@ export function inspectXlsx(bytes: Uint8Array): Uint8Array {
           expandedCells += maxRow * Math.max(maxColumn, 1)
           expandedRows += maxRow
           if (expandedCells > (MAX_ROWS + 1000) * MAX_COLUMNS || expandedRows > MAX_ROWS + 1000) {
-            reject("Слишком большая разреженная книга XLSX. Оставьте нужный лист и удалите пустые области.")
+            reject("file.sparse")
             return
           }
           if ([...xml.matchAll(/<(?:\w+:)?row\b/g)].length > MAX_ROWS + 1000) {
-            reject("Слишком много строк XLSX")
+            reject("file.rows")
             return
           }
         }
@@ -113,25 +114,25 @@ export function inspectXlsx(bytes: Uint8Array): Uint8Array {
     if (failure) throw failure
   }
   if (!names.has("xl/workbook.xml") || !names.has("[Content_Types].xml") || completed !== entries)
-    throw new AppError("Файл ZIP не является корректной книгой XLSX")
+    throw new AppError("file.invalidWorkbook")
   // Read only the checked local entries, avoiding different interpretations of a hostile central directory.
   return zipSync(checkedXml, { level: 0 })
 }
 
 export async function readStatement(bytes: Uint8Array, options: FileOptions) {
-  if (!bytes.length || bytes.length > MAX_FILE_BYTES) throw new AppError("Выберите непустой файл размером до 10 МБ")
+  if (!bytes.length || bytes.length > MAX_FILE_BYTES) throw new AppError("file.nonemptyRequired")
   if (Buffer.from(bytes.subarray(0, 8)).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])))
-    throw new AppError("Старый формат XLS не поддерживается: сохраните как XLSX/CSV")
+    throw new AppError("file.legacyFormat")
   if (Buffer.from(bytes.subarray(0, 5)).toString() === "%PDF-")
-    throw new AppError("PDF пока не поддерживается. Выгрузите XLSX/CSV или перенесите данные в шаблон BestBudget.")
+    throw new AppError("file.pdfUnsupported")
   try {
     if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
       const checked = inspectXlsx(bytes)
       const sheets = await readXlsxFile(Buffer.from(checked), { trim: false, parseNumber: (number) => ({ number }) })
-      if (sheets.length > 100) throw new AppError("В книге больше 100 листов")
-      if (sheets.some((s) => s.sheet.length > 100)) throw new AppError("Слишком длинное название листа XLSX")
+      if (sheets.length > 100) throw new AppError("file.sheetLimit")
+      if (sheets.some((s) => s.sheet.length > 100)) throw new AppError("file.sheetNameTooLong")
       const data = sheets[options.sheet]
-      if (!data) throw new AppError("Выберите существующий лист")
+      if (!data) throw new AppError("file.sheetRequired")
       const rows: StatementCell[][] = data.data.map((row) =>
         row.map((cell) => {
           if (cell instanceof Date) return { date: cell.toISOString().replace(/\.000Z$/, "") }
@@ -144,7 +145,7 @@ export async function readStatement(bytes: Uint8Array, options: FileOptions) {
     }
     const text = decodeCsv(bytes, options.encoding)
     const delimiter = options.delimiter === "auto" ? detectDelimiter(text) : options.delimiter
-    if (!delimiter) throw new AppError("Не удалось однозначно определить разделитель. Выберите его вручную.")
+    if (!delimiter) throw new AppError("file.delimiterAmbiguous")
     const rows = parseCsv(text, delimiter)
     validateRows(rows, options)
     return { kind: "csv" as const, sheets: ["CSV"], rows, delimiter }
@@ -152,21 +153,22 @@ export async function readStatement(bytes: Uint8Array, options: FileOptions) {
     if (error instanceof AppError) throw error
     // Parser exceptions can contain a source value; only our own CSV errors are exposed.
     if (bytes[0] === 0x50 && bytes[1] === 0x4b)
-      throw new AppError("Не удалось прочитать XLSX. Проверьте книгу и сохраните только значения.")
-    throw new AppError(error instanceof Error ? error.message : "Не удалось прочитать CSV")
+      throw new AppError("file.workbookUnreadable")
+    if (error instanceof CsvError) throw new AppError(error.messageKey, error.params)
+    throw new AppError("file.csv")
   }
 }
 
 function validateRows(rows: StatementCell[][], options: FileOptions) {
-  if (rows.length - options.headerRow > MAX_ROWS) throw new AppError(`Не более ${MAX_ROWS} строк данных`)
+  if (rows.length - options.headerRow > MAX_ROWS) throw new AppError("file.dataRowLimit", { MAX_ROWS: MAX_ROWS })
   if (rows.some((r) => r.length > MAX_COLUMNS || r.some((c) => cellText(c).length > 10_000)))
-    throw new AppError("Слишком много колонок или слишком длинная ячейка")
-  if (!rows[options.headerRow - 1]) throw new AppError("Строка заголовков не найдена")
+    throw new AppError("file.columnOrCellLimit")
+  if (!rows[options.headerRow - 1]) throw new AppError("file.headerMissing")
   let bytes = 0
   for (const row of rows)
     for (const cell of row) {
       bytes += Buffer.byteLength(cellText(cell), "utf8")
-      if (bytes > MAX_UNPACKED) throw new AppError("Значения ячеек после разворачивания превышают 40 МБ")
+      if (bytes > MAX_UNPACKED) throw new AppError("file.expandedCellLimit")
     }
 }
 

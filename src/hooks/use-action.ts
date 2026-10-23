@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "next-intl"
+
 import { useTransition } from "react"
 import { toast } from "sonner"
 import type { ActionResult } from "@/server/errors"
@@ -9,6 +11,7 @@ import type { ActionResult } from "@/server/errors"
  * Actions revalidate the page themselves, so fresh data arrives with the action response.
  */
 export function useAction() {
+  const t = useTranslations("common")
   const [pending, startTransition] = useTransition()
 
   function run<T>(
@@ -20,7 +23,7 @@ export function useAction() {
       try {
         res = await action()
       } catch {
-        toast.error("Нет связи с сервером. Проверьте подключение и повторите.")
+        toast.error(t("useAction.canTReachTheServerCheckYourConnection"))
         return
       }
       if (!res.ok) {

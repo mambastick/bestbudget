@@ -12,14 +12,14 @@ export const dynamic = "force-dynamic"
 /** A dedicated route keeps the larger upload limit out of all server actions. */
 export async function POST(request: Request) {
   if (request.headers.get("origin") !== new URL(env().APP_URL).origin)
-    return Response.json({ ok: false, error: "Недопустимый источник запроса" }, { status: 403 })
+    return Response.json(await runAction(async () => { throw new AppError("request.invalidOrigin") }), { status: 403 })
   const result = await runAction(async () => {
     const ctx = await actionHousehold()
     assertCan(ctx, "finance.write")
     const limit = MAX_FILE_BYTES + 128 * 1024
-    if (Number(request.headers.get("content-length") ?? 0) > limit) throw new AppError("Файл больше 10 МБ")
+    if (Number(request.headers.get("content-length") ?? 0) > limit) throw new AppError("import.fileTooLarge")
     const reader = request.body?.getReader()
-    if (!reader) throw new AppError("Выберите файл")
+    if (!reader) throw new AppError("import.fileRequired")
     const chunks: Uint8Array[] = []
     let size = 0
     try {
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
         size += value.length
         if (size > limit) {
           await reader.cancel()
-          throw new AppError("Файл больше 10 МБ")
+          throw new AppError("import.fileTooLarge")
         }
         chunks.push(value)
       }
@@ -42,17 +42,17 @@ export async function POST(request: Request) {
         headers: { "Content-Type": request.headers.get("content-type") ?? "" },
       }).formData()
     } catch {
-      throw new AppError("Некорректная загрузка файла")
+      throw new AppError("import.uploadInvalid")
     }
     let config: unknown
     try {
       config = JSON.parse(String(form.get("config") ?? "{}"))
     } catch {
-      throw new AppError("Некорректная настройка импорта")
+      throw new AppError("import.configInvalid")
     }
     if (form.get("mode") === "commit") return { stage: "committed" as const, ...(await commitImport(ctx, commitInputSchema.parse(config))) }
     const file = form.get("file")
-    if (!(file instanceof File) || file.size > MAX_FILE_BYTES) throw new AppError("Выберите файл размером до 10 МБ")
+    if (!(file instanceof File) || file.size > MAX_FILE_BYTES) throw new AppError("import.fileSize")
     const bytes = new Uint8Array(await file.arrayBuffer())
     if (form.get("mode") === "preview")
       return { stage: "preview" as const, ...(await previewImport(ctx, bytes, previewInputSchema.parse(config))) }

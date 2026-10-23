@@ -1,5 +1,7 @@
 "use client"
 
+import { useLocale, useTranslations } from "next-intl"
+
 import { CurrencySelect } from "@/components/app/currency-select"
 import type { Currency } from "@/lib/currencies"
 
@@ -27,7 +29,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { can, ROLE_LABELS, type HouseholdRole } from "@/domain/permissions"
+import { can, type HouseholdRole } from "@/domain/permissions"
 import { useAction } from "@/hooks/use-action"
 import { formatDateTime } from "@/lib/dates"
 import { Section } from "./section"
@@ -61,6 +63,9 @@ export function HouseholdSettings({
   currentUserId: string
   role: HouseholdRole
 }) {
+  const locale = useLocale()
+  const roles = useTranslations("common.roles")
+  const t = useTranslations("settings")
   const router = useRouter()
   const { pending, run } = useAction()
   const [name, setName] = useState(household.name)
@@ -74,44 +79,42 @@ export function HouseholdSettings({
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Section title="Семейное пространство" description={`Валюта: ${household.currency}`}>
+      <Section title={t("household.household")} description={t("household.currency", { currency: household.currency })}>
         <form
           className="grid grid-cols-1 gap-4"
           onSubmit={(e) => {
             e.preventDefault()
-            run(() => updateHouseholdAction({ name, timezone, currency, version: household.version }), { success: "Настройки сохранены" })
+            run(() => updateHouseholdAction({ name, timezone, currency, version: household.version }), { success: t("household.settingsSaved") })
           }}
         >
           <Field>
-            <FieldLabel htmlFor="hh-name">Название</FieldLabel>
+            <FieldLabel htmlFor="hh-name">{t("household.name")}</FieldLabel>
             <Input id="hh-name" value={name} maxLength={80} disabled={!isOwner} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field>
-            <FieldLabel htmlFor="hh-tz">Часовой пояс</FieldLabel>
+            <FieldLabel htmlFor="hh-tz">{t("household.timeZone")}</FieldLabel>
             {isOwner ? <TimezoneSelect id="hh-tz" value={timezone} onChange={setTimezone} /> : <Input id="hh-tz" value={timezone} disabled />}
-            <p className="text-xs text-muted-foreground">Определяет «сегодня» для плановых операций и прогноза.</p>
+            <p className="text-xs text-muted-foreground">{t("household.determinesTodayForPlannedTransactionsAndForecasts")}</p>
           </Field>
           <Field>
-            <FieldLabel htmlFor="hh-currency">Базовая валюта</FieldLabel>
+            <FieldLabel htmlFor="hh-currency">{t("household.baseCurrency")}</FieldLabel>
             <CurrencySelect id="hh-currency" value={currency} onChange={setCurrency} disabled={!isOwner} />
-            <p className="text-xs text-muted-foreground">При смене валюты лимиты бюджетов не пересчитываются: те же минорные единицы будут в новой валюте. Проверьте и задайте лимиты заново. Остатки и операции сохраняют валюту счёта.</p>
+            <p className="text-xs text-muted-foreground">{t("household.changingTheBaseCurrencyKeepsBudgetLimitsIn")}</p>
           </Field>
           {isOwner ? (
             <Button type="submit" className="justify-self-start" disabled={pending || (name === household.name && timezone === household.timezone && currency === household.currency)}>
-              Сохранить
-            </Button>
+              {t("household.save")}{" "}</Button>
           ) : null}
         </form>
       </Section>
 
       <Section
-        title="Участники"
-        description="Все участники видят и редактируют общий бюджет. Автор каждой операции сохраняется."
+        title={t("household.members")}
+        description={t("household.allMembersCanViewAndEditTheShared")}
         action={
           can(role, "invitations.manage") ? (
             <Button size="sm" onClick={() => setInviteOpen(true)}>
-              <Link2 /> Пригласить
-            </Button>
+              <Link2 /> {t("household.invite")}{" "}</Button>
           ) : null
         }
       >
@@ -122,18 +125,17 @@ export function HouseholdSettings({
         </ul>
         {invitations.length > 0 ? (
           <div className="mt-4">
-            <div className="mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">Активные приглашения</div>
+            <div className="mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">{t("household.activeInvitations")}</div>
             <ul className="divide-y">
               {invitations.map((i) => (
                 <li key={i.id} className="flex items-center gap-2 py-2 text-sm">
                   <Link2 className="size-4 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate">
-                    {i.note || "Приглашение"} · {ROLE_LABELS[i.role]}
-                    <span className="block text-xs text-muted-foreground">до {formatDateTime(i.expiresAt, tz)}</span>
+                    {i.note || t("household.invitation")} · {roles(i.role)}
+                    <span className="block text-xs text-muted-foreground">{t("household.until")}{" "}{formatDateTime(i.expiresAt, tz, locale)}</span>
                   </span>
-                  <Button variant="ghost" size="sm" onClick={() => run(() => revokeInvitationAction(i.id), { success: "Приглашение отозвано" })}>
-                    Отозвать
-                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => run(() => revokeInvitationAction(i.id), { success: t("household.invitationRevoked") })}>
+                    {t("household.revoke")}{" "}</Button>
                 </li>
               ))}
             </ul>
@@ -141,17 +143,15 @@ export function HouseholdSettings({
         ) : null}
       </Section>
 
-      <Section title="Опасная зона">
+      <Section title={t("household.dangerZone")}>
         <div className="flex flex-wrap gap-2">
           {role !== "owner" ? (
             <Button variant="outline" onClick={() => setLeaveOpen(true)}>
-              <LogOut /> Покинуть пространство
-            </Button>
+              <LogOut /> {t("household.leaveHousehold")}{" "}</Button>
           ) : null}
           {isOwner ? (
             <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
-              <Trash2 /> Удалить пространство
-            </Button>
+              <Trash2 /> {t("household.deleteHousehold")}{" "}</Button>
           ) : null}
         </div>
       </Section>
@@ -160,9 +160,9 @@ export function HouseholdSettings({
       <ConfirmDialog
         open={leaveOpen}
         onOpenChange={setLeaveOpen}
-        title="Покинуть семейное пространство?"
-        description="Вы потеряете доступ к его данным. Вернуться можно только по новому приглашению."
-        confirmLabel="Покинуть"
+        title={t("household.leaveThisHousehold")}
+        description={t("household.youLlLoseAccessToItsDataYou")}
+        confirmLabel={t("household.leave")}
         onConfirm={() => run(() => leaveHouseholdAction(), { onSuccess: () => router.replace("/dashboard") })}
       />
       <DeleteHouseholdDialog open={deleteOpen} onOpenChange={setDeleteOpen} name={household.name} />
@@ -171,6 +171,8 @@ export function HouseholdSettings({
 }
 
 function MemberRow({ member: m, isSelf, canManage }: { member: Member; isSelf: boolean; canManage: boolean }) {
+  const roles = useTranslations("common.roles")
+  const t = useTranslations("settings")
   const { run } = useAction()
   const [confirm, setConfirm] = useState<"remove" | "owner" | null>(null)
   const initials = m.name
@@ -185,52 +187,51 @@ function MemberRow({ member: m, isSelf, canManage }: { member: Member; isSelf: b
       </Avatar>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">
-          {m.name} {isSelf ? <span className="text-muted-foreground">(вы)</span> : null}
+          {m.name} {isSelf ? <span className="text-muted-foreground">{t("household.you")}</span> : null}
         </div>
         <div className="truncate text-xs text-muted-foreground">{m.email}</div>
       </div>
-      <Badge variant={m.role === "owner" ? "default" : "secondary"}>{ROLE_LABELS[m.role]}</Badge>
+      <Badge variant={m.role === "owner" ? "default" : "secondary"}>{roles(m.role)}</Badge>
       {canManage && !isSelf && m.role !== "owner" ? (
         <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Действия" />}>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("household.actions")} />}>
             <MoreHorizontal />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuItem onClick={() => run(() => changeMemberRoleAction(m.userId, m.role === "admin" ? "member" : "admin"), { success: "Роль изменена" })}>
-              {m.role === "admin" ? "Сделать участником" : "Сделать администратором"}
+            <DropdownMenuItem onClick={() => run(() => changeMemberRoleAction(m.userId, m.role === "admin" ? "member" : "admin"), { success: t("household.roleUpdated") })}>
+              {m.role === "admin" ? t("household.makeMember") : t("household.makeAdministrator")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setConfirm("owner")}>
-              <Crown /> Передать владение
-            </DropdownMenuItem>
+              <Crown /> {t("household.transferOwnership")}{" "}</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onClick={() => setConfirm("remove")}>
-              <UserMinus /> Исключить
-            </DropdownMenuItem>
+              <UserMinus /> {t("household.remove")}{" "}</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       ) : null}
       <ConfirmDialog
         open={confirm === "remove"}
         onOpenChange={(o) => !o && setConfirm(null)}
-        title={`Исключить ${m.name}?`}
-        description="Участник сразу потеряет доступ к бюджету. Созданные им операции сохранятся."
-        confirmLabel="Исключить"
-        onConfirm={() => run(() => removeMemberAction(m.userId), { success: "Участник исключён" })}
+        title={t("household.removeTitle", { name: m.name })}
+        description={t("household.thisMemberWillImmediatelyLoseAccessTheirTransactions")}
+        confirmLabel={t("household.remove")}
+        onConfirm={() => run(() => removeMemberAction(m.userId), { success: t("household.memberRemoved") })}
       />
       <ConfirmDialog
         open={confirm === "owner"}
         onOpenChange={(o) => !o && setConfirm(null)}
-        title={`Передать владение ${m.name}?`}
-        description="Новый владелец получит полный контроль над пространством, а вы станете администратором."
-        confirmLabel="Передать"
+        title={t("household.transferOwnershipTo", { name: m.name })}
+        description={t("household.theNewOwnerWillHaveFullControlOf")}
+        confirmLabel={t("household.transfer")}
         destructive={false}
-        onConfirm={() => run(() => transferOwnershipAction(m.userId), { success: "Владение передано" })}
+        onConfirm={() => run(() => transferOwnershipAction(m.userId), { success: t("household.ownershipTransferred") })}
       />
     </li>
   )
 }
 
 function InviteDialog({ open, onOpenChange, canInviteAdmin }: { open: boolean; onOpenChange: (o: boolean) => void; canInviteAdmin: boolean }) {
+  const t = useTranslations("settings")
   const [role, setRole] = useState<"member" | "admin">("member")
   const [note, setNote] = useState("")
   const [link, setLink] = useState<string | null>(null)
@@ -249,32 +250,32 @@ function InviteDialog({ open, onOpenChange, canInviteAdmin }: { open: boolean; o
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Пригласить в семью</DialogTitle>
-          <DialogDescription>Одноразовая ссылка действует 7 дней. Отправьте её супругу или супруге любым удобным способом.</DialogDescription>
+          <DialogTitle>{t("household.inviteToHousehold")}</DialogTitle>
+          <DialogDescription>{t("household.thisSingleUseLinkExpiresInDaysShare")}</DialogDescription>
         </DialogHeader>
         {link ? (
           <div className="grid grid-cols-1 gap-3">
             <div className="flex gap-2">
-              <Input readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="Ссылка-приглашение" />
+              <Input readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label={t("household.invitationLink")} />
               <Button
                 variant="outline"
                 size="icon"
-                aria-label="Скопировать"
+                aria-label={t("household.copy")}
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(link)
-                    toast.success("Ссылка скопирована")
+                    toast.success(t("household.linkCopied"))
                   } catch {
-                    toast.error("Скопируйте ссылку вручную")
+                    toast.error(t("household.copyTheLinkManually"))
                   }
                 }}
               >
                 <Copy />
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">Ссылка показывается только один раз — сохранить её позже не получится.</p>
+            <p className="text-xs text-muted-foreground">{t("household.thisLinkIsShownOnlyOnceSaveIt")}</p>
             <DialogFooter>
-              <Button onClick={() => close(false)}>Готово</Button>
+              <Button onClick={() => close(false)}>{t("household.done")}</Button>
             </DialogFooter>
           </div>
         ) : (
@@ -286,35 +287,33 @@ function InviteDialog({ open, onOpenChange, canInviteAdmin }: { open: boolean; o
             }}
           >
             <Field>
-              <FieldLabel htmlFor="inv-note">Для кого (необязательно)</FieldLabel>
-              <Input id="inv-note" value={note} maxLength={100} onChange={(e) => setNote(e.target.value)} placeholder="Например, «Для Анны»" />
+              <FieldLabel htmlFor="inv-note">{t("household.recipientOptional")}</FieldLabel>
+              <Input id="inv-note" value={note} maxLength={100} onChange={(e) => setNote(e.target.value)} placeholder={t("household.forExampleForAnna")} />
             </Field>
             <Field>
-              <FieldLabel>Роль</FieldLabel>
+              <FieldLabel>{t("household.role")}</FieldLabel>
               <Select
                 value={role}
                 onValueChange={(v) => v && setRole(v as "member" | "admin")}
                 items={[
-                  { value: "member", label: "Участник — операции" },
-                  ...(canInviteAdmin ? [{ value: "admin", label: "Администратор — плюс категории, счета, приглашения" }] : []),
+                  { value: "member", label: t("household.memberTransactions") },
+                  ...(canInviteAdmin ? [{ value: "admin", label: t("household.administratorAlsoCategoriesAccountsAndInvitations") }] : []),
                 ]}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="member">Участник — операции</SelectItem>
-                  {canInviteAdmin ? <SelectItem value="admin">Администратор — плюс категории, счета, приглашения</SelectItem> : null}
+                  <SelectItem value="member">{t("household.memberTransactions")}</SelectItem>
+                  {canInviteAdmin ? <SelectItem value="admin">{t("household.administratorAlsoCategoriesAccountsAndInvitations")}</SelectItem> : null}
                 </SelectContent>
               </Select>
             </Field>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => close(false)}>
-                Отмена
-              </Button>
+                {t("household.cancel")}{" "}</Button>
               <Button type="submit" disabled={pending}>
-                Создать ссылку
-              </Button>
+                {t("household.createLink")}{" "}</Button>
             </DialogFooter>
           </form>
         )}
@@ -324,6 +323,7 @@ function InviteDialog({ open, onOpenChange, canInviteAdmin }: { open: boolean; o
 }
 
 function DeleteHouseholdDialog({ open, onOpenChange, name }: { open: boolean; onOpenChange: (o: boolean) => void; name: string }) {
+  const t = useTranslations("settings")
   const router = useRouter()
   const [confirm, setConfirm] = useState("")
   const { pending, run } = useAction()
@@ -331,21 +331,19 @@ function DeleteHouseholdDialog({ open, onOpenChange, name }: { open: boolean; on
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Удалить «{name}»?</DialogTitle>
-          <DialogDescription>Будут безвозвратно удалены все счета, операции, расписания, бюджеты и участники. Введите название пространства для подтверждения.</DialogDescription>
+          <DialogTitle>{t("household.deleteTitle", { name })}</DialogTitle>
+          <DialogDescription>{t("household.allAccountsTransactionsRecurringRulesBudgetsAndMemberships")}</DialogDescription>
         </DialogHeader>
-        <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={name} aria-label="Название пространства" />
+        <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={name} aria-label={t("household.householdName")} />
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Отмена
-          </Button>
+            {t("household.cancel")}{" "}</Button>
           <Button
             variant="destructive"
             disabled={pending || confirm.trim() !== name.trim()}
-            onClick={() => run(() => deleteHouseholdAction(confirm), { success: "Пространство удалено", onSuccess: () => router.replace("/dashboard") })}
+            onClick={() => run(() => deleteHouseholdAction(confirm), { success: t("household.householdDeleted"), onSuccess: () => router.replace("/dashboard") })}
           >
-            Удалить навсегда
-          </Button>
+            {t("household.deletePermanently")}{" "}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

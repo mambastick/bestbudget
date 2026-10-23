@@ -37,7 +37,7 @@ export async function testOidcDiscoveryAction(issuerUrl: string) {
       return await settings.testOidcDiscovery(issuerUrl)
     } catch (err) {
       if (err instanceof AppError) throw err
-      throw new AppError("Не удалось получить discovery-документ провайдера. Проверьте Issuer URL и доступность сервера.")
+      throw new AppError("admin.discoveryUnavailable")
     }
   })
 }
@@ -45,7 +45,7 @@ export async function testOidcDiscoveryAction(issuerUrl: string) {
 export async function setUserBannedAction(userId: string, banned: boolean) {
   return runAction(async () => {
     const admin = await actionSystemAdmin()
-    if (userId === admin.id) throw new AppError("Нельзя заблокировать самого себя")
+    if (userId === admin.id) throw new AppError("admin.selfBan")
     const auth = await getAuth()
     const h = await headers()
     if (banned) await auth.api.banUser({ body: { userId, banReason: "Заблокирован администратором" }, headers: h })
@@ -59,7 +59,7 @@ export async function setUserRoleAction(userId: string, role: "admin" | "user") 
   return runAction(async () => {
     const admin = await actionSystemAdmin()
     if (userId === admin.id && role !== "admin" && (await countAdmins()) <= 1) {
-      throw new AppError("Нельзя снять права с последнего администратора")
+      throw new AppError("admin.lastAdministrator")
     }
     const auth = await getAuth()
     await auth.api.setRole({ body: { userId, role }, headers: await headers() })
@@ -78,7 +78,7 @@ export async function resetUserPasswordAction(userId: string) {
     try {
       await auth.api.setUserPassword({ body: { userId, newPassword: password }, headers: h })
     } catch {
-      throw new AppError("У пользователя нет входа по паролю (только SSO)")
+      throw new AppError("admin.passwordMissing")
     }
     await auth.api.revokeUserSessions({ body: { userId }, headers: h })
     await audit({ action: "admin.user_password_reset", entityType: "user", entityId: userId, actorId: admin.id })

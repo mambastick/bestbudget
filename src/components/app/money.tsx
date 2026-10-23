@@ -1,3 +1,4 @@
+import { useLocale } from "next-intl"
 import { formatMoney } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
@@ -19,6 +20,7 @@ export function Money({
   tone?: Tone
   className?: string
 }) {
+  const locale = useLocale()
   const signed = kind === "expense" ? -Math.abs(value) : kind === "income" ? Math.abs(value) : value
   const resolved = tone === "auto" ? (signed > 0 ? "income" : signed < 0 ? "expense" : "neutral") : tone
   return (
@@ -30,7 +32,7 @@ export function Money({
         className,
       )}
     >
-      {formatMoney(signed, currency, { sign: kind === "income" })}
+      {formatMoney(signed, currency, { sign: kind === "income", locale })}
     </span>
   )
 }

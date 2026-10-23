@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server"
 import type { Metadata } from "next"
 import { NotificationSettings } from "@/components/app/settings/notification-settings"
 import { CategoriesSettings } from "@/components/app/settings/categories-settings"
@@ -13,15 +14,19 @@ import { getHousehold, listInvitations, listMembers } from "@/server/services/ho
 import { getAuthMethods } from "@/server/services/settings"
 import { getLoginProviders } from "@/server/services/users"
 
-export const metadata: Metadata = { title: "Настройки" }
-
-const TABS = [
-  { key: "household", label: "Семья" },
-  { key: "categories", label: "Категории" },
-  { key: "profile", label: "Профиль и безопасность" },
-] as const
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("settings")
+  return { title: t("settings.settings") }
+}
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const t = await getTranslations("settings")
+  const TABS = [
+    { key: "household", label: t("settings.household") },
+    { key: "categories", label: t("settings.categories") },
+    { key: "profile", label: t("settings.profileAndSecurity") },
+  ] as const
+
   const ctx = await requireHousehold()
   const requested = (await searchParams).tab
   const tab = TABS.find((t) => t.key === requested)?.key ?? "household"
@@ -67,7 +72,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="grid grid-cols-1 gap-6">
-      <PageHeader title="Настройки" />
+      <PageHeader title={t("settings.settings")} />
       <NavTabs tabs={TABS.map((t) => ({ ...t, href: `/settings?tab=${t.key}` }))} active={tab} />
       {content}
     </div>

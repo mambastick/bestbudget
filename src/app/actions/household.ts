@@ -1,5 +1,6 @@
 "use server"
 
+import { getLocale } from "next-intl/server"
 import { revalidatePath } from "next/cache"
 import { cookies } from "next/headers"
 import type { HouseholdRole } from "@/domain/permissions"
@@ -24,7 +25,7 @@ async function setActiveHousehold(id: string) {
 export async function createHouseholdAction(input: { name: string; timezone?: string }) {
   return runAction(async () => {
     const user = await actionUser()
-    const household = await households.createHousehold(user.id, input)
+    const household = await households.createHousehold(user.id, input, await getLocale())
     await setActiveHousehold(household.id)
     refresh()
   })

@@ -59,7 +59,7 @@ export async function testPushAction() {
   return runAction(async () => {
     const user = await actionUser()
     const devices = await getDb().select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, user.id))
-    if (!devices.length) throw new AppError("Сначала включите уведомления в браузере")
+    if (!devices.length) throw new AppError("notifications.browserRequired")
     for (const device of devices)
       await sendPushNotice(device, {
         kind: "test",
@@ -76,7 +76,7 @@ export async function updateTelegramSettingsAction(input: z.input<typeof telegra
       await updateTelegramSettings(admin.id, input)
       return true
     })
-    if (!saved) throw new AppError("Фоновые задачи заняты. Повторите сохранение через полминуты.")
+    if (!saved) throw new AppError("notifications.jobsBusy")
     refresh()
   })
 }
@@ -86,7 +86,7 @@ export async function testTelegramAction() {
     const [link] = await getDb().select().from(telegramLinks).where(eq(telegramLinks.userId, user.id))
     const c = await telegramConfig()
     if (!c.token || !link?.chatId)
-      throw new AppError("Подключите свой Telegram в профиле; тест отправляется только вам")
+      throw new AppError("notifications.telegramRequired")
     await sendTelegramNotice(c.token, link.chatId, {
       kind: "test",
       key: `test:${randomUUID()}`,

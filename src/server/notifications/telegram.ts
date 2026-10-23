@@ -44,7 +44,7 @@ export function verifyLinkToken(token: string) {
 export async function createTelegramLink(userId: string) {
   const c = await telegramConfig()
   if (!c.token || !c.row.botUsername)
-    throw new AppError("Бот ещё не готов. Администратор должен настроить его; затем дождитесь запуска фоновых задач.")
+    throw new AppError("telegram.notReady")
   const token = signLinkToken(randomToken(24))
   const expiresAt = new Date(Date.now() + 10 * 60_000)
   await getDb()
@@ -54,16 +54,16 @@ export async function createTelegramLink(userId: string) {
   return { url: `https://t.me/${c.row.botUsername}?start=${token}`, expiresAt: expiresAt.toISOString() }
 }
 export async function bindTelegram(token: string, chatId: string) {
-  if (!verifyLinkToken(token)) throw new AppError("Ссылка недействительна или истекла")
+  if (!verifyLinkToken(token)) throw new AppError("telegram.linkExpired")
   return getDb().transaction(async (tx) => {
     const [link] = await tx
       .select()
       .from(telegramLinks)
       .where(and(eq(telegramLinks.tokenHash, hashToken(token)), gt(telegramLinks.expiresAt, new Date())))
       .for("update")
-    if (!link) throw new AppError("Ссылка недействительна или истекла")
+    if (!link) throw new AppError("telegram.linkExpired")
     const [user] = await tx.select().from(users).where(eq(users.id, link.userId))
-    if (!user || user.banned) throw new AppError("Аккаунт недоступен")
+    if (!user || user.banned) throw new AppError("telegram.accountUnavailable")
     await tx
       .update(telegramLinks)
       .set({ chatId, tokenHash: null, expiresAt: null })
@@ -76,17 +76,17 @@ export async function bindTelegram(token: string, chatId: string) {
 /** The sender is resolved through the private chat binding, never through callback-provided user IDs. */
 export async function confirmTelegramPayment(userId: string, data: string) {
   const payment = parsePaymentCallback(data)
-  if (!payment) throw new AppError("Кнопка недействительна")
+  if (!payment) throw new AppError("telegram.invalidButton")
   const [user] = await getDb().select({ banned: users.banned }).from(users).where(eq(users.id, userId))
-  if (!user || user.banned) throw new AppError("Аккаунт недоступен")
+  if (!user || user.banned) throw new AppError("telegram.accountUnavailable")
   const [row] = await getDb()
     .select({ householdId: transactions.householdId })
     .from(transactions)
     .where(eq(transactions.id, payment.id))
   const ctx = row ? await resolveHouseholdCtx(userId, row.householdId) : null
-  if (!ctx) throw new AppError("Нет доступа к операции")
+  if (!ctx) throw new AppError("telegram.transactionForbidden")
   const current = await getTransaction(ctx, payment.id)
-  if (current.status !== "planned") throw new AppError("Операция уже подтверждена или пропущена")
+  if (current.status !== "planned") throw new AppError("telegram.transactionResolved")
   if (current.loanId) {
     const today = todayIn(ctx.timezone)
     await confirmLoanPayment(ctx, payment.id, {

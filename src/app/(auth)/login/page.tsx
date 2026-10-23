@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server"
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { LoginForm } from "@/components/auth/login-form"
@@ -6,17 +7,21 @@ import { getSession } from "@/server/session"
 import { getAuthMethods } from "@/server/services/settings"
 import { adminExists } from "@/server/services/users"
 
-export const metadata: Metadata = { title: "Вход" }
-
-const OAUTH_ERRORS: Record<string, string> = {
-  signup_disabled: "Регистрация закрыта. Попросите администратора или участника семьи прислать приглашение.",
-  unable_to_create_user: "Регистрация закрыта. Попросите администратора или участника семьи прислать приглашение.",
-  account_not_linked: "Аккаунт с таким e-mail уже существует. Войдите по паролю и привяжите SSO в настройках безопасности.",
-  email_not_verified: "Провайдер не подтвердил ваш e-mail.",
-  banned: "Аккаунт заблокирован администратором.",
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("auth")
+  return { title: t("login.title") }
 }
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; next?: string }> }) {
+  const t = await getTranslations("auth")
+  const OAUTH_ERRORS: Record<string, string> = {
+    signup_disabled: t("login.registrationIsClosedAskYourAdministratorOrA"),
+    unable_to_create_user: t("login.registrationIsClosedAskYourAdministratorOrA"),
+    account_not_linked: t("login.anAccountWithThisEmailAlreadyExistsSign"),
+    email_not_verified: t("login.theProviderHasnTVerifiedYourEmail"),
+    banned: t("login.yourAccountHasBeenBlockedByTheAdministrator"),
+  }
+
   if (await getSession()) redirect("/dashboard")
   if (!(await adminExists())) redirect("/setup")
   const methods = await getAuthMethods()
@@ -29,7 +34,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       publicRegistration={methods.publicRegistration && methods.local}
       canResetPassword={smtpEnabled() && methods.local}
       next={safeNext}
-      error={error ? (OAUTH_ERRORS[error] ?? "Не удалось войти через SSO. Попробуйте ещё раз.") : undefined}
+      error={error ? (OAUTH_ERRORS[error] ?? t("login.ssoSignInFailedPleaseTryAgain")) : undefined}
     />
   )
 }

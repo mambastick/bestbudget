@@ -1,3 +1,4 @@
+import { LocalizedError } from "@/i18n/errors"
 import { addDays, addMonths, daysInMonth, diffDays, isIsoDate, makeDate, ymd } from "@/lib/dates"
 
 export type PrepaymentMode = "reduce_term" | "reduce_payment"
@@ -34,29 +35,29 @@ export interface LoanScheduleRow {
   kind: "scheduled" | "prepayment" | "reconciliation"
 }
 
-export class LoanCalculationError extends Error {}
+export class LoanCalculationError extends LocalizedError {}
 
 const RATE_SCALE = 1_000_000n
 const safeMoney = (n: number) => Number.isSafeInteger(n) && n >= 0 && n <= 100_000_000_000_000
 
 function rateUnits(rate: string): bigint {
-  if (!/^\d{1,3}(\.\d{1,6})?$/.test(rate)) throw new LoanCalculationError("Ставка должна быть от 0 до 100%, до 6 знаков после запятой")
+  if (!/^\d{1,3}(\.\d{1,6})?$/.test(rate)) throw new LoanCalculationError("loanCalculation.rate")
   const [whole = "0", fraction = ""] = rate.split(".")
   const units = BigInt(whole) * RATE_SCALE + BigInt(fraction.padEnd(6, "0"))
-  if (units > 100n * RATE_SCALE) throw new LoanCalculationError("Ставка должна быть от 0 до 100%")
+  if (units > 100n * RATE_SCALE) throw new LoanCalculationError("validation.loanRateRange")
   return units
 }
 
 function rounded(n: bigint, d: bigint): number {
   const value = Number((n + d / 2n) / d)
-  if (!safeMoney(value)) throw new LoanCalculationError("Слишком большая сумма")
+  if (!safeMoney(value)) throw new LoanCalculationError("validation.largeAmount")
   return value
 }
 
 /** Exact rational annuity, rounded half-up to a minor unit; no floating-point money. */
 export function annuityPayment(principal: number, annualRate: string, months: number): number {
   if (!safeMoney(principal) || !Number.isInteger(months) || months < 1 || months > 600)
-    throw new LoanCalculationError("Некорректная сумма или срок")
+    throw new LoanCalculationError("loanCalculation.amountOrTerm")
   const numerator = rateUnits(annualRate)
   if (numerator === 0n) return rounded(BigInt(principal), BigInt(months))
   const denominator = 1200n * RATE_SCALE
@@ -66,15 +67,15 @@ export function annuityPayment(principal: number, annualRate: string, months: nu
 
 /** Finds the remaining term without logarithms or floating-point balance arithmetic. */
 export function termForPayment(principal: number, rate: string, payment: number): number {
-  if (!safeMoney(principal) || !safeMoney(payment) || payment === 0) throw new LoanCalculationError("Укажите положительную сумму платежа")
+  if (!safeMoney(principal) || !safeMoney(payment) || payment === 0) throw new LoanCalculationError("loanCalculation.positivePayment")
   let balance = principal
   for (let n = 1; n <= 600; n++) {
     const interest = rounded(BigInt(balance) * rateUnits(rate), 1200n * RATE_SCALE)
-    if (payment <= interest) throw new LoanCalculationError("Платёж не покрывает проценты")
+    if (payment <= interest) throw new LoanCalculationError("loanCalculation.interest")
     balance -= payment - interest
     if (balance <= 0) return n
   }
-  throw new LoanCalculationError("Срок превышает 600 месяцев")
+  throw new LoanCalculationError("loanCalculation.term")
 }
 
 function dueDate(first: string, offset: number, day: number) {
@@ -130,15 +131,15 @@ export function calculateLoanSchedule(
     p.paymentDay < 1 ||
     p.paymentDay > 31
   )
-    throw new LoanCalculationError("Некорректная сумма, срок или день платежа")
+    throw new LoanCalculationError("loanCalculation.paymentDay")
   if (
     ![p.trackingDate, p.firstPaymentDate].every(isIsoDate) ||
     p.firstPaymentDate <= p.trackingDate ||
     p.firstPaymentDate > addDays(addMonths(p.trackingDate, 1), 31)
   )
-    throw new LoanCalculationError("Проверьте дату начала учёта и первого платежа")
+    throw new LoanCalculationError("loanCalculation.trackingDate")
   if (p.paymentAmount != null && (!safeMoney(p.paymentAmount) || p.paymentAmount === 0))
-    throw new LoanCalculationError("Укажите положительную сумму платежа")
+    throw new LoanCalculationError("loanCalculation.positivePayment")
   let rate = rateUnits(p.annualRate)
   let currentRate = p.annualRate
   let balance = p.trackingBalance
@@ -148,12 +149,12 @@ export function calculateLoanSchedule(
   const sorted = [...events].sort((a, b) => a.date.localeCompare(b.date))
   for (const e of sorted) {
     if (!isIsoDate(e.date) || e.date < p.trackingDate || e.date > dueDate(p.firstPaymentDate, p.termMonths - 1, p.paymentDay))
-      throw new LoanCalculationError("Событие за пределами срока кредита")
+      throw new LoanCalculationError("loanCalculation.eventDate")
     if (e.type === "rate_change") rateUnits(e.annualRate)
     else if (!safeMoney(e.type === "prepayment" ? e.amount : e.balance) || (e.type === "prepayment" && e.amount === 0))
-      throw new LoanCalculationError("Некорректная сумма события")
+      throw new LoanCalculationError("loanCalculation.eventAmount")
   }
-  if (new Set(sorted.map((e) => e.date)).size !== sorted.length) throw new LoanCalculationError("На одну дату допустимо одно событие")
+  if (new Set(sorted.map((e) => e.date)).size !== sorted.length) throw new LoanCalculationError("loanCalculation.sameDate")
   const actual = new Map(payments.map((r) => [r.dueDate, r]))
   const out: LoanScheduleRow[] = []
   let eventIndex = 0
@@ -182,7 +183,7 @@ export function calculateLoanSchedule(
         const interest = rounded(n * carryD + carryN * d, d * carryD)
         const body = p.scheduleType === "annuity" ? payment - interest : principalPart
         if (rest <= Math.max(0, body)) return slot + 1
-        if (body <= 0) throw new LoanCalculationError("Платёж не покрывает проценты; увеличьте платёж или срок")
+        if (body <= 0) throw new LoanCalculationError("loanCalculation.increasePayment")
         rest -= body
         previousDate = nextDate
         carryN = 0n
@@ -227,10 +228,10 @@ export function calculateLoanSchedule(
     const posted = actual.get(date)
     if (posted) {
       if (!safeMoney(posted.principal) || !safeMoney(posted.interest) || posted.principal > balance)
-        throw new LoanCalculationError("Подтверждённый платёж превышает остаток долга")
+        throw new LoanCalculationError("loanCalculation.exceedsBalance")
       body = posted.principal
     } else if (i === maturity - 1) body = balance
-    else if (balance > 0 && body <= 0) throw new LoanCalculationError("Платёж не покрывает проценты; увеличьте платёж или срок")
+    else if (balance > 0 && body <= 0) throw new LoanCalculationError("loanCalculation.increasePayment")
     body = Math.max(0, Math.min(body, balance))
     balance -= body
     if (body + (posted?.interest ?? interest) > 0)
