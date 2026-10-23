@@ -86,7 +86,7 @@ async function publishReview(ctx: HouseholdCtx, id: string) {
   return getDb().transaction(async (db) =>
     withDb(db, async () => {
       await db.select().from(aiReviewSettings).where(eq(aiReviewSettings.householdId, ctx.householdId)).for("update")
-      await requireAi(ctx)
+      const { view } = await requireAi(ctx)
       const [review] = await db
         .select()
         .from(aiReviews)
@@ -103,10 +103,13 @@ async function publishReview(ctx: HouseholdCtx, id: string) {
           aiReviews,
           and(eq(aiReviews.householdId, aiRecommendations.householdId), eq(aiReviews.id, aiRecommendations.reviewId)),
         )
+        .innerJoin(aiConversations, and(eq(aiConversations.householdId, aiReviews.householdId), eq(aiConversations.id, aiReviews.conversationId)))
         .where(
           and(
             eq(aiRecommendations.householdId, ctx.householdId),
             eq(aiRecommendations.status, "pending"),
+            eq(aiConversations.dataLevel, view.dataLevel),
+            eq(aiConversations.consentFingerprint, fingerprint(view.provider)),
             eq(aiReviews.sourceFingerprint, review.sourceFingerprint),
             gt(aiRecommendations.expiresAt, new Date()),
           ),

@@ -316,6 +316,8 @@ describe("periodic AI budget review", () => {
     const aggregate = JSON.stringify(await toolRegistry.get("get_review_period")!.execute({}, context))
     expect(aggregate).not.toContain(marker)
     expect(aggregate).not.toContain("foreign-marker")
+    expect(await runBudgetReview(f.ctx)).toMatchObject({ status: "completed" })
+    expect((await listRecommendations(f.ctx)).filter((r) => r.status === "pending")).toHaveLength(2)
   })
 
   it("delivers exactly once per review/device in recipient language, after quiet hours and never after opt-out", async () => {
