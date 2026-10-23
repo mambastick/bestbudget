@@ -24,7 +24,7 @@ import { chatResponse } from "@/server/ai/chat"
 import { applyProposal, createProposal, listProposals } from "@/server/ai/proposals"
 import { prepareBudgetPlan, startBudgetInterview, type budgetPlanInput } from "@/server/ai/interview"
 import { interviewProgress } from "@/domain/ai/interview"
-import { toolRegistry } from "@/server/ai/tools"
+import { toolRegistry, buildTools } from "@/server/ai/tools"
 import { createGoal } from "@/server/services/goals"
 import { createAccount, updateCategory } from "@/server/services/catalog"
 import { createTransaction } from "@/server/services/transactions"
@@ -103,6 +103,22 @@ async function proposal(f: Awaited<ReturnType<typeof fixture>>, input = plan(f))
   }
 }
 describe("AI budget interview", () => {
+  it("selects interview/review tools from the stored conversation kind, regardless of caller hints", async () => {
+    const f = await fixture()
+    const context = { ctx: f.ctx, conversationId: f.conversation.id, messageId: randomUUID(), kind: "review" as const }
+    const interviewTools = await buildTools(context)
+    expect(interviewTools).toHaveProperty("interview_step")
+    expect(interviewTools).not.toHaveProperty("submit_budget_review")
+    const review = await createConversation(f.ctx, "review")
+    const reviewTools = await buildTools({ ...context, conversationId: review.id, kind: "onboarding" })
+    expect(reviewTools).toHaveProperty("submit_budget_review")
+    expect(reviewTools).not.toHaveProperty("interview_step")
+    const chat = await createConversation(f.ctx)
+    const chatTools = await buildTools({ ...context, conversationId: chat.id })
+    expect(chatTools).not.toHaveProperty("submit_budget_review")
+    expect(chatTools).not.toHaveProperty("interview_step")
+  })
+
   it("localizes legacy interview titles by start date, preserves renames and rejects stale or private edits", async () => {
     vi.setSystemTime(new Date("2026-10-22T23:30:00Z"))
     const f = await fixture()

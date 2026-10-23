@@ -30,7 +30,10 @@ export async function chatResponse(
   const started = Date.now()
   try {
     const tools = await buildTools({ ctx, conversationId: turn.conversationId, messageId: turn.messageId, kind: turn.kind })
-    const system = systemPrompt(ctx) + (turn.kind === "onboarding" ? "\n" + assetTranslator("ai", ctx.locale)("interview.system") : "") + (options.instructions ?? "")
+    const system =
+      systemPrompt(ctx) +
+      (turn.kind === "onboarding" ? "\n" + assetTranslator("ai", ctx.locale)("interview.system") : "") +
+      (options.instructions ?? "")
     const toolBytes = Buffer.byteLength(
       JSON.stringify(
         Object.fromEntries(

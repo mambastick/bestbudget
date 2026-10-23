@@ -10,6 +10,7 @@ export interface ToolContext {
   ctx: HouseholdCtx
   conversationId: string
   messageId: string
+  kind?: "chat" | "onboarding" | "review"
 }
 export interface AiTool {
   name: string
