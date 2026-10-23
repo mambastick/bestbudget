@@ -99,7 +99,7 @@ export function AiChat({
   }, [])
   useLayoutEffect(() => {
     if (pin.current && feed.current) feed.current.scrollTop = feed.current.scrollHeight
-  }, [messages, status, proposals])
+  }, [hydrated, messages, status, proposals])
   function scrollToLatest() {
     pin.current = true
     setPinned(true)
@@ -258,60 +258,67 @@ export function AiChat({
             <p className="text-xs text-muted-foreground">{t("interview.saved")}</p>
           </div>
         ) : null}
-        <div
-          ref={feed}
-          data-testid="ai-messages"
-          className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-4"
-          aria-live="polite"
-          onScroll={() => {
-            const el = feed.current
-            if (el) {
-              pin.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-              setPinned(pin.current)
-            }
-          }}
-        >
-          {!messages.length ? (
-            <>
-              <EmptyState icon={Sparkles} title={t("emptyTitle")} description={t("emptyHint")} />
-              {kind !== "onboarding" && can(role, "catalog.manage") ? <InterviewStart /> : null}
-              <div className="flex flex-wrap gap-2">
-                {(kind === "onboarding" ? [] : starters).map((key) => (
-                  <Button
-                    key={key}
-                    variant="outline"
-                    className="h-auto max-w-full whitespace-normal text-left"
-                    disabled={!hydrated}
-                    onClick={() => edit(t(`starters.${key}`))}
-                  >
-                    {t(`starters.${key}`)}
-                  </Button>
-                ))}
+        {/* Streaming SSR can replay hidden boundaries; mount the live scroll container only after hydration. */}
+        {hydrated ? (
+          <div
+            ref={feed}
+            data-testid="ai-messages"
+            className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-4"
+            aria-live="polite"
+            onScroll={() => {
+              const el = feed.current
+              if (el) {
+                pin.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+                setPinned(pin.current)
+              }
+            }}
+          >
+            {!messages.length ? (
+              <>
+                <EmptyState icon={Sparkles} title={t("emptyTitle")} description={t("emptyHint")} />
+                {kind !== "onboarding" && can(role, "catalog.manage") ? <InterviewStart /> : null}
+                <div className="flex flex-wrap gap-2">
+                  {(kind === "onboarding" ? [] : starters).map((key) => (
+                    <Button
+                      key={key}
+                      variant="outline"
+                      className="h-auto max-w-full whitespace-normal text-left"
+                      disabled={!hydrated}
+                      onClick={() => edit(t(`starters.${key}`))}
+                    >
+                      {t(`starters.${key}`)}
+                    </Button>
+                  ))}
+                </div>
+              </>
+            ) : null}
+            {messages.map((m) => (
+              <div key={m.id} className="min-w-0 space-y-3">
+                {m.parts
+                  .filter((p) => p.type === "text")
+                  .map((p, i) => (
+                    <div
+                      key={i}
+                      className={`min-w-0 space-y-2 break-words text-sm [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_code]:break-all [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 ${m.role === "user" ? "ml-auto max-w-[90%] rounded-xl bg-muted px-4 py-3" : "px-1 py-2"}`}
+                    >
+                      <Markdown skipHtml components={{ img: () => null, a: ({ children }) => <span>{children}</span> }}>
+                        {p.type === "text" ? p.text : ""}
+                      </Markdown>
+                    </div>
+                  ))}
+                {proposals
+                  .filter((p) => p.messageId === m.id)
+                  .map((p) => (
+                    <ProposalCard key={p.id} interview={kind === "onboarding"} proposal={p} role={role} names={names} onEdit={edit} />
+                  ))}
               </div>
-            </>
-          ) : null}
-          {messages.map((m) => (
-            <div key={m.id} className="min-w-0 space-y-3">
-              {m.parts
-                .filter((p) => p.type === "text")
-                .map((p, i) => (
-                  <div
-                    key={i}
-                    className={`min-w-0 space-y-2 break-words text-sm [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_code]:break-all [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 ${m.role === "user" ? "ml-auto max-w-[90%] rounded-xl bg-muted px-4 py-3" : "px-1 py-2"}`}
-                  >
-                    <Markdown skipHtml components={{ img: () => null, a: ({ children }) => <span>{children}</span> }}>
-                      {p.type === "text" ? p.text : ""}
-                    </Markdown>
-                  </div>
-                ))}
-              {proposals
-                .filter((p) => p.messageId === m.id)
-                .map((p) => (
-                  <ProposalCard key={p.id} interview={kind === "onboarding"} proposal={p} role={role} names={names} onEdit={edit} />
-                ))}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div role="status" className="min-h-0 flex-1 p-4 text-sm text-muted-foreground">
+            {t("loadingMessages")}
+          </div>
+        )}
         {restricted ? (
           <p role="alert" className="border-t p-3 text-sm text-muted-foreground">
             {t("noPermission")}

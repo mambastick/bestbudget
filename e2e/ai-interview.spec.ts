@@ -1,3 +1,4 @@
+import { watchAiFeed, expectSingleAiFeed, expectAiFeedHydration } from "./ai-feed"
 import { randomBytes, createHash } from "node:crypto"
 import { mkdir } from "node:fs/promises"
 import postgres from "postgres"
@@ -5,11 +6,13 @@ import { expect, test } from "./fixtures"
 import { E2E_ENV, SETUP_TOKEN } from "../playwright.config"
 
 for (const locale of ["ru", "en"] as const) {
-  test(`AI budget interview: empty family → questions → atomic plan (${locale})`, async ({ browser }) => {
+  test(`AI budget interview: empty family → questions → atomic plan (${locale})`, async ({ browser }, testInfo) => {
     test.setTimeout(180000)
     const context = await browser.newContext({ serviceWorkers: "block", locale: "ru-RU", viewport: { width: 1280, height: 950 } })
     const page = await context.newPage(),
       db = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+    await watchAiFeed(page)
+    const familyName = `Interview synthetic ${locale} ${testInfo.repeatEachIndex}`
     const screenshots = "docs/screenshots/ai/interview"
     const consoleErrors: string[] = []
     page.on("console", (message) => {
@@ -32,7 +35,7 @@ for (const locale of ["ru", "en"] as const) {
       await context.clearCookies()
       const [existing] = await db`select id from households order by created_at limit 1`
       const token = randomBytes(24).toString("hex"),
-        email = `interview-${locale}@e2e.test`
+        email = `interview-${locale}-${testInfo.repeatEachIndex}@e2e.test`
       await db`insert into invitations(household_id, token_hash, role, expires_at) values (${existing!.id}, ${createHash("sha256").update(token).digest("hex")}, 'member', now() + interval '1 day')`
       await page.goto(`/invite/${token}`)
       await page.getByLabel("Имя", { exact: true }).fill("Interview Demo")
@@ -42,12 +45,12 @@ for (const locale of ["ru", "en"] as const) {
       await page.getByRole("button", { name: "Создать аккаунт и присоединиться", exact: true }).click()
       await expect(page).toHaveURL(/dashboard/)
       await page.goto("/onboarding?new=1")
-      await page.getByLabel("Название", { exact: true }).fill(`Interview synthetic ${locale}`)
+      await page.getByLabel("Название", { exact: true }).fill(familyName)
       await page.getByRole("button", { name: "Создать", exact: true }).click()
       await expect(page).toHaveURL(/dashboard/)
       await db`delete from household_members where user_id = (select id from users where email = ${email}) and role = 'member'`
       await db`update users set role = 'admin' where email = ${email}`
-      const [family] = await db`select id from households where name = ${`Interview synthetic ${locale}`}`
+      const [family] = await db`select id from households where name = ${familyName}`
       await expect(page.getByTestId("ai-interview-entry")).toHaveCount(0)
       await page.goto("/admin?tab=ai")
       await page.getByLabel("Провайдер", { exact: true }).selectOption("mock")
@@ -115,6 +118,7 @@ for (const locale of ["ru", "en"] as const) {
           await page.setViewportSize({ width, height: width === 375 ? 812 : 950 })
           await page.emulateMedia({ colorScheme: theme })
           await page.reload()
+          await expectSingleAiFeed(page)
           await expect(progress).toContainText(locale === "ru" ? "Шаг 3 из 5" : "Step 3 of 5")
           await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
           await expect(chips.getByRole("button").first()).toBeEnabled()
@@ -130,6 +134,8 @@ for (const locale of ["ru", "en"] as const) {
       await chips.getByRole("button").first().click()
       const proposal = page.getByTestId("ai-proposal")
       await expect(proposal).toBeVisible()
+      await expectAiFeedHydration(context, page.url())
+      await expectSingleAiFeed(page)
       await expect(page.getByTestId("ai-status")).toHaveCount(0)
       await expect(proposal.locator("dl")).toHaveCount(0)
       await expect(proposal).toContainText(locale === "ru" ? "Новая категория и лимит" : "New category and limit")

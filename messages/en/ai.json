@@ -329,5 +329,6 @@
     "period": "From {from}{end, select, yes { until {to}} other {}}",
     "unknown": "New item · {name}",
     "import_currency": "Only transactions in {currency}"
-  }
+  },
+  "loadingMessages": "Loading conversation…"
 }

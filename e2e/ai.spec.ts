@@ -1,10 +1,11 @@
 import { screenshot } from "./matrix"
+import { watchAiFeed, expectSingleAiFeed, expectAiFeedHydration } from "./ai-feed"
 import { randomBytes, createHash } from "node:crypto"
 import { expect, test } from "./fixtures"
 import { SETUP_TOKEN, E2E_ENV } from "../playwright.config"
 import postgres from "postgres"
 
-test("AI consent, streaming proposal, selective apply and ru/en mobile layouts", async ({ browser }) => {
+test("AI consent, streaming proposal, selective apply and ru/en mobile layouts", async ({ browser }, testInfo) => {
   test.setTimeout(180000)
   const context = await browser.newContext({
     serviceWorkers: "block",
@@ -12,9 +13,11 @@ test("AI consent, streaming proposal, selective apply and ru/en mobile layouts",
     viewport: { width: 1280, height: 950 },
     colorScheme: "light",
   })
+  const email = `ai-demo-${testInfo.repeatEachIndex}@e2e.test`
   const page = await context.newPage()
   // Next.js may retain previous routes in hidden Activity trees.
   const chat = page.getByTestId("ai-chat").filter({ visible: true })
+  await watchAiFeed(page)
   page.setDefaultTimeout(15000)
   const db = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
   const screenshots = "docs/screenshots/ai"
@@ -39,7 +42,7 @@ test("AI consent, streaming proposal, selective apply and ru/en mobile layouts",
     await db`insert into invitations(household_id, token_hash, role, expires_at) values (${household.id}, ${createHash("sha256").update(token).digest("hex")}, 'member', now() + interval '1 day')`
     await page.goto(`/invite/${token}`)
     await page.getByLabel("Имя", { exact: true }).fill("AI Demo")
-    await page.getByLabel("E-mail").fill("ai-demo@e2e.test")
+    await page.getByLabel("E-mail").fill(email)
     await page.getByLabel("Пароль", { exact: true }).fill("ai-password-123")
     await page.getByLabel("Повторите пароль").fill("ai-password-123")
     await page.getByRole("button", { name: "Создать аккаунт и присоединиться", exact: true }).click()
@@ -48,8 +51,8 @@ test("AI consent, streaming proposal, selective apply and ru/en mobile layouts",
     await page.getByLabel("Название", { exact: true }).fill("AI synthetic family")
     await page.getByRole("button", { name: "Создать", exact: true }).click()
     await expect(page).toHaveURL(/dashboard/)
-    await db`delete from household_members where user_id = (select id from users where email = 'ai-demo@e2e.test') and role = 'member'`
-    await db`update users set role = 'admin' where email = 'ai-demo@e2e.test'`
+    await db`delete from household_members where user_id = (select id from users where email = ${email}) and role = 'member'`
+    await db`update users set role = 'admin' where email = ${email}`
     const disabled = await context.request.post("/api/ai/chat", {
       headers: { Origin: E2E_ENV.APP_URL },
       data: { id: crypto.randomUUID(), message: { id: crypto.randomUUID(), role: "user", parts: [{ type: "text", text: "test" }] } },
@@ -124,10 +127,11 @@ test("AI consent, streaming proposal, selective apply and ru/en mobile layouts",
     await proposal.getByRole("button", { name: "Применить выбранное", exact: true }).click()
     await expect(proposal.getByText("Применено частично", { exact: true })).toBeVisible()
     const [count] =
-      await db`select count(*)::int n from category_budgets b join household_members m on m.household_id = b.household_id join users u on u.id = m.user_id where u.email = 'ai-demo@e2e.test' and m.role = 'owner'`
+      await db`select count(*)::int n from category_budgets b join household_members m on m.household_id = b.household_id join users u on u.id = m.user_id where u.email = ${email} and m.role = 'owner'`
     expect(count?.n).toBe(2)
     const chatUrl = page.url()
-    await db`update users set locale = 'en' where email = 'ai-demo@e2e.test'`
+    await expectAiFeedHydration(context, chatUrl)
+    await db`update users set locale = 'en' where email = ${email}`
     await page.goto(chatUrl)
     await expect(page.getByRole("button", { name: "Apply selected", exact: true })).toBeVisible()
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -141,13 +145,15 @@ test("AI consent, streaming proposal, selective apply and ru/en mobile layouts",
     await expect(chat.getByTestId("ai-proposal")).toBeVisible()
     await expect(proposal.getByRole("checkbox")).toHaveCount(1)
     await expect(proposal).not.toContainText("→")
-    await chat.getByTestId("ai-messages").evaluate((el) => {
+    await expectSingleAiFeed(page)
+    await page.getByTestId("ai-messages").evaluate((el) => {
       el.scrollTop = 0
     })
     await screenshot(page, `${screenshots}/chat-mobile-en.png`)
     await page.emulateMedia({ colorScheme: "dark" })
     await page.reload()
-    await chat.getByTestId("ai-messages").evaluate((el) => {
+    await expectSingleAiFeed(page)
+    await page.getByTestId("ai-messages").evaluate((el) => {
       el.scrollTop = 0
     })
     await screenshot(page, `${screenshots}/chat-mobile-en-dark.png`)
@@ -163,7 +169,7 @@ test("AI consent, streaming proposal, selective apply and ru/en mobile layouts",
     await expect(page.getByRole("link", { name: "Помоги настроить бюджеты", exact: true })).toHaveCount(0)
 
     for (const locale of ["ru", "en"]) {
-      await db`update users set locale = ${locale} where email = 'ai-demo@e2e.test'`
+      await db`update users set locale = ${locale} where email = ${email}`
       for (const width of [1280, 375]) {
         const mobile = width === 375
         await page.setViewportSize({ width, height: mobile ? 812 : 950 })

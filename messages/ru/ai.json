@@ -329,5 +329,6 @@
     "period": "С {from}{end, select, yes { до {to}} other {}}",
     "unknown": "Новая запись · {name}",
     "import_currency": "Только операции в {currency}"
-  }
+  },
+  "loadingMessages": "Загружаем диалог…"
 }
