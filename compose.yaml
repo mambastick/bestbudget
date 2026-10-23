@@ -17,7 +17,7 @@ services:
       retries: 10
 
   app:
-    image: ghcr.io/mambastick/bestbudget:${BESTBUDGET_VERSION:-1.0.0-beta.2}
+    image: ghcr.io/mambastick/bestbudget:${BESTBUDGET_VERSION:-1.0.0-beta.3}
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
     pull_policy: missing
     restart: unless-stopped
@@ -40,7 +40,7 @@ services:
     stop_grace_period: 20s
 
   backup:
-    image: ghcr.io/mambastick/bestbudget:${BESTBUDGET_VERSION:-1.0.0-beta.2}
+    image: ghcr.io/mambastick/bestbudget:${BESTBUDGET_VERSION:-1.0.0-beta.3}
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
     restart: unless-stopped
     depends_on:
