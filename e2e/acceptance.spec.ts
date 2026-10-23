@@ -363,7 +363,7 @@ test.describe.serial("single sign-on (OIDC)", () => {
   test("group promotion and demotion take effect on all sessions without changing family roles", async ({ browser }) => {
     const sql = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
     const existing = await browser.newContext({ locale: "ru-RU" })
-    // Keep another admin while demoting the owner: otherwise anonymous login goes to first-run setup.
+    // Keep another active admin so the owner's deliberate demotion can proceed.
     const [recovery] = await sql`insert into users (name, email, role) values ('Recovery admin', 'recovery-oidc@e2e.test', 'admin') returning id`
     try {
       const memberships = await sql`select * from household_members order by household_id, user_id`
@@ -400,6 +400,51 @@ test.describe.serial("single sign-on (OIDC)", () => {
       await sql`delete from users where id = ${recovery!.id}`
       await sql.end()
       await existing.close()
+    }
+  })
+
+  test("the last active administrator keeps access and sees a persistent ru/en group warning", async ({ browser }, testInfo) => {
+    const sql = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+    const others = await sql`select id from users where role = 'admin' and banned = false and email <> ${ADMIN.email}`
+    const otherIds = others.map((user) => user.id as string)
+    if (otherIds.length) await sql`update users set banned = true where id in ${sql(otherIds)}`
+    try {
+      for (const locale of ["ru", "en"] as const) {
+        identity = { sub: "owner-sub", email: ADMIN.email, email_verified: true, name: ADMIN.name, groups: [E2E_ENV.OIDC_USER_GROUP] }
+        const context = await browser.newContext({ locale: locale === "ru" ? "ru-RU" : "en-US", viewport: { width: 375, height: 900 }, colorScheme: "dark" })
+        try {
+          const page = await context.newPage()
+          await page.goto("/login")
+          await page.getByRole("button", { name: locale === "ru" ? "Войти через Keycloak" : "Sign in with Keycloak" }).click()
+          await expect(page).toHaveURL(/\/dashboard/)
+          const response = await context.request.get(`${E2E_ENV.APP_URL}/api/auth/get-session`)
+          expect((await response.json()).user.role).toBe("admin")
+          await page.goto("/admin?tab=auth")
+          const warning = page.getByRole("alert").filter({ hasText: locale === "ru" ? "Синхронизация групп" : "Group synchronization" })
+          await expect(warning).toHaveText(locale === "ru"
+            ? `Синхронизация групп хотела снять права у последнего активного администратора. Права сохранены — добавьте администратора в группу «${E2E_ENV.OIDC_ADMIN_GROUP}».`
+            : `Group synchronization tried to remove the last active administrator’s access. Access was preserved — add an administrator to the “${E2E_ENV.OIDC_ADMIN_GROUP}” group.`)
+          await page.reload()
+          await expect(warning).toBeVisible()
+          await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375)
+          await page.screenshot({ path: testInfo.outputPath(`oidc-lockout-${locale}-375.png`), fullPage: true })
+          await page.goto("/admin?tab=events")
+          await expect(page.getByText(locale === "ru" ? "Понижение последнего администратора через SSO заблокировано" : "SSO demotion of the last administrator blocked", { exact: true }).first()).toBeVisible()
+        } finally { await context.close() }
+      }
+      identity = { sub: "owner-sub", email: ADMIN.email, email_verified: true, name: ADMIN.name, groups: [E2E_ENV.OIDC_ADMIN_GROUP] }
+      const context = await browser.newContext({ locale: "en-US" })
+      try {
+        const page = await context.newPage()
+        await page.goto("/login")
+        await page.getByRole("button", { name: "Sign in with Keycloak" }).click()
+        await expect(page).toHaveURL(/\/dashboard/)
+        await page.goto("/admin")
+        await expect(page.getByRole("alert").filter({ hasText: "Group synchronization" })).toHaveCount(0)
+      } finally { await context.close() }
+    } finally {
+      if (otherIds.length) await sql`update users set banned = false where id in ${sql(otherIds)}`
+      await sql.end()
     }
   })
 

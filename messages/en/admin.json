@@ -136,5 +136,8 @@
     "budget": "budget",
     "digest": "daily summary",
     "test": "test"
-  }
+  },
+  "oidcDemotionBlocked": "Group synchronization tried to remove the last active administrator’s access. Access was preserved — add an administrator to the “{group}” group.",
+  "oidcDemotionBlockedEvent": "SSO demotion of the last administrator blocked",
+  "oidcDemotionResolvedEvent": "SSO administrator role mismatch resolved"
 }

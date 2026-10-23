@@ -14,6 +14,7 @@ import { authAccounts, rateLimits, sessions, users, verifications } from "@/db/s
 import { audit } from "@/server/audit"
 import { findValidInvitation } from "@/server/services/households"
 import { getAuthMethods, OIDC_PROVIDER_ID, type AuthMethods } from "@/server/services/settings"
+import { synchronizeOidcRole } from "@/server/services/oidc-roles"
 import { sendPasswordResetMail, smtpEnabled } from "./mail"
 import { appUrl, env } from "./env"
 import { roleFromOidcGroups, type OidcRole } from "./oidc-roles"
@@ -62,6 +63,8 @@ function build(methods: AuthMethods) {
     trustedOrigins: [appUrl()],
     database: drizzleAdapter(getDb(), {
       provider: "pg",
+      // Role synchronization owns its transaction before the session is issued.
+      transaction: false,
       schema: { user: users, session: sessions, account: authAccounts, verification: verifications, rateLimit: rateLimits },
     }),
     advanced: {
@@ -133,7 +136,8 @@ function build(methods: AuthMethods) {
             if (!allowed) return false
             const locale = readCookie(ctx?.headers?.get("cookie"), LOCALE_COOKIE)
             const mapped = ctx && oidcRoles.get(ctx)
-            return { data: { ...user, ...(mapped ? { role: mapped.role } : {}), locale: isLocale(locale) ? locale : null, lastSeenLocale: browserLocale(ctx?.headers?.get("accept-language")) } }
+            // New users already default to user. Only promote here; every later role write uses the atomic guard.
+            return { data: { ...user, ...(mapped?.role === "admin" ? { role: mapped.role } : {}), locale: isLocale(locale) ? locale : null, lastSeenLocale: browserLocale(ctx?.headers?.get("accept-language")) } }
           },
           after: async (user) => {
             // Not awaited: Better Auth may still hold the new row in an open transaction.
@@ -145,11 +149,9 @@ function build(methods: AuthMethods) {
         create: {
           before: async (session, ctx) => {
             const mapped = ctx && oidcRoles.get(ctx)
-            if (!mapped) return
+            if (!mapped || !roleMapping) return
             if (mapped.userId && mapped.userId !== session.userId) return false
-            // Persist before session issuance, through the auth adapter so transaction
-            // boundaries are preserved. Promotion and demotion use the same path.
-            const user = await ctx.context.internalAdapter.updateUser(session.userId, { role: mapped.role })
+            const user = await synchronizeOidcRole(session.userId, mapped.role, roleMapping.adminGroup)
             if (!user) return false
           },
           after: async (session, ctx) => {

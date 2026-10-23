@@ -1,28 +1,40 @@
 import { randomUUID } from "node:crypto"
-import { eq } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import { OAuth2Server } from "oauth2-mock-server"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { closeDb, getDb } from "@/db"
-import { authAccounts, householdMembers, users } from "@/db/schema"
+import { auditLogs, authAccounts, householdMembers, users } from "@/db/schema"
 import { allowSignup, getAuth, invalidateAuth } from "@/lib/auth"
 import { createHousehold } from "@/server/services/households"
 import { updateOidcSettings } from "@/server/services/settings"
 import { createUser } from "./helpers"
 import { errorMessage } from "@/i18n/errors"
 import { setUserLocale } from "@/server/services/preferences"
+import { hasOidcRoleDemotionWarning } from "@/server/services/oidc-roles"
 
 const mapping = { claim: "groups", userGroup: "app-budget-users", adminGroup: "app-budget-admins" }
 const idp = new OAuth2Server()
-let identity: Record<string, unknown> = {}
+const identities = new Map<string, Record<string, unknown>>()
+const codes = new Map<string, Record<string, unknown>>()
 let authFactory = getAuth
 
 beforeAll(async () => {
+  // PGlite has one backend; real PostgreSQL exercises concurrent connections in CI.
+  process.env.DB_POOL_MAX = process.env.TEST_POSTGRES_URL ? "4" : "1"
   process.env.OIDC_GROUPS_CLAIM = mapping.claim
   process.env.OIDC_USER_GROUP = mapping.userGroup
   process.env.OIDC_ADMIN_GROUP = mapping.adminGroup
   await idp.issuer.keys.generate("RS256")
   await idp.start(0, "127.0.0.1")
-  idp.service.on("beforeTokenSigning", (token) => Object.assign(token.payload, identity))
+  idp.service.on("beforeAuthorizeRedirect", ({ url }, request) => {
+    const identity = identities.get(String(request.query.login_hint))
+    const code = url.searchParams.get("code")
+    if (identity && code) codes.set(code, identity)
+  })
+  idp.service.on("beforeTokenSigning", (token, request) => {
+    const code = String(request.body.code)
+    Object.assign(token.payload, codes.get(code))
+  })
   const admin = await createUser("Setup")
   await updateOidcSettings(admin.id, {
     enabled: true, displayName: "Test SSO", issuerUrl: idp.issuer.url!, clientId: "bestbudget",
@@ -44,8 +56,15 @@ function cookieHeader(response: Response) {
   return response.headers.getSetCookie().map((cookie) => cookie.split(";")[0]).join("; ")
 }
 
+function authorizationUrl(url: string, profile: Record<string, unknown>) {
+  const key = randomUUID()
+  identities.set(key, profile)
+  const authorization = new URL(url)
+  authorization.searchParams.set("login_hint", key)
+  return authorization
+}
+
 async function signIn(profile: Record<string, unknown>, headers: Record<string, string> = {}) {
-  identity = profile
   const auth = await authFactory()
   const started = await auth.handler(new Request("http://localhost:3000/api/auth/sign-in/social", {
     method: "POST",
@@ -54,7 +73,7 @@ async function signIn(profile: Record<string, unknown>, headers: Record<string, 
   }))
   expect(started.status).toBe(200)
   const { url } = await started.json() as { url: string }
-  const authorization = await fetch(url, { redirect: "manual" })
+  const authorization = await fetch(authorizationUrl(url, profile), { redirect: "manual" })
   expect(authorization.status).toBe(302)
   const callback = await auth.handler(new Request(authorization.headers.get("location")!, {
     headers: { ...headers, cookie: [headers.cookie, cookieHeader(started)].filter(Boolean).join("; ") },
@@ -166,7 +185,7 @@ describe("verified OIDC group mapping through real callbacks", () => {
       body: JSON.stringify({ name: "Local", email, password: "local-password-12345" }),
     })))
     expect(registered.status).toBe(200)
-    identity = { ...profile([mapping.adminGroup]), email }
+    const identity = { ...profile([mapping.adminGroup]), email }
     const started = await auth.handler(new Request("http://localhost:3000/api/auth/link-social", {
       method: "POST",
       headers: { "content-type": "application/json", origin: "http://localhost:3000", cookie: cookieHeader(registered) },
@@ -174,7 +193,7 @@ describe("verified OIDC group mapping through real callbacks", () => {
     }))
     expect(started.status).toBe(200)
     const { url } = await started.json() as { url: string }
-    const authorization = await fetch(url, { redirect: "manual" })
+    const authorization = await fetch(authorizationUrl(url, identity), { redirect: "manual" })
     const callback = await auth.handler(new Request(authorization.headers.get("location")!, {
       headers: { cookie: `${cookieHeader(registered)}; ${cookieHeader(started)}` },
     }))
@@ -183,6 +202,57 @@ describe("verified OIDC group mapping through real callbacks", () => {
     expect(user!.role).toBe("user")
     expect(await getDb().select().from(authAccounts).where(eq(authAccounts.userId, user!.id))).toHaveLength(2)
     expect((await signIn(identity)).session?.user.role).toBe("admin")
+  })
+
+  it("keeps the last active administrator, audits the refusal, and clears the warning after recovery", async () => {
+    const incoming = profile([mapping.adminGroup])
+    const first = await signIn(incoming)
+    const id = first.session!.user.id
+    const others = await getDb().select({ id: users.id }).from(users).where(and(eq(users.role, "admin"), eq(users.banned, false)))
+    const otherIds = others.filter((user) => user.id !== id).map((user) => user.id)
+    if (otherIds.length) await getDb().update(users).set({ banned: true }).where(inArray(users.id, otherIds))
+    try {
+      const deniedDemotion = await signIn({ ...incoming, groups: [mapping.userGroup] })
+      expect(deniedDemotion.session?.user).toMatchObject({ id, role: "admin" })
+      const events = await getDb().select().from(auditLogs).where(and(eq(auditLogs.action, "oidc.role_demotion_blocked"), eq(auditLogs.entityId, id)))
+      expect(events).toHaveLength(1)
+      expect(events[0]).toMatchObject({ actorId: id, entityType: "user", householdId: null, meta: { adminGroup: mapping.adminGroup } })
+      expect(await hasOidcRoleDemotionWarning()).toBe(true)
+      const normal = await signIn(profile([mapping.userGroup]))
+      expect(normal.session?.user.role).toBe("user")
+      expect((await getDb().select().from(users).where(eq(users.id, id)))[0]?.role).toBe("admin")
+      expect((await signIn(incoming)).session?.user.role).toBe("admin")
+      expect(await hasOidcRoleDemotionWarning()).toBe(false)
+      expect(await getDb().select().from(auditLogs).where(and(eq(auditLogs.action, "oidc.role_demotion_resolved"), eq(auditLogs.entityId, id)))).toMatchObject([
+        { meta: { blockedEventId: events[0]!.id } },
+      ])
+    } finally {
+      if (otherIds.length) await getDb().update(users).set({ banned: false }).where(inArray(users.id, otherIds))
+    }
+  })
+
+  it("keeps one active administrator when two independent OIDC callbacks demote concurrently", async () => {
+    const incoming = [profile([mapping.adminGroup]), profile([mapping.adminGroup])]
+    const first = await signIn(incoming[0]!)
+    const second = await signIn(incoming[1]!)
+    const ids = [first.session!.user.id, second.session!.user.id]
+    const others = await getDb().select({ id: users.id }).from(users).where(and(eq(users.role, "admin"), eq(users.banned, false)))
+    const otherIds = others.filter((user) => !ids.includes(user.id)).map((user) => user.id)
+    if (otherIds.length) await getDb().update(users).set({ banned: true }).where(inArray(users.id, otherIds))
+    try {
+      const results = await Promise.all(incoming.map((user) => signIn({ ...user, groups: [mapping.userGroup] })))
+      expect(results.map((result) => result.session?.user.id).sort()).toEqual([...ids].sort())
+      expect(results.map((result) => result.session?.user.role).sort()).toEqual(["admin", "user"])
+      const active = await getDb().select({ id: users.id }).from(users).where(and(eq(users.role, "admin"), eq(users.banned, false)))
+      expect(active).toHaveLength(1)
+      expect(ids).toContain(active[0]!.id)
+      expect(await getDb().select().from(auditLogs).where(and(eq(auditLogs.action, "oidc.role_demotion_blocked"), inArray(auditLogs.entityId, ids)))).toHaveLength(1)
+      // Restore the admin group through the same callback path; it resolves the persisted warning.
+      await signIn(incoming[ids.indexOf(active[0]!.id)]!)
+      expect(await hasOidcRoleDemotionWarning()).toBe(false)
+    } finally {
+      if (otherIds.length) await getDb().update(users).set({ banned: false }).where(inArray(users.id, otherIds))
+    }
   })
 
   it("leaves manual system roles unchanged when mapping is absent", async () => {

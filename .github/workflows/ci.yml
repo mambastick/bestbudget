@@ -11,6 +11,19 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: bestbudget_test_oidc
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: oidc-test-password
+        ports: ["54341:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v5
         with:
@@ -31,6 +44,10 @@ jobs:
           for instant in 2026-10-23T09:00:00Z 2026-11-01T09:00:00Z 2026-12-31T20:30:00Z; do
             TEST_NOW="$instant" pnpm test
           done
+      - name: Test OIDC lock-out protection on PostgreSQL 17 with concurrent connections
+        env:
+          TEST_POSTGRES_URL: postgres://postgres:oidc-test-password@127.0.0.1:54341/bestbudget_test_oidc
+        run: pnpm exec vitest run tests/integration/oidc-roles.test.ts
       - run: pnpm build
 
   e2e:
