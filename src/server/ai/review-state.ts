@@ -33,7 +33,25 @@ export async function reviewSourceFingerprint(ctx: HouseholdCtx) {
 /** Numeric magnitudes, wording, locale and proposal grouping cannot evade a rejection. */
 export function reviewItemFingerprint(item: ProposalItem) {
   const input = item.input as Record<string, unknown>
-  const target = input.id ?? input.categoryId ?? input.accountId ?? item.label.trim().toLowerCase()
+  const target =
+    input.id ??
+    (item.type === "budget.set"
+      ? input.categoryId
+      : item.operation === "create"
+        ? {
+            name: String(input.name ?? input.title ?? item.label)
+              .trim()
+              .toLowerCase(),
+            accountId: input.accountId,
+            toAccountId: input.toAccountId,
+            categoryId: input.categoryId,
+          kind: input.kind,
+          currency: input.currency,
+          descriptionMode: input.descriptionMode,
+            descriptionPattern: input.descriptionPattern,
+            mcc: input.mcc,
+          }
+        : (input.categoryId ?? input.accountId ?? item.label.trim().toLowerCase()))
   const directions = Object.keys(item.after)
     .filter((field) => field !== "version")
     .sort()
