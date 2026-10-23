@@ -98,17 +98,15 @@ test("administration: saved locale and browser language remain independent", asy
       const englishPage = await englishContext.newPage()
       await englishPage.goto("/admin?tab=notifications")
       await expect(englishPage.locator("html")).toHaveAttribute("lang", "en")
-      await expect.poll(async () => {
-        const [saved] = await sql`select locale, last_seen_locale from users where id=${userId}`
-        return saved
-      }).toMatchObject({ locale: "en", last_seen_locale: "en" })
+      await englishPage.waitForLoadState("networkidle")
+      const [saved] = await sql`select locale, last_seen_locale from users where id=${userId}`
+      expect(saved).toMatchObject({ locale: "en", last_seen_locale: "en" })
     } finally { await englishContext.close() }
     await page.reload()
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width)
     await expect(page.locator("html")).toHaveAttribute("lang", "en")
-    await expect.poll(async () => {
-      const [saved] = await sql`select locale, last_seen_locale from users where id=${userId}`
-      return saved
-    }).toMatchObject({ locale: "en", last_seen_locale: "ru" })
+    await page.waitForLoadState("networkidle")
+    const [saved] = await sql`select locale, last_seen_locale from users where id=${userId}`
+    expect(saved).toMatchObject({ locale: "en", last_seen_locale: "ru" })
   })
 })

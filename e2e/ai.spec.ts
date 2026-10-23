@@ -3,7 +3,7 @@ import { watchAiFeed, expectSingleAiFeed, expectAiFeedHydration } from "./ai-fee
 import { randomBytes, createHash } from "node:crypto"
 import { expect, test } from "./fixtures"
 import { SETUP_TOKEN, E2E_ENV } from "../playwright.config"
-import postgres from "postgres"
+import { createE2eDb } from "./db"
 
 for (const locale of ["ru", "en"] as const)
   for (const width of [1280, 375]) {
@@ -21,7 +21,7 @@ for (const locale of ["ru", "en"] as const)
       const chat = page.getByTestId("ai-chat").filter({ visible: true })
       await watchAiFeed(page)
       page.setDefaultTimeout(15000)
-      const db = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+      const db = createE2eDb()
       const screenshots = "docs/screenshots/ai"
       try {
         await page.goto("/")

@@ -22,12 +22,18 @@ export const test = base.extend<{ hydrationGuard: void }>({
     }
     observeContext(context)
     const newContext = browser.newContext
-    browser.newContext = async (options) => observeContext(await newContext.call(browser, { timezoneId: BROWSER_TIMEZONE, ...options }))
+    const createdContexts = new Set<BrowserContext>()
+    browser.newContext = async (options) => {
+      const value = await newContext.call(browser, { timezoneId: BROWSER_TIMEZONE, ...options })
+      createdContexts.add(value)
+      return observeContext(value)
+    }
     try {
       await run()
       expect(errors, "All browser contexts must remain free of hydration and runtime errors").toEqual([])
     } finally {
       browser.newContext = newContext
+      await Promise.all([...createdContexts].map((value) => value.close()))
     }
   }, { auto: true }],
 })

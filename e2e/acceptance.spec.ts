@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./fixtures"
 import { OAuth2Server } from "oauth2-mock-server"
-import postgres from "postgres"
+import { createE2eDb } from "./db"
 import { E2E_ENV, SETUP_TOKEN } from "../playwright.config"
 
 /**
@@ -361,7 +361,7 @@ test.describe.serial("single sign-on (OIDC)", () => {
   })
 
   test("group promotion and demotion take effect on all sessions without changing family roles", async ({ browser }) => {
-    const sql = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+    const sql = createE2eDb()
     const existing = await browser.newContext({ locale: "ru-RU" })
     // Keep another active admin so the owner's deliberate demotion can proceed.
     const [recovery] = await sql`insert into users (name, email, role) values ('Recovery admin', 'recovery-oidc@e2e.test', 'admin') returning id`
@@ -404,10 +404,10 @@ test.describe.serial("single sign-on (OIDC)", () => {
   })
 
   test("the last active administrator keeps access and sees a persistent ru/en group warning", async ({ browser }, testInfo) => {
-    const sql = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+    const sql = createE2eDb()
     const others = await sql`select id from users where role = 'admin' and banned = false and email <> ${ADMIN.email}`
     const otherIds = others.map((user) => user.id as string)
-    if (otherIds.length) await sql`update users set banned = true where id in ${sql(otherIds)}`
+    if (otherIds.length) await sql`update users set banned = true where id = any(${otherIds}::text[])`
     try {
       for (const locale of ["ru", "en"] as const) {
         identity = { sub: "owner-sub", email: ADMIN.email, email_verified: true, name: ADMIN.name, groups: [E2E_ENV.OIDC_USER_GROUP] }
@@ -443,7 +443,7 @@ test.describe.serial("single sign-on (OIDC)", () => {
         await expect(page.getByRole("alert").filter({ hasText: "Group synchronization" })).toHaveCount(0)
       } finally { await context.close() }
     } finally {
-      if (otherIds.length) await sql`update users set banned = false where id in ${sql(otherIds)}`
+      if (otherIds.length) await sql`update users set banned = false where id = any(${otherIds}::text[])`
       await sql.end()
     }
   })
@@ -451,7 +451,7 @@ test.describe.serial("single sign-on (OIDC)", () => {
   for (const locale of ["ru", "en"] as const) {
     test(`group denial is localized in ${locale} at 375px and the SSO button waits for hydration`, async ({ browser }, testInfo) => {
       const context = await browser.newContext({ locale: locale === "ru" ? "ru-RU" : "en-US", viewport: { width: 375, height: 812 }, colorScheme: "dark" })
-      const sql = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+      const sql = createE2eDb()
       try {
         const page = await context.newPage()
         const button = locale === "ru" ? "Войти через Keycloak" : "Sign in with Keycloak"

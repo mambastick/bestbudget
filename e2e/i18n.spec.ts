@@ -1,8 +1,8 @@
 import { screenshot } from "./matrix"
 import { randomBytes, createHash } from "node:crypto"
-import postgres from "postgres"
+import { createE2eDb } from "./db"
 import { expect, test, type Page } from "./fixtures"
-import { E2E_ENV, SETUP_TOKEN } from "../playwright.config"
+import { SETUP_TOKEN } from "../playwright.config"
 
 const screenshotDir = "docs/screenshots/i18n"
 const user = { name: "Alex Demo", email: "locale@e2e.test", password: "locale-password-1" }
@@ -59,7 +59,7 @@ test("system language, saved preference and device theme work on desktop and mob
     await context.clearCookies()
 
     // Invite directly through the isolated e2e database; acceptance can also run this test alone.
-    const db = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+    const db = createE2eDb()
     const token = randomBytes(24).toString("hex")
     try {
       const [household] = await db`select id from households order by created_at limit 1`

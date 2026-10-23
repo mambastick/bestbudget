@@ -3,11 +3,12 @@ import { randomUUID } from "node:crypto"
 import { mkdir } from "node:fs/promises"
 import { dirname } from "node:path"
 import type { Browser, BrowserContext, Page } from "@playwright/test"
-import postgres from "postgres"
+import { withDb } from "./db"
 import { expect, test as base } from "./fixtures"
 import { BROWSER_TIMEZONE, E2E_ENV } from "../playwright.config"
 
 export { expect, type Page } from "./fixtures"
+export { withDb } from "./db"
 export type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>
 export const updateScreenshots = process.env.UPDATE_SCREENSHOTS === "1"
 
@@ -21,11 +22,6 @@ export const test = base.extend<{ consoleGuard: void }>({
     expect(errors).toEqual([])
   }, { auto: true }],
 })
-
-export async function withDb<T>(run: (sql: ReturnType<typeof postgres>) => Promise<T>): Promise<T> {
-  const sql = postgres(E2E_ENV.DATABASE_URL, { max: 1, onnotice: () => {} })
-  try { return await run(sql) } finally { await sql.end() }
-}
 
 export async function seedDemo(browser: Browser, prefix: string, name: string) {
   // A restarted worker gets fresh data, so one failed case cannot poison later cases.

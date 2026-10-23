@@ -63,6 +63,7 @@ export async function expectAiFeedHydration(context: BrowserContext, url: string
   } finally {
     releaseScripts()
     await page.unrouteAll({ behavior: "wait" })
+    await page.waitForLoadState("networkidle")
     await page.close()
   }
 }

@@ -1,9 +1,10 @@
 import { watchAiFeed, expectSingleAiFeed, expectAiFeedHydration } from "./ai-feed"
 import { randomBytes, createHash } from "node:crypto"
 import { screenshot } from "./matrix"
-import postgres from "postgres"
+import { createE2eDb } from "./db"
+import { addMonths, monthKey, todayIn } from "../src/lib/dates"
 import { expect, test } from "./fixtures"
-import { E2E_ENV, SETUP_TOKEN } from "../playwright.config"
+import { SETUP_TOKEN } from "../playwright.config"
 
 for (const locale of ["ru", "en"] as const) {
   for (const width of [1280, 375])
@@ -12,7 +13,7 @@ for (const locale of ["ru", "en"] as const) {
         test.setTimeout(60_000)
         const context = await browser.newContext({ serviceWorkers: "block", locale: "ru-RU", viewport: { width: 1280, height: 950 } })
         const page = await context.newPage(),
-          db = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+          db = createE2eDb()
         await watchAiFeed(page)
         const familyName = `Interview synthetic ${locale} ${randomBytes(8).toString("hex")}`
         const screenshots = "docs/screenshots/ai/interview"
@@ -75,6 +76,11 @@ for (const locale of ["ru", "en"] as const) {
           const progress = page.locator('[data-testid="ai-interview-progress"]:visible'),
             chips = page.getByTestId("ai-interview-chips")
           await expect(progress).toContainText(locale === "ru" ? "Шаг 1 из 5" : "Step 1 of 5")
+          await expect(chips.getByRole("button")).toHaveCount(1)
+          await expect(page.getByTestId("ai-status")).toHaveCount(0)
+          // Rename the persisted conversation, using the current optimistic-concurrency version.
+          await page.reload()
+          await expectSingleAiFeed(page)
           const titlePrefix = locale === "ru" ? "Составление бюджета · " : "Budget setup · "
           const conversationLink = page.getByRole("link", { name: new RegExp(titlePrefix) })
           await expect(conversationLink).toBeVisible()
@@ -98,6 +104,10 @@ for (const locale of ["ru", "en"] as const) {
           await chips.getByRole("button").first().click()
           await expect(progress).toContainText(locale === "ru" ? "Шаг 2 из 5" : "Step 2 of 5")
           await expect(page.getByRole("link", { name: new RegExp(customTitle) })).toBeVisible()
+          await expect(page.getByTestId("ai-status")).toHaveCount(0)
+          await page.reload()
+          await expectSingleAiFeed(page)
+          await expect(progress).toContainText(locale === "ru" ? "Шаг 2 из 5" : "Step 2 of 5")
           await menu(customTitle).click()
           await page.getByRole("menuitem", { name: locale === "ru" ? "Переименовать диалог" : "Rename conversation", exact: true }).click()
           await page
@@ -168,9 +178,8 @@ for (const locale of ["ru", "en"] as const) {
           await expect(page.getByRole("main").last()).toContainText(locale === "ru" ? "Семейный вечер" : "Family evening")
           await page.goto("/dashboard")
           await expect(page.getByTestId("ai-interview-entry")).toHaveCount(0)
-          const [nextMonth] =
-            await db`select to_char(date_trunc('month', now() at time zone 'Europe/Moscow') + interval '1 month', 'YYYY-MM') as month`
-          await page.goto(`/dashboard?month=${nextMonth!.month}`)
+          const nextMonth = monthKey(addMonths(todayIn("Europe/Moscow"), 1))
+          await page.goto(`/dashboard?month=${nextMonth}`)
           await expect(page.locator('[data-testid="planned-income"]:visible')).toContainText(/100[\s,\u00a0\u202f]*000/)
           expect(consoleErrors).toEqual([])
         } finally {

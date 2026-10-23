@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto"
 import { screenshot, updateScreenshots } from "./matrix"
-import postgres from "postgres"
-import { E2E_ENV, SETUP_TOKEN } from "../playwright.config"
+import { createE2eDb } from "./db"
+import { SETUP_TOKEN } from "../playwright.config"
 import { expect, test } from "./fixtures"
 
 for (const locale of ["ru", "en"] as const)
@@ -16,7 +16,8 @@ for (const locale of ["ru", "en"] as const)
           reducedMotion: "reduce",
         })
         const page = await context.newPage()
-        const db = postgres(E2E_ENV.DATABASE_URL, { max: 1, onnotice: () => {} })
+        const widget = page.locator('main [data-testid="ai-review-widget"]')
+        const db = createE2eDb()
         const screenshotDir = "docs/screenshots/ai/budget-review"
         const email = `ai-review-${randomBytes(4).toString("hex")}@e2e.test`
         try {
@@ -91,8 +92,8 @@ for (const locale of ["ru", "en"] as const)
           await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
           await screenshot(page, `${screenshotDir}/recommendations-${locale}-${width}-${theme}.png`, true)
           await page.goto("/dashboard")
-          await expect(page.getByTestId("ai-review-widget")).toHaveCount(1)
-          await expect(page.getByTestId("ai-review-widget")).toContainText(
+          await expect(widget).toHaveCount(1)
+          await expect(widget).toContainText(
             locale === "ru" ? "Рекомендации по бюджету: 2" : "Budget recommendations: 2",
           )
           await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -110,9 +111,9 @@ for (const locale of ["ru", "en"] as const)
           await db`update users set locale = 'ru' where id = ${owner.id}`
           await page.setViewportSize({ width: 375, height: 812 })
           await page.goto("/dashboard")
-          await expect(page.getByTestId("ai-review-widget")).toHaveCount(1)
-          await expect(page.getByTestId("ai-review-widget")).toContainText("Рекомендации по бюджету: 2")
-          await page.getByTestId("ai-review-widget").getByRole("link", { name: "Открыть рекомендации", exact: true }).click()
+          await expect(widget).toHaveCount(1)
+          await expect(widget).toContainText("Рекомендации по бюджету: 2")
+          await widget.getByRole("link", { name: "Открыть рекомендации", exact: true }).click()
           await expect(page).toHaveURL(/assistant\/recommendations/)
           await expect(cards).toHaveCount(2)
           await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -125,16 +126,15 @@ for (const locale of ["ru", "en"] as const)
           await expect(page.getByTestId("ai-stale-item")).toHaveCount(0)
           await expect(page.getByTestId("ai-review-changed")).toBeVisible()
           const [changedCategory] = await db`
-      with target as (
-        select id from ai_recommendations where household_id = ${owner.household_id}
-        order by created_at desc offset 1 limit 1
-      )
-      select c.id, c.name from target r
+      select c.id, c.name from ai_recommendations r
       join ai_recommendation_proposals l on l.recommendation_id = r.id and l.household_id = ${owner.household_id}
       join ai_proposals p on p.id = l.proposal_id and p.household_id = l.household_id
       cross join lateral jsonb_array_elements(p.items) item
       join categories c on c.id = (item->'after'->>'categoryId')::uuid and c.household_id = p.household_id
-      where item->>'type' = 'budget.set'`
+      where r.id = (
+        select id from ai_recommendations where household_id = ${owner.household_id}
+        order by created_at desc offset 1 limit 1
+      ) and item->>'type' = 'budget.set'`
           expect(changedCategory).toBeDefined()
           expect(await cards.nth(1).getByRole("checkbox").getAttribute("aria-label")).toContain(changedCategory!.name)
           const changedBudgets = await db`insert into category_budgets(household_id, category_id, amount, updated_by)
@@ -150,7 +150,7 @@ for (const locale of ["ru", "en"] as const)
           await cards.first().getByRole("button", { name: "Применить выбранное", exact: true }).click()
           await expect(page.locator('[data-testid="ai-recommendation"][data-status="pending"]')).toHaveCount(1)
           await expect(page.getByTestId("ai-review-changed")).toBeVisible()
-          await page.locator("summary").click()
+          await page.locator("main summary").click()
           await expect(page.locator('[data-testid="ai-recommendation"][data-status="applied"]')).toHaveCount(1)
           const remaining = page.locator('[data-testid="ai-recommendation"][data-status="pending"]')
           await expect(remaining).toHaveCount(1)
@@ -163,22 +163,24 @@ for (const locale of ["ru", "en"] as const)
           expect(applied!.n).toBe(1)
           const [decision] = await db`select count(*)::int n from ai_review_decisions where household_id = ${owner.household_id}`
           expect(decision!.n).toBe(1)
+          const completed = page.waitForResponse((response) =>
+            response.request().method() === "POST" && !!response.request().headers()["next-action"],
+          )
           await page.getByRole("button", { name: "Разобрать сейчас", exact: true }).click()
-          await expect
-            .poll(async () => {
-              const [row] =
-                await db`select count(*)::int n from ai_reviews where household_id = ${owner.household_id} and status = 'completed'`
-              return row!.n
-            })
-            .toBe(2)
+          const response = await completed
+          expect(response.ok()).toBe(true)
+          await expect(page.getByRole("button", { name: "Разобрать сейчас", exact: true })).toBeEnabled()
+          await expect(page.getByRole("status").filter({ hasText: "Последний запуск:" })).toContainText("завершён")
+          const [secondRun] = await db`select count(*)::int n from ai_reviews where household_id = ${owner.household_id} and status = 'completed'`
+          expect(secondRun!.n).toBe(2)
           await expect(page.getByText("Нет новых рекомендаций", { exact: true })).toBeVisible()
           await expect(page.locator('[data-testid="ai-recommendation"][data-status="pending"]')).toHaveCount(0)
           await expect(page.getByTestId("ai-review-badge")).toHaveCount(0)
           await page.goto("/dashboard")
-          await expect(page.getByTestId("ai-review-widget")).toHaveCount(1)
-          await expect(page.getByTestId("ai-review-widget")).toContainText("Рекомендации по бюджету: 0")
+          await expect(widget).toHaveCount(1)
+          await expect(widget).toContainText("Рекомендации по бюджету: 0")
           await page.goto("/assistant/recommendations")
-          await page.locator("summary").click()
+          await page.locator("main summary").click()
           await page
             .locator('[data-testid="ai-recommendation"][data-status="dismissed"]')
             .getByRole("button", { name: "Обсудить", exact: true })
