@@ -173,6 +173,8 @@ PORT=3300 npx -y pnpm@10.27.0 dev
 
 Установите браузер один раз: `npx -y pnpm@10.27.0 exec playwright install chromium`. Для своего Chromium задайте `PLAYWRIGHT_CHROMIUM_EXECUTABLE`. Helm: `./scripts/check-helm.sh`. Docker smoke с бэкапом и восстановлением выполняется в CI.
 
+Vitest фиксирует системное время перед каждым тестом (по умолчанию `2026-10-23T09:00:00Z`). Переопределение через `TEST_NOW`: например, `TEST_NOW=2026-12-31T20:30:00Z npx -y pnpm@10.27.0 test`. CI прогоняет весь набор в обычный день, воскресенье и 31 декабря в 23:30 МСК; тесты с условиями на конкретные даты задают собственные часы.
+
 ## Архитектура и участие
 
 Next.js 16 App Router · React 19 · TypeScript strict · Tailwind 4 · shadcn/Base UI · Drizzle · PostgreSQL 17 · Better Auth · Recharts.

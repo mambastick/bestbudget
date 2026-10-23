@@ -4,6 +4,7 @@ import webpush from "web-push"
 import { closeDb, getDb } from "@/db"
 import {
   applicationSettings,
+  exchangeRateFetches,
   exchangeRates,
   householdMembers,
   notificationDeliveries,
@@ -15,6 +16,7 @@ import {
 } from "@/db/schema"
 import { preferencesInput } from "@/domain/notifications"
 import { encryptSecret } from "@/lib/crypto"
+import { addDays, addMonths, startOfMonth, todayIn } from "@/lib/dates"
 import { formatMoney } from "@/lib/money"
 import { POST as webhook } from "@/app/api/telegram/webhook/route"
 import { runNotificationJob } from "@/server/jobs/notifications"
@@ -42,18 +44,42 @@ import {
 } from "@/server/services/notification-settings"
 import { createTransaction, getTransaction } from "@/server/services/transactions"
 import { createUser, setupHousehold } from "./helpers"
+import { testNow } from "../clock"
 
+// Simulate Telegram's waits on the fixed clock without sleeping in real time.
+vi.mock("node:timers/promises", async (original) => ({
+  ...await original<typeof import("node:timers/promises")>(),
+  setTimeout: vi.fn(async (ms: number, value?: unknown, options?: { signal?: AbortSignal }) => {
+    options?.signal?.throwIfAborted()
+    vi.setSystemTime(Date.now() + ms)
+    return value
+  }),
+}))
+
+const now = testNow
+const today = todayIn("Europe/Moscow", now)
+const tomorrow = addDays(today, 1)
+const nextMonth = addMonths(startOfMonth(today), 1)
+const deliveryPreferences = { quietStart: "00:00", quietEnd: "00:00", digestTime: "00:00" }
+
+const provider = vi.hoisted(() => ({ value: "none" as "none" | "cbr" }))
+vi.mock("@/lib/env", async (original) => {
+  const real = await original<typeof import("@/lib/env")>()
+  return { ...real, env: () => ({ ...real.env(), FX_PROVIDER: provider.value }) }
+})
 vi.mock("web-push", async (original) => {
   const mod = await original<{ default: typeof webpush }>()
   return { default: { ...mod.default, sendNotification: vi.fn().mockResolvedValue({ statusCode: 201 }) } }
 })
-const fetchMock = vi.fn(async (url: string, _options?: RequestInit) =>
-  Response.json({
+const fetchMock = vi.fn(async (url: string, _options?: RequestInit) => {
+  if (!url.startsWith("https://api.telegram.org/")) throw new Error("Provider offline")
+  return Response.json({
     ok: true,
     result: url.endsWith("getMe") ? { id: 987, username: "test_bot" } : url.endsWith("getUpdates") ? [] : true,
-  }),
-)
+  })
+})
 beforeEach(async () => {
+  provider.value = "none"
   vi.stubGlobal("fetch", fetchMock)
   fetchMock.mockClear()
   vi.mocked(webpush.sendNotification).mockClear()
@@ -64,6 +90,8 @@ beforeEach(async () => {
   await getDb().delete(telegramLinks)
   await getDb().delete(pushSubscriptions)
   await getDb().delete(notificationSettings)
+  await getDb().delete(exchangeRates)
+  await getDb().delete(exchangeRateFetches)
   await getDb()
     .insert(notificationSettings)
     .values({ id: 1, botTokenEncrypted: encryptSecret("123:test"), botUsername: "test_bot", botId: "987" })
@@ -71,6 +99,8 @@ beforeEach(async () => {
   fetchMock.mockClear()
 })
 afterAll(async () => {
+  await getDb().delete(exchangeRates)
+  await getDb().delete(exchangeRateFetches)
   vi.unstubAllGlobals()
   await closeDb()
 })
@@ -84,25 +114,23 @@ async function fixture() {
     categoryId: h.cat("Ипотека"),
     accountId: h.mainAccount,
     status: "planned",
-    date: "2026-10-24",
+    date: tomorrow,
   })
   await getDb()
     .insert(telegramLinks)
     .values({ userId: h.owner.id, chatId: h.owner.id.replace(/\D/g, "").slice(0, 8) })
-  await savePreferences(h.ctx, preferencesInput.parse({ telegram: true, cashGap: false, budget: false }))
+  await savePreferences(h.ctx, preferencesInput.parse({ ...deliveryPreferences, telegram: true, cashGap: false, budget: false }))
   return { ...h, row }
 }
-const noon = new Date("2026-10-23T09:00:00Z")
 describe("notification pipeline", () => {
   it.each([
     { currency: "RUB" as const, limit: 1000000, spent: 1150000, balance: -1150000 },
     { currency: "EUR" as const, limit: 8000, spent: 9200, balance: -9200 },
   ])("sends USD payments and converted forecasts, budgets and balance in $currency", async (base) => {
-    vi.useFakeTimers({ toFake: ["Date"], now: noon })
     try {
       await getDb().insert(exchangeRates).values([
-        { currency: "USD", date: "2026-10-23", rateToRub: "100", source: "manual" },
-        { currency: "EUR", date: "2026-10-23", rateToRub: "125", source: "manual" },
+        { currency: "USD", date: today, rateToRub: "100", source: "manual" },
+        { currency: "EUR", date: today, rateToRub: "125", source: "manual" },
       ])
       const h = await setupHousehold()
       await updateHousehold(h.ctx, { name: h.household.name, currency: base.currency, version: 1 })
@@ -114,12 +142,12 @@ describe("notification pipeline", () => {
         accountId: usd.id,
         categoryId: h.cat("Продукты"),
       }
-      await createTransaction(ctx, { ...payment, amount: 10000, status: "planned", date: "2026-10-24" })
-      await createTransaction(ctx, { ...payment, amount: 11500, status: "posted", date: "2026-10-23" })
+      await createTransaction(ctx, { ...payment, amount: 10000, status: "planned", date: tomorrow })
+      await createTransaction(ctx, { ...payment, amount: 11500, status: "posted", date: today })
       await setBudget(ctx, { categoryId: h.cat("Продукты"), amount: base.limit })
       await getDb().insert(telegramLinks).values({ userId: h.owner.id, chatId: "810" })
-      await savePreferences(ctx, preferencesInput.parse({ telegram: true }))
-      const snapshot = await notificationSnapshot(ctx, noon)
+      await savePreferences(ctx, preferencesInput.parse({ ...deliveryPreferences, telegram: true }))
+      const snapshot = await notificationSnapshot(ctx, now)
       expect(snapshot.currency).toBe(base.currency)
       expect(snapshot.payments.find((row) => row.status === "planned")).toMatchObject({ amount: 10000, currency: "USD" })
       expect(snapshot.budgets.find((row) => row.id === h.cat("Продукты"))).toMatchObject({ limit: base.limit, spent: base.spent })
@@ -128,7 +156,9 @@ describe("notification pipeline", () => {
       const sent = () => fetchMock.mock.calls
         .filter(([url]) => url.endsWith("sendMessage"))
         .map(([, options]) => JSON.parse(String(options?.body)) as { text: string })
-      await runNotificationJob(noon)
+      await runNotificationJob(now)
+      expect(await getDb().select().from(notificationDeliveries).where(eq(notificationDeliveries.userId, h.owner.id)))
+        .toEqual(expect.arrayContaining([expect.objectContaining({ kind: "due", status: "sent" })]))
       const text = sent().map((message) => message.text).join("\n").replace(/\u00a0/g, " ")
       expect(text).toContain("100 $ со счёта USD")
       expect(text).toContain(formatMoney(gap.balance, base.currency).replace(/\u00a0/g, " "))
@@ -142,10 +172,63 @@ describe("notification pipeline", () => {
       expect(sent().at(-2)!.text.replace(/\u00a0/g, " ")).toContain("100 $ со счёта USD")
       expect(sent().at(-1)!.text).toContain(formatMoney(base.balance, base.currency))
     } finally {
-      await getDb().delete(exchangeRates).where(eq(exchangeRates.date, "2026-10-23"))
+      await getDb().delete(exchangeRates).where(eq(exchangeRates.date, today))
       await getDb().delete(applicationSettings).where(eq(applicationSettings.key, "notifications.telegram.rate"))
-      vi.useRealTimers()
     }
+  })
+  it.each(["missing", "expired", "stale"] as const)("sends native USD payments with %s FX data while the provider is offline", async (state) => {
+    // Distinct valuation dates keep provider backoff keys independent between cases.
+    const at = new Date(now.getTime() + { missing: 0, expired: 1, stale: 2 }[state] * 86_400_000)
+    const day = todayIn("Europe/Moscow", at)
+    const dueDate = addDays(day, 1)
+    vi.setSystemTime(at)
+    provider.value = "cbr"
+    const h = await setupHousehold()
+    const usd = await createAccount(h.ctx, { name: "USD", kind: "cash", currency: "USD", openingBalance: 0 })
+    const payment = await createTransaction(h.ctx, {
+      type: "expense", accountId: usd.id, categoryId: h.cat("Продукты"), amount: 10000,
+      status: "planned", date: dueDate,
+    })
+    if (state === "stale") await getDb().insert(exchangeRates).values({
+      currency: "USD", date: addDays(day, -30), rateToRub: "100", source: "cbr",
+    })
+    if (state === "expired") await getDb().insert(exchangeRateFetches).values({
+      currency: "USD", fromDate: addDays(day, -14), toDate: day,
+      expiresAt: new Date(at.getTime() - 1),
+    })
+    await getDb().insert(telegramLinks).values({ userId: h.owner.id, chatId: "811" })
+    await savePreferences(h.ctx, preferencesInput.parse({
+      ...deliveryPreferences, telegram: true, cashGap: false, budget: false,
+    }))
+    await runNotificationJob(at)
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("www.cbr.ru/"), expect.anything())
+    expect(await getDb().select().from(notificationDeliveries).where(eq(notificationDeliveries.userId, h.owner.id)))
+      .toEqual([expect.objectContaining({ status: "sent", dedupeKey: `due:${payment.id}:${dueDate}` })])
+    const sent = fetchMock.mock.calls.find(([url]) => url.endsWith("sendMessage"))!
+    expect(JSON.parse(String(sent[1]?.body)).text.replace(/\u00a0/g, " ")).toContain("100 $ со счёта USD")
+  })
+  it("uses the household's new calendar day and postpones delivery until quiet hours end", async () => {
+    const midnight = new Date("2026-12-31T21:30:00Z")
+    vi.setSystemTime(midnight)
+    // Drop only the slots configured on the matrix clock before moving this scenario's clock.
+    await getDb().delete(applicationSettings).where(eq(applicationSettings.key, "notifications.telegram.rate"))
+    const h = await setupHousehold()
+    const payment = await createTransaction(h.ctx, {
+      type: "expense", accountId: h.mainAccount, categoryId: h.cat("Продукты"), amount: 10000,
+      status: "planned", date: "2027-01-01",
+    })
+    await getDb().insert(telegramLinks).values({ userId: h.owner.id, chatId: "812" })
+    await savePreferences(h.ctx, preferencesInput.parse({ telegram: true, cashGap: false, budget: false, daysBefore: 0 }))
+    expect((await notificationSnapshot(h.ctx, midnight)).payments).toContainEqual(expect.objectContaining({ id: payment.id }))
+    await runNotificationJob(midnight)
+    expect(fetchMock).not.toHaveBeenCalled()
+    const morning = new Date("2027-01-01T05:00:00Z")
+    vi.setSystemTime(morning)
+    await runNotificationJob(morning)
+    const sent = fetchMock.mock.calls.find(([url]) => url.endsWith("sendMessage"))!
+    expect(JSON.parse(String(sent[1]?.body)).text).toContain("Сегодня платёж")
+    expect(await getDb().select().from(notificationDeliveries).where(eq(notificationDeliveries.userId, h.owner.id)))
+      .toEqual([expect.objectContaining({ status: "sent", dedupeKey: `due:${payment.id}:2027-01-01` })])
   })
   it("runs twice, sends once, and sends to two devices independently", async () => {
     const h = await fixture()
@@ -160,8 +243,8 @@ describe("notification pipeline", () => {
         },
         "test",
       )
-    await runNotificationJob(noon)
-    await runNotificationJob(noon)
+    await runNotificationJob(now)
+    await runNotificationJob(now)
     expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("sendMessage"))).toHaveLength(1)
     expect(webpush.sendNotification).toHaveBeenCalledTimes(2)
     const deliveries = await getDb()
@@ -182,7 +265,7 @@ describe("notification pipeline", () => {
       categoryId: h.cat("Продукты"),
       accountId: h.mainAccount,
       status: "posted",
-      date: "2026-10-23",
+      date: today,
     })
     await setBudget(h.ctx, { categoryId: h.cat("Продукты"), amount: 100000 })
     await savePreferences(h.ctx, {
@@ -202,7 +285,7 @@ describe("notification pipeline", () => {
         },
         "test",
       )
-    await runNotificationJob(noon)
+    await runNotificationJob(now)
     const sent = () =>
       fetchMock.mock.calls
         .filter(([url]) => url.endsWith("sendMessage"))
@@ -214,10 +297,10 @@ describe("notification pipeline", () => {
         .mock.calls.map(([, body]) => String(body))
         .every((body) => body.includes("превышен на 15%")),
     ).toBe(true)
-    await runNotificationJob(new Date("2026-10-24T09:00:00Z"))
+    await runNotificationJob(new Date(now.getTime() + 86_400_000))
     expect(sent()[1]!.text).not.toContain("превышен")
     await savePreferences(h.ctx, { ...(await getPreferences(h.ctx)), digest: false })
-    await runNotificationJob(new Date("2026-10-25T09:00:00Z"))
+    await runNotificationJob(new Date(now.getTime() + 2 * 86_400_000))
     expect(sent()).toHaveLength(2)
     await createTransaction(h.ctx, {
       type: "expense",
@@ -225,9 +308,9 @@ describe("notification pipeline", () => {
       categoryId: h.cat("Продукты"),
       accountId: h.mainAccount,
       status: "posted",
-      date: "2026-11-01",
+      date: nextMonth,
     })
-    await runNotificationJob(new Date("2026-11-01T09:00:00Z"))
+    await runNotificationJob(new Date(nextMonth + "T09:00:00Z"))
     expect(sent()[2]!.text).toContain("превышен на 15%")
   })
 
@@ -240,7 +323,7 @@ describe("notification pipeline", () => {
       channel: "telegram",
       notice: { key: "concurrent", kind: "test", text: "test", path: "/" },
     }
-    await Promise.all([deliverOnce(input, send, noon), deliverOnce(input, send, noon)])
+    await Promise.all([deliverOnce(input, send, now), deliverOnce(input, send, now)])
     expect(send).toHaveBeenCalledOnce()
     const times: number[] = []
     fetchMock.mockImplementationOnce(async () => {
@@ -296,14 +379,14 @@ describe("notification pipeline", () => {
       categoryId: h.cat("Продукты"),
       accountId: h.mainAccount,
       status: "posted",
-      date: "2026-10-23",
+      date: today,
     })
     fetchMock.mockResolvedValueOnce(Response.json({ ok: false, error_code: 429 }, { status: 429 }))
-    await runNotificationJob(noon)
+    await runNotificationJob(now)
     const rows = () =>
       getDb().select().from(notificationDeliveries).where(eq(notificationDeliveries.userId, h.owner.id))
     expect((await rows())[0]).toMatchObject({ status: "retry", kind: "budget", attempts: 1 })
-    await runNotificationJob(new Date(noon.getTime() + 180000))
+    await runNotificationJob(new Date(now.getTime() + 180000))
     expect((await rows())[0]).toMatchObject({ status: "sent", attempts: 2 })
   })
 
@@ -333,7 +416,7 @@ describe("notification pipeline", () => {
     await getDb()
       .update(notificationSettings)
       .set({ botTokenEncrypted: encryptSecret("replacement-token") })
-    await runNotificationJob(noon)
+    await runNotificationJob(now)
     expect(fetchMock).not.toHaveBeenCalled()
     expect(
       await getDb().select().from(notificationDeliveries).where(eq(notificationDeliveries.userId, h.owner.id)),
@@ -345,11 +428,11 @@ describe("notification pipeline", () => {
     await getDb()
       .delete(householdMembers)
       .where(and(eq(householdMembers.householdId, h.ctx.householdId), eq(householdMembers.userId, h.owner.id)))
-    await runNotificationJob(noon)
+    await runNotificationJob(now)
     expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("sendMessage"))).toHaveLength(0)
     const b = await fixture()
     await getDb().update(users).set({ banned: true }).where(eq(users.id, b.owner.id))
-    await runNotificationJob(noon)
+    await runNotificationJob(now)
     expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("sendMessage"))).toHaveLength(0)
   })
   it("retries explicit transient errors with bounded backoff and never retries ambiguous outcomes", async () => {
@@ -361,14 +444,14 @@ describe("notification pipeline", () => {
       notice: { key: "retry", kind: "test", text: "test", path: "/" },
     }
     const send = vi.fn().mockRejectedValue(new DeliveryError("telegram_429", true, 300))
-    await deliverOnce(input, send, noon)
-    await deliverOnce(input, send, new Date(noon.getTime() + 299000))
+    await deliverOnce(input, send, now)
+    await deliverOnce(input, send, new Date(now.getTime() + 299000))
     expect(send).toHaveBeenCalledTimes(1)
-    for (const minutes of [5, 15, 40, 100]) await deliverOnce(input, send, new Date(noon.getTime() + minutes * 60000))
+    for (const minutes of [5, 15, 40, 100]) await deliverOnce(input, send, new Date(now.getTime() + minutes * 60000))
     expect(send).toHaveBeenCalledTimes(4)
     const unknown = vi.fn().mockRejectedValue(new Error("sensitive secret"))
-    await deliverOnce({ ...input, notice: { ...input.notice, key: "unknown" } }, unknown, noon)
-    await deliverOnce({ ...input, notice: { ...input.notice, key: "unknown" } }, unknown, noon)
+    await deliverOnce({ ...input, notice: { ...input.notice, key: "unknown" } }, unknown, now)
+    await deliverOnce({ ...input, notice: { ...input.notice, key: "unknown" } }, unknown, now)
     expect(unknown).toHaveBeenCalledTimes(1)
     const [row] = await getDb()
       .select()

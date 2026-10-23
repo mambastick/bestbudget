@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { closeDb, getDb } from "@/db"
 import { transactions } from "@/db/schema"
 import { createAccount, listAccounts } from "@/server/services/catalog"
@@ -16,7 +16,7 @@ import {
 import { setupHousehold } from "./helpers"
 
 // Fixed "today" in Europe/Moscow: 2026-11-01.
-beforeAll(() => {
+beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-01T09:00:00Z") })
 })
 afterAll(async () => {
