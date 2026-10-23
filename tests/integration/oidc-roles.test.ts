@@ -8,6 +8,8 @@ import { allowSignup, getAuth, invalidateAuth } from "@/lib/auth"
 import { createHousehold } from "@/server/services/households"
 import { updateOidcSettings } from "@/server/services/settings"
 import { createUser } from "./helpers"
+import { errorMessage } from "@/i18n/errors"
+import { setUserLocale } from "@/server/services/preferences"
 
 const mapping = { claim: "groups", userGroup: "app-budget-users", adminGroup: "app-budget-admins" }
 const idp = new OAuth2Server()
@@ -42,12 +44,12 @@ function cookieHeader(response: Response) {
   return response.headers.getSetCookie().map((cookie) => cookie.split(";")[0]).join("; ")
 }
 
-async function signIn(profile: Record<string, unknown>) {
+async function signIn(profile: Record<string, unknown>, headers: Record<string, string> = {}) {
   identity = profile
   const auth = await authFactory()
   const started = await auth.handler(new Request("http://localhost:3000/api/auth/sign-in/social", {
     method: "POST",
-    headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+    headers: { "content-type": "application/json", origin: "http://localhost:3000", ...headers },
     body: JSON.stringify({ provider: "oidc", callbackURL: "/dashboard", errorCallbackURL: "/login", disableRedirect: true }),
   }))
   expect(started.status).toBe(200)
@@ -55,7 +57,7 @@ async function signIn(profile: Record<string, unknown>) {
   const authorization = await fetch(url, { redirect: "manual" })
   expect(authorization.status).toBe(302)
   const callback = await auth.handler(new Request(authorization.headers.get("location")!, {
-    headers: { cookie: cookieHeader(started) },
+    headers: { ...headers, cookie: [headers.cookie, cookieHeader(started)].filter(Boolean).join("; ") },
   }))
   const session = await auth.api.getSession({ headers: new Headers({ cookie: cookieHeader(callback) }) })
   return { callback, session, cookie: cookieHeader(callback) }
@@ -89,6 +91,37 @@ describe("verified OIDC group mapping through real callbacks", () => {
     const linked = await getDb().select().from(authAccounts).where(eq(authAccounts.userId, userId))
     expect(linked).toHaveLength(1)
     expect(linked[0]).toMatchObject({ providerId: "oidc", accountId: incoming.sub })
+  })
+
+  it("preserves explicit locale and remembers browser language while synchronizing roles", async () => {
+    const incoming = profile([mapping.userGroup])
+    const first = await signIn(incoming, { cookie: "bb_locale=ru", "accept-language": "en-US" })
+    const id = first.session!.user.id
+    expect(first.session?.user).toMatchObject({ role: "user", locale: "ru" })
+    expect(first.callback.headers.getSetCookie().some((cookie) => cookie.startsWith("bb_locale=ru;"))).toBe(true)
+    expect((await getDb().select().from(users).where(eq(users.id, id)))[0]).toMatchObject({ locale: "ru", lastSeenLocale: "en" })
+    await setUserLocale(id, "en")
+    const promoted = await signIn({ ...incoming, groups: [mapping.adminGroup] }, { cookie: "bb_locale=ru", "accept-language": "ru-RU" })
+    expect(promoted.session?.user).toMatchObject({ id, role: "admin", locale: "en" })
+    expect(promoted.callback.headers.getSetCookie().some((cookie) => cookie.startsWith("bb_locale=en;"))).toBe(true)
+    expect((await getDb().select().from(users).where(eq(users.id, id)))[0]).toMatchObject({ locale: "en", lastSeenLocale: "ru" })
+  })
+
+  it("denies a returning identity with removed groups without rewriting its role or revoking old sessions", async () => {
+    const incoming = profile([mapping.adminGroup])
+    const first = await signIn(incoming)
+    const denied = await signIn({ ...incoming, groups: [] })
+    expect(denied.session).toBeNull()
+    expect(denied.callback.headers.get("location")).toContain("error=oidc_access_denied")
+    const auth = await getAuth()
+    expect((await auth.api.getSession({ headers: new Headers({ cookie: first.cookie }) }))?.user.role).toBe("admin")
+  })
+
+  it.each(["ru", "en"])("localizes group access errors in %s", async (locale) => {
+    const { callback } = await signIn(profile([]), { cookie: `bb_locale=${locale}`, "accept-language": locale === "ru" ? "en" : "ru" })
+    const location = new URL(callback.headers.get("location")!, "http://localhost:3000")
+    expect(location.searchParams.get("error")).toBe("oidc_access_denied")
+    expect(location.searchParams.get("error_description")).toBe(errorMessage("auth.oidcAccessDenied", {}, locale))
   })
 
   it.each([undefined, "app-budget-admins", [mapping.adminGroup, 42], ["unrelated-app-admins"]])("denies malformed or unauthorized groups before creating a session: %j", async (groups) => {

@@ -6,7 +6,8 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { nextCookies } from "better-auth/next-js"
 import { admin } from "better-auth/plugins/admin"
 import { genericOAuth } from "better-auth/plugins/generic-oauth"
-import { browserLocale, isLocale, LOCALE_COOKIE } from "@/i18n/locale"
+import { browserLocale, isLocale, LOCALE_COOKIE, resolveLocale } from "@/i18n/locale"
+import { errorMessage } from "@/i18n/errors"
 import { getUserLocale, rememberBrowserLocale } from "@/server/services/preferences"
 import { getDb } from "@/db"
 import { authAccounts, rateLimits, sessions, users, verifications } from "@/db/schema"
@@ -92,10 +93,17 @@ function build(methods: AuthMethods) {
     },
     user: {
       additionalFields: { locale: { type: "string", required: false, input: false }, lastSeenLocale: { type: "string", required: false, input: false } },
-      validateUserInfo: oidc && roleMapping ? ({ user, source }, ctx) => {
+      validateUserInfo: oidc && roleMapping ? async ({ user, source }, ctx) => {
         if (source.method !== "oauth" || source.oauth?.providerId !== OIDC_PROVIDER_ID) return
         const role = roleFromOidcGroups(source.oauth.profile, roleMapping)
-        if (!role) return { error: "oidc_access_denied", errorDescription: "SSO account is not authorized for this application" }
+        if (!role) {
+          const locale = resolveLocale({
+            user: user.id ? await getUserLocale(user.id) : null,
+            cookie: readCookie(ctx.headers?.get("cookie"), LOCALE_COOKIE),
+            acceptLanguage: ctx.headers?.get("accept-language"),
+          })
+          return { error: "oidc_access_denied", errorDescription: errorMessage("auth.oidcAccessDenied", {}, locale) }
+        }
         // Linking alone must not change the current user's system role.
         if (source.action !== "link-account") oidcRoles.set(ctx, { role, userId: user.id })
       } : undefined,

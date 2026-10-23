@@ -14,7 +14,9 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; next?: string }> }) {
   const t = await getTranslations("auth")
+  const errors = await getTranslations("errors")
   const OAUTH_ERRORS: Record<string, string> = {
+    oidc_access_denied: errors("auth.oidcAccessDenied"),
     signup_disabled: t("login.registrationIsClosedAskYourAdministratorOrA"),
     unable_to_create_user: t("login.registrationIsClosedAskYourAdministratorOrA"),
     account_not_linked: t("login.anAccountWithThisEmailAlreadyExistsSign"),

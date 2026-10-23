@@ -1,5 +1,6 @@
 import "server-only"
 import { z } from "zod"
+import { errorMessage } from "@/i18n/errors"
 
 const bool = z
   .enum(["true", "false", "1", "0", "yes", "no", ""])
@@ -48,10 +49,10 @@ const schema = z.object({
 }).superRefine((e, ctx) => {
   const mapping = [e.OIDC_GROUPS_CLAIM, e.OIDC_USER_GROUP, e.OIDC_ADMIN_GROUP]
   if (mapping.some(Boolean) && !mapping.every(Boolean)) {
-    ctx.addIssue({ code: "custom", path: ["OIDC_GROUPS_CLAIM"], message: "Set OIDC_GROUPS_CLAIM, OIDC_USER_GROUP and OIDC_ADMIN_GROUP together" })
+    ctx.addIssue({ code: "custom", path: ["OIDC_GROUPS_CLAIM"], message: errorMessage("configuration.oidcMappingRequired", {}, "en") })
   }
   if (e.OIDC_USER_GROUP && e.OIDC_USER_GROUP === e.OIDC_ADMIN_GROUP) {
-    ctx.addIssue({ code: "custom", path: ["OIDC_ADMIN_GROUP"], message: "OIDC_ADMIN_GROUP must differ from OIDC_USER_GROUP" })
+    ctx.addIssue({ code: "custom", path: ["OIDC_ADMIN_GROUP"], message: errorMessage("configuration.oidcGroupsDistinct", {}, "en") })
   }
 })
 

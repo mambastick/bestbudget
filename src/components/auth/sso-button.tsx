@@ -3,21 +3,24 @@
 import { useLocale, useTranslations } from "next-intl"
 
 import { KeyRound } from "lucide-react"
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { authClient, authErrorMessage } from "@/lib/auth-client"
+
+const subscribe = () => () => {}
 
 export function SsoButton({ name, callbackURL = "/dashboard", before }: { name: string; callbackURL?: string; before?: () => Promise<boolean> }) {
   const locale = useLocale()
   const t = useTranslations("auth")
   const [pending, setPending] = useState(false)
+  const hydrated = useSyncExternalStore(subscribe, () => true, () => false)
   return (
     <Button
       type="button"
       variant="outline"
       className="w-full"
-      disabled={pending}
+      disabled={!hydrated || pending}
       onClick={async () => {
         setPending(true)
         if (before && !(await before())) return setPending(false)

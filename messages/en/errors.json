@@ -18,7 +18,8 @@
     "banned": "Your account has been blocked by the administrator",
     "passwordDisabled": "Password sign-in is disabled by the administrator",
     "invalidLink": "This link is invalid or has expired",
-    "linked": "This SSO account is already linked to another user"
+    "linked": "This SSO account is already linked to another user",
+    "oidcAccessDenied": "Your SSO account does not have access to this application. Contact your administrator."
   },
   "setup": {
     "tokenMissing": "SETUP_TOKEN is not set in the environment",
@@ -284,5 +285,9 @@
   },
   "request": {
     "invalidOrigin": "Invalid request origin"
+  },
+  "configuration": {
+    "oidcMappingRequired": "Set OIDC_GROUPS_CLAIM, OIDC_USER_GROUP and OIDC_ADMIN_GROUP together",
+    "oidcGroupsDistinct": "OIDC_ADMIN_GROUP must differ from OIDC_USER_GROUP"
   }
 }
