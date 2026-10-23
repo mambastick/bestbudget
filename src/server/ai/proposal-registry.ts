@@ -7,7 +7,7 @@ import type { ProposalItem } from "@/domain/ai/types"
 import { AppError } from "@/server/errors"
 import type { Permission } from "@/domain/permissions"
 import type { HouseholdCtx } from "@/server/context"
-import { notFound } from "@/server/errors"
+import { conflict, notFound } from "@/server/errors"
 import { todayIn } from "@/lib/dates"
 import { budgetInput, setBudget } from "@/server/services/budgets"
 import { accountInput, categoryInput, createAccount, createCategory, setCategoryArchived, updateCategory } from "@/server/services/catalog"
@@ -231,7 +231,11 @@ registerProposal("goal.automate", automationInput.extend(idInput.shape), {
     }
   },
   after: (_ctx, _input, before) => before!.automationPreview as Record<string, unknown>,
-  apply: async (ctx, input) => {
+  apply: async (ctx, input, before) => {
+    const preview = await previewGoalAutomation(ctx, input.id, input)
+    const expected = before!.automationPreview as Record<string, unknown>
+    if (preview.amount !== expected.amount || preview.toAmount !== expected.toAmount || preview.startDate !== expected.startDate)
+      throw conflict()
     await automateGoal(ctx, input.id, input)
     return { href: `/goals/${input.id}`, entityId: input.id }
   },

@@ -43,7 +43,8 @@ export function ProposalCard({
     () => true,
     () => false,
   )
-  const open = (!interview || can(role, "catalog.manage")) && !proposal.expired && ["pending", "partially_applied"].includes(proposal.status)
+  const open =
+    (!interview || can(role, "catalog.manage")) && !proposal.expired && ["pending", "partially_applied"].includes(proposal.status)
   function value(field: string, raw: unknown, item: ProposalItem, before = false) {
     if (raw === null || raw === undefined) return t("none")
     if (MONEY_FIELDS.has(field) && typeof raw === "number" && item.type === "import.rule" && !item.after.currency)
@@ -95,7 +96,14 @@ export function ProposalCard({
               </label>
               <dl className="space-y-1 pl-7 text-xs">
                 {proposalChanges(item)
-                  .filter(({ field }) => t.has(`fields.${field}`) && !(item.type === "budget.set" && proposalIsCreation(item)))
+                  .filter(({ field, after }) => {
+                    if (!t.has(`fields.${field}`) || (item.type === "budget.set" && proposalIsCreation(item))) return false
+                    if (!interview || !proposalIsCreation(item)) return true
+                    if (["color", "icon", "sortOrder"].includes(field) || after === null) return false
+                    if (field === "expenseWindow" && !item.after.expenseMonths) return false
+                    if ((field === "priority" && after === 100) || (field === "interval" && after === 1)) return false
+                    return true
+                  })
                   .map(({ field, before, after }) => (
                     <div key={field} className="grid grid-cols-1 gap-0.5 sm:grid-cols-[8rem_1fr]">
                       <dt className="text-muted-foreground">{t(`fields.${field}`)}</dt>
