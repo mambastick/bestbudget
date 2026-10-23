@@ -2,7 +2,7 @@ import type { Locale } from "./locale"
 
 // Explicit imports keep the standalone bundle complete and make new namespaces reviewable.
 export async function loadMessages(locale: Locale) {
-  const [common, nav, auth, settings, errors, onboarding, admin, notifications, mail, accounts, loans, goals, statementImport, dashboard, calendar, budgets, analytics, transactions, recurring, charts] = await Promise.all([
+  const [common, nav, auth, settings, errors, onboarding, admin, notifications, mail, accounts, loans, goals, statementImport, dashboard, calendar, budgets, analytics, transactions, recurring, charts, pwa] = await Promise.all([
     import(`../../messages/${locale}/common.json`),
     import(`../../messages/${locale}/nav.json`),
     import(`../../messages/${locale}/auth.json`),
@@ -23,6 +23,7 @@ export async function loadMessages(locale: Locale) {
     import(`../../messages/${locale}/transactions.json`),
     import(`../../messages/${locale}/recurring.json`),
     import(`../../messages/${locale}/charts.json`),
+    import(`../../messages/${locale}/pwa.json`),
   ])
   return {
     common: common.default,
@@ -45,5 +46,6 @@ export async function loadMessages(locale: Locale) {
     transactions: transactions.default,
     recurring: recurring.default,
     charts: charts.default,
+    pwa: pwa.default,
   }
 }

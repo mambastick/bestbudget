@@ -17,7 +17,9 @@ import { Wallet } from "@/components/animate-ui/icons/wallet"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { PreferenceMenuItems } from "@/components/app/preferences"
-import { useEffect } from "react"
+import { Suspense, useEffect } from "react"
+import { InstallButton } from "@/components/app/pwa/install-button"
+import { BackButton, TransactionShortcut } from "@/components/app/pwa/navigation"
 import { switchHouseholdAction } from "@/app/actions/household"
 import { useOperations } from "@/components/app/operations/operations-provider"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -67,6 +69,8 @@ function initials(name: string) {
 }
 
 export function AppShell({ user, households, activeHouseholdId, children }: ShellProps) {
+  // Client session reads can persist rolling cookies; server-component reads cannot write them.
+  authClient.useSession()
   return (
     <SidebarProvider>
       <AppSidebar user={user} households={households} activeHouseholdId={activeHouseholdId} />
@@ -75,6 +79,7 @@ export function AppShell({ user, households, activeHouseholdId, children }: Shel
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-4 pb-24 sm:px-6 sm:pt-6 md:pb-10">{children}</main>
       </SidebarInset>
       <RefreshOnFocus />
+      <Suspense><TransactionShortcut /></Suspense>
     </SidebarProvider>
   )
 }
@@ -207,6 +212,7 @@ function UserMenu({ user }: { user: ShellProps["user"] }) {
                 <Settings /> {t("appShell.profileAndSecurity")}{" "}</DropdownMenuItem>
             </AnimateIcon>
             <PreferenceMenuItems />
+            <InstallButton menu />
             <DropdownMenuSeparator />
             <AnimateIcon animateOnHover asChild>
             <DropdownMenuItem
@@ -248,7 +254,8 @@ function Header({ title }: { title: string }) {
   }, [ops])
   return (
     <>
-      <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:rounded-t-xl">
+      <header data-slot="app-header" className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:rounded-t-xl">
+        <Suspense><BackButton /></Suspense>
         <SidebarTrigger className="-ml-1" />
         <span className="truncate text-sm font-medium md:hidden">{title}</span>
         <div className="flex-1" />
@@ -262,8 +269,9 @@ function Header({ title }: { title: string }) {
       {!pathname.startsWith("/transactions/import") ? <Button
         size="icon-lg"
         onClick={() => ops.openCreate()}
+        data-slot="transaction-fab"
         aria-label={t("appShell.addTransaction")}
-        className="fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-30 size-14 rounded-full shadow-lg sm:hidden [&_svg]:size-6!"
+        className="fixed right-4 bottom-[calc(1rem+var(--safe-bottom))] z-30 size-14 rounded-full shadow-lg sm:hidden [&_svg]:size-6!"
       >
         <Plus />
       </Button> : null}

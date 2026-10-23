@@ -1,5 +1,7 @@
 "use client"
 
+import { registerServiceWorker } from "@/lib/pwa/service-worker"
+
 import { useTranslations } from "next-intl"
 
 import { useState } from "react"
@@ -67,7 +69,7 @@ export function NotificationSettings(props: Awaited<ReturnType<typeof notificati
         toast.error(t("notification.allowNotificationsInYourBrowserSettingsAndTry"))
         return
       }
-      await navigator.serviceWorker.register("/sw.js", { scope: "/" })
+      await registerServiceWorker()
       const registration = await navigator.serviceWorker.ready
       let subscription = await registration.pushManager.getSubscription()
       if (subscription) {

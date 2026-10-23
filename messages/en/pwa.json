@@ -1,0 +1,33 @@
+{
+  "install": "Install app",
+  "description": "BestBudget on your home screen, in its own window without browser controls.",
+  "instructions": "How to install BestBudget",
+  "iosSafari": "In Safari, open the Share menu, choose Add to Home Screen, then confirm.",
+  "iosOther": "On iOS 16.4 or later, open your browser’s Share menu and choose Add to Home Screen. If the option is missing, open this site in Safari.",
+  "browser": "In your browser menu, choose Install BestBudget or Add to Home Screen. If unavailable, open the site over HTTPS in Chrome, Edge or Safari. In Chrome and Edge, the install button becomes available when the browser allows installation.",
+  "share": "Share",
+  "addHome": "Add to Home Screen",
+  "launch": "Open BestBudget from your home screen",
+  "done": "Got it",
+  "failed": "Could not open installation. Try your browser menu.",
+  "back": "Back",
+  "update": {
+    "available": "A new version of BestBudget is available",
+    "description": "Finish editing before updating. The page reloads only when you press the button.",
+    "action": "Update"
+  },
+  "offline": {
+    "title": "No connection",
+    "description": "Connect to the internet and try again. Financial data is not saved for offline use.",
+    "retry": "Retry"
+  },
+  "shortcuts": {
+    "transaction": "New transaction",
+    "calendar": "Calendar",
+    "import": "Import statement"
+  },
+  "screenshots": {
+    "narrow": "Family budget overview on a phone · demo data",
+    "wide": "Overview, payments and forecast on desktop · demo data"
+  }
+}

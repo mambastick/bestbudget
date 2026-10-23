@@ -3,7 +3,7 @@ import createNextIntlPlugin from "next-intl/plugin"
 
 const isDev = process.env.NODE_ENV !== "production"
 
-// Next.js injects inline bootstrap scripts, so 'unsafe-inline' is required for scripts without a nonce setup.
+// Next.js and the early PWA install capture use inline bootstrap scripts, so 'unsafe-inline' is required for scripts without a nonce setup.
 // Everything else is restricted to the app's own origin; there are no third-party resources.
 const csp = [
   "default-src 'self'",

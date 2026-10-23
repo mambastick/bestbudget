@@ -7,6 +7,8 @@ import { getUserLocale } from "@/server/services/preferences"
 import { isLocale, LOCALE_COOKIE } from "@/i18n/locale"
 import { LocalePreferenceProvider } from "@/components/app/preferences"
 import { Providers } from "@/components/providers"
+import { PWA_COLORS, SPLASH_SCREENS } from "@/lib/pwa/splash"
+import { INSTALL_PROMPT_BOOTSTRAP } from "@/lib/pwa/install-prompt"
 import "./globals.css"
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -15,7 +17,7 @@ export async function generateMetadata(): Promise<Metadata> {
     title: { default: "BestBudget", template: "%s · BestBudget" },
     description: t("appDescription"),
     robots: { index: false, follow: false },
-    appleWebApp: { capable: true, title: "BestBudget", statusBarStyle: "default" },
+    appleWebApp: { capable: true, title: "BestBudget", statusBarStyle: "black-translucent" },
   }
 }
 
@@ -24,8 +26,8 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f7f8fa" },
-    { media: "(prefers-color-scheme: dark)", color: "#16181d" },
+    { media: "(prefers-color-scheme: light)", color: PWA_COLORS.light },
+    { media: "(prefers-color-scheme: dark)", color: PWA_COLORS.dark },
   ],
 }
 
@@ -36,6 +38,18 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const preference = session ? await getUserLocale(session.user.id) : isLocale(cookie) ? cookie : null
   return (
     <html lang={locale} suppressHydrationWarning>
+      <head>
+        <script id="bb-pwa-install" dangerouslySetInnerHTML={{ __html: INSTALL_PROMPT_BOOTSTRAP }} />
+        {SPLASH_SCREENS.flatMap(([width, height, scale]) => (["light", "dark"] as const).flatMap((theme) =>
+          (["portrait", "landscape"] as const).map((orientation) => {
+            const w = (orientation === "portrait" ? width : height) * scale
+            const h = (orientation === "portrait" ? height : width) * scale
+            return <link key={`${width}-${height}-${theme}-${orientation}`} rel="apple-touch-startup-image"
+              href={`/pwa-splash?width=${w}&height=${h}&theme=${theme}`}
+              media={`(device-width: ${width}px) and (device-height: ${height}px) and (-webkit-device-pixel-ratio: ${scale}) and (orientation: ${orientation}) and (prefers-color-scheme: ${theme})`} />
+          }),
+        ))}
+      </head>
       <body>
         <NextIntlClientProvider>
           <LocalePreferenceProvider value={preference}>

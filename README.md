@@ -60,7 +60,7 @@ Set these four values in `.env`:
 
 | Variable | Value |
 |---|---|
-| `APP_URL` | Browser URL, e.g. `http://192.168.1.10:3000` or `https://budget.example.com` |
+| `APP_URL` | Public URL, e.g. `https://budget.example.com`. **PWA requires HTTPS**, except `http://localhost`; LAN HTTP is insufficient |
 | `BETTER_AUTH_SECRET` | Output of `openssl rand -base64 32` |
 | `POSTGRES_PASSWORD` | Output of `openssl rand -hex 16` |
 | `SETUP_TOKEN` | A separate `openssl rand -hex 16` |
@@ -97,7 +97,7 @@ See [`.env.example`](.env.example) for the complete list. Optional services can 
 | Environment variable | Default / purpose |
 |---|---|
 | `BESTBUDGET_VERSION` | `1.0.0-beta.2`; Compose image tag |
-| `APP_URL` | Required public URL; cookies, origin checks, invitations and SSO callback |
+| `APP_URL` | Required public URL; cookies, origin checks, invitations and SSO callback. **HTTPS is required for PWA** (except localhost) |
 | `BETTER_AUTH_SECRET`, `SETUP_TOKEN` | Required session secret and first-run setup token |
 | `ENCRYPTION_KEY` | Optional; otherwise derived from `BETTER_AUTH_SECRET`. Preserve it when restoring encrypted settings |
 | `POSTGRES_*`, `DATABASE_URL` | Compose database credentials; `DATABASE_URL` is needed when running outside Compose |
@@ -112,6 +112,10 @@ See [`.env.example`](.env.example) for the complete list. Optional services can 
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_ALLOW_SIGNUP` | Empty issuer uses UI settings; new SSO accounts require invitations by default; [SSO](docs/sso.md) |
 | `AUTH_FORCE_LOCAL_LOGIN` | `false`; emergency password-login recovery |
 | `SMTP_URL`, `SMTP_FROM` | Optional self-service password reset; otherwise an admin resets passwords |
+
+## App on your home screen
+
+Install from the user menu or profile, or use Safari’s **Share → Add to Home Screen** on iPhone. It opens in its own window; offline shows a connection screen and never cached financial data. [Installation, sign-in and iOS limitations](docs/pwa.md).
 
 ## Statement import
 

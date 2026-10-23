@@ -207,9 +207,23 @@ test("reads a synthetic XLSX through the production upload route and rejects a f
   await loginOrSetup(page)
   const denied = await page.request.post("/api/import", { headers: { Origin: "https://foreign.invalid" }, data: "ignored" })
   expect(denied.status()).toBe(403)
-  await page.goto("/transactions/import")
-  await page.getByLabel("Выписка CSV / XLSX").setInputFiles("tests/fixtures/import/synthetic.xlsx")
+  let release!: () => void
+  const scripts = new Promise<void>((resolve) => { release = resolve })
+  await page.route("**/_next/static/**/*.js", async (route) => { await scripts; await route.continue() })
+  try {
+    await page.goto("/transactions/import", { waitUntil: "commit" })
+    await page.getByLabel("Выписка CSV / XLSX").setInputFiles("tests/fixtures/import/synthetic.xlsx")
+    await expect(page.getByRole("button", { name: "Прочитать файл", exact: true })).toBeDisabled()
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: "wait" })
+  }
+  // A cold SSR page must not accept an upload click until its handler is attached.
+  const inspection = page.waitForResponse((response) => response.url().endsWith("/api/import") && response.request().method() === "POST")
   await page.getByRole("button", { name: "Прочитать файл", exact: true }).click()
+  const response = await inspection
+  expect(response.status()).toBe(200)
+  expect(await response.json()).toMatchObject({ ok: true, data: { stage: "inspect", kind: "xlsx", profile: "bestbudget-v1" } })
   await expect(page.getByRole("combobox", { name: "Профиль", exact: true })).toContainText("BestBudget CSV v1")
   await page.getByRole("button", { name: "Подготовить предпросмотр", exact: true }).click()
   await expect(page.getByTestId("import-row")).toContainText("SYNTHETIC XLSX SHOP")

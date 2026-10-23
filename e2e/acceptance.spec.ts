@@ -41,7 +41,7 @@ async function addOperation(
   await expect(dialog).toBeHidden()
 }
 
-const balanceCard = (page: Page) => page.getByTestId("actual-balance")
+const balanceCard = (page: Page) => page.getByTestId("actual-balance").filter({ visible: true })
 
 test.describe.serial("acceptance scenario", () => {
   let inviteUrl = ""
@@ -77,9 +77,9 @@ test.describe.serial("acceptance scenario", () => {
     await addOperation(page, { amount: "5000", category: "Подписки", repeat: { day: "14" } })
 
     await page.goto("/transactions?tab=rules")
-    await expect(page.getByText("Ежемесячно, 5-го числа")).toBeVisible()
-    await expect(page.getByText("Ежемесячно, 20-го числа")).toBeVisible()
-    await expect(page.getByText("Кредит", { exact: true })).toBeVisible()
+    await expect(page.getByRole("button", { name: /^Зарплата Ежемесячно, 5-го числа/ })).toBeVisible()
+    await expect(page.getByRole("button", { name: /^Зарплата Ежемесячно, 20-го числа/ })).toBeVisible()
+    await expect(page.getByRole("button", { name: /^Кредит Ежемесячно, 7-го числа/ })).toBeVisible()
 
     // One-off expenses, already done.
     await page.goto("/transactions")
@@ -334,10 +334,13 @@ test.describe.serial("single sign-on (OIDC)", () => {
 
   test("linked user signs in with SSO; unknown SSO users need an invitation", async ({ browser }) => {
     identity = { sub: "owner-sub", email: ADMIN.email, email_verified: true, name: ADMIN.name }
-    const page = await (await browser.newContext({ locale: "ru-RU" })).newPage()
+    const context = await browser.newContext({ locale: "ru-RU" })
+    await context.addInitScript(() => Object.defineProperty(navigator, "standalone", { get: () => true }))
+    const page = await context.newPage()
     await page.goto("/login")
     await page.getByRole("button", { name: "Войти через Keycloak" }).click()
     await expect(page).toHaveURL(/\/dashboard/)
+    await expect(page.locator("html")).toHaveClass(/standalone/)
     await expect(page.getByText(ADMIN.email)).toBeVisible()
 
     identity = { sub: "stranger-sub", email: "stranger@e2e.test", email_verified: true, name: "Stranger" }
