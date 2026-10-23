@@ -20,11 +20,17 @@ export function ProposalCard({
   role,
   names,
   onEdit,
+  onDismiss,
+  editLabel,
+  canDismiss = true,
 }: {
   proposal: ProposalView
   role: HouseholdRole
   names: Record<string, string>
   onEdit: (text: string) => void
+  onDismiss?: () => void
+  editLabel?: string
+  canDismiss?: boolean
 }) {
   const t = useTranslations("ai"),
     locale = useLocale()
@@ -116,11 +122,11 @@ export function ProposalCard({
               >
                 {t("apply")}
               </Button>
-              <Button variant="outline" disabled={pending} onClick={() => run(() => dismissAiProposalAction(proposal.id))}>
+              <Button variant="outline" disabled={pending || !canDismiss} onClick={() => onDismiss ? onDismiss() : run(() => dismissAiProposalAction(proposal.id))}>
                 {t("dismiss")}
               </Button>
               <Button variant="ghost" onClick={() => onEdit(t("editPrompt", { title: proposal.title }))}>
-                {t("edit")}
+                {editLabel ?? t("edit")}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">{t("expiredHint")}</p>

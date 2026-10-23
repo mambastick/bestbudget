@@ -190,6 +190,7 @@ export function AiChat({
           <h1 className="min-w-0 flex-1 break-words text-sm font-medium" data-testid="ai-chat-title">
             {conversations.find((c) => c.id === id)?.title ?? t("newChat")}
           </h1>
+          <LinkButton href="/assistant/recommendations" size="sm" variant="ghost">{t("review.title")}</LinkButton>
           <Sheet open={dialogsOpen} onOpenChange={setDialogsOpen}>
             <SheetTrigger render={<Button variant="outline" size="sm" />}>
               <MessagesSquare className="size-4" />

@@ -85,6 +85,13 @@
       "when": 1792773104789,
       "tag": "0011_ai_reservation_expiry",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792777315418,
+      "tag": "0012_ai_budget_reviews",
+      "breakpoints": true
     }
   ]
 }

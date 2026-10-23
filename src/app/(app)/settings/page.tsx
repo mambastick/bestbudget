@@ -1,3 +1,5 @@
+import { AiReviewSettings } from "@/components/app/ai/review-settings"
+import { getReviewSettings } from "@/server/ai/reviews"
 import { AiHouseholdSettings } from "@/components/app/ai/household-settings"
 import { householdAiView } from "@/server/ai/access"
 import { fingerprint } from "@/server/ai/config"
@@ -42,6 +44,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       can(ctx.role, "invitations.manage") ? listInvitations(ctx) : Promise.resolve([]),
     ])
     const aiView = await householdAiView(ctx)
+    const reviewSettings = await getReviewSettings(ctx)
     content = (
       <>
         <HouseholdSettings
@@ -52,6 +55,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           role={ctx.role}
         />
         <AiHouseholdSettings view={aiView} providerFingerprint={fingerprint(aiView.provider)} owner={ctx.role === "owner"} />
+        <AiReviewSettings key={reviewSettings.version} settings={reviewSettings} enabled={aiView.enabled} canManage={can(ctx.role, "catalog.manage")} timezone={ctx.timezone} />
       </>
     )
   } else if (tab === "categories") {

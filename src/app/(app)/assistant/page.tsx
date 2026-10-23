@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation"
 import { getTranslations } from "next-intl/server"
+import { NavTabs } from "@/components/app/nav-tabs"
 import { AiChat } from "@/components/app/ai/chat"
 import { PageHeader } from "@/components/app/page-header"
 import { requireHousehold } from "@/server/session"
@@ -30,6 +31,7 @@ export default async function AssistantPage({ searchParams }: { searchParams: Pr
       <div className="hidden shrink-0 md:block">
         <PageHeader title={t("title")} description={t("subtitle")} />
       </div>
+      <div className="hidden md:block"><NavTabs active="chat" tabs={[{ key: "chat", label: t("review.chatTab"), href: "/assistant" }, { key: "recommendations", label: t("review.title"), href: "/assistant/recommendations" }]} /></div>
       <AiChat
         key={id ?? "new"}
         id={id}

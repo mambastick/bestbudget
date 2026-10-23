@@ -39,7 +39,7 @@ async function markInterruptedDeliveries(now: Date) {
     )
 }
 
-async function loadTelegramConfig() {
+export async function loadTelegramConfig() {
   try {
     const config = await telegramConfig()
     return telegramTransportReady(config) ? config : null
@@ -74,7 +74,7 @@ async function loadSuppressedKeys(p: PreferenceRow, target: DeliveryTarget, toda
   return new Set(delivered.flatMap((d) => [...d.budgetKeys, d.key.replace(/:device:.*$/, "")]))
 }
 
-async function buildTargets(p: PreferenceRow, telegram: TelegramConfig | null, locale: Locale) {
+export async function buildTargets(p: PreferenceRow, telegram: TelegramConfig | null, locale: Locale) {
   const db = getDb()
   const [link] = p.telegram ? await db.select().from(telegramLinks).where(eq(telegramLinks.userId, p.userId)) : []
   const devices = p.push ? await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, p.userId)) : []
@@ -98,7 +98,7 @@ async function buildTargets(p: PreferenceRow, telegram: TelegramConfig | null, l
   return targets
 }
 
-async function stillAllowed(p: PreferenceRow) {
+export async function stillAllowed(p: PreferenceRow) {
   const current = await resolveHouseholdCtx(p.userId, p.householdId)
   const [active] = await getDb()
     .select({ banned: users.banned, version: notificationPreferences.version })

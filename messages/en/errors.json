@@ -308,6 +308,7 @@
     "rateLimit": "Too many requests. Retry in a minute.",
     "busy": "A response is still being prepared. Wait for it to finish.",
     "contextLimit": "This conversation is too large. Start a new one.",
-    "providerError": "The provider did not respond. Retry your request."
+    "providerError": "The provider did not respond. Retry your request.",
+    "reviewDailyLimit": "This household has already used two manual reviews today. Try again tomorrow in the household time zone."
   }
 }
