@@ -88,7 +88,7 @@ export function PreferencesForm() {
 export function AuthPreferences() {
   const t = useTranslations("common.preferences")
   return (
-    <div className="absolute top-3 right-3">
+    <div data-slot="auth-preferences" className="absolute top-3 right-3">
       <DropdownMenu animated={false}>
         <DropdownMenuTrigger render={<Button size="icon" variant="ghost" aria-label={t("appearance")} />}><Settings2 /></DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48"><PreferenceMenuItems /></DropdownMenuContent>

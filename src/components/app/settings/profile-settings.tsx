@@ -13,6 +13,7 @@ import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { authClient, authErrorMessage } from "@/lib/auth-client"
 import { formatDateTime } from "@/lib/dates"
+import { InstallButton } from "@/components/app/pwa/install-button"
 import { PreferencesForm } from "@/components/app/preferences"
 import { Section } from "./section"
 
@@ -93,6 +94,8 @@ export function ProfileSettings({
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Section title={t("profile.profile")}>
+        <InstallButton />
+        <div className="h-4" />
         <PreferencesForm />
         <div className="h-4" />
         <form onSubmit={saveName} className="grid grid-cols-1 gap-4">

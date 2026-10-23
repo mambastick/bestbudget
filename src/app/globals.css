@@ -157,3 +157,88 @@
     display: none;
   }
 }
+
+@layer utilities {
+  :root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+  }
+
+  html, body {
+    overscroll-behavior-y: none;
+  }
+
+  button, a, [role="button"], [role="tab"], [role="menuitem"] {
+    touch-action: manipulation;
+  }
+
+  nav, [data-sidebar="menu-button"], [data-slot="app-header"] {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  [data-slot="auth-layout"] {
+    padding-top: calc(4rem + var(--safe-top));
+    padding-bottom: calc(2.5rem + var(--safe-bottom));
+    padding-left: max(1rem, var(--safe-left));
+    padding-right: max(1rem, var(--safe-right));
+  }
+  [data-slot="auth-preferences"] {
+    top: calc(0.75rem + var(--safe-top));
+    right: calc(0.75rem + var(--safe-right));
+  }
+
+  [data-slot="app-header"] {
+    height: calc(3.5rem + var(--safe-top));
+    padding-top: var(--safe-top);
+    padding-left: max(1rem, var(--safe-left));
+    padding-right: max(1rem, var(--safe-right));
+  }
+
+  [data-slot="sidebar-header"] { padding-top: max(0.5rem, var(--safe-top)); }
+  [data-slot="sidebar-footer"] { padding-bottom: max(0.5rem, var(--safe-bottom)); }
+  [data-slot="sidebar-inner"], [data-mobile="true"][data-slot="sidebar"] {
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
+  }
+  [data-slot="sidebar-content"], [data-slot="sheet-content"], [data-slot="dialog-content"] {
+    overscroll-behavior: contain;
+  }
+
+  [data-slot="sheet-content"]:not([data-mobile="true"]) {
+    padding-top: var(--safe-top);
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
+    max-height: 100dvh;
+    overflow-y: auto;
+  }
+  [data-slot="sheet-close"] { top: calc(0.75rem + var(--safe-top)); }
+  [data-slot="transaction-fab"] { right: max(1rem, var(--safe-right)); }
+  [data-slot="sheet-footer"], [data-slot="dialog-footer"] {
+    padding-bottom: max(1rem, var(--safe-bottom));
+  }
+  [data-slot="dialog-content"] {
+    top: calc(50% + (var(--safe-top) - var(--safe-bottom)) / 2);
+    width: calc(100% - var(--safe-left) - var(--safe-right) - 2rem);
+    max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 2rem);
+    overflow-y: auto;
+  }
+  [data-slot="sidebar-inset"] > main {
+    padding-left: max(1rem, var(--safe-left));
+    padding-right: max(1rem, var(--safe-right));
+    padding-bottom: calc(6rem + var(--safe-bottom));
+  }
+
+  @media (min-width: 768px) {
+    [data-slot="sidebar-inset"] > main { padding-bottom: calc(2.5rem + var(--safe-bottom)); }
+  }
+
+  @media (max-width: 767px) {
+    /* Prevent iOS focus zoom without disabling user zoom or text selection in financial data. */
+    input, textarea, select, [data-slot="input"], [data-slot="textarea"] {
+      font-size: 16px !important;
+    }
+  }
+}

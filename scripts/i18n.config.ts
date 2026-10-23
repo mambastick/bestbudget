@@ -1,5 +1,6 @@
 /** Expand this list when a whole area has been translated and reviewed in both locales. */
 export const translatedPaths = [
+  "src/components/app/pwa", "src/lib/pwa", "src/app/offline", "src/app/pwa-splash", "src/app/sw-version.js",
   "src/i18n", "src/components/auth", "src/components/app/settings", "src/components/app/preferences.tsx",
   "src/components/app/app-shell.tsx", "src/components/app/confirm-dialog.tsx", "src/components/app/empty-state.tsx",
   "src/components/app/date-field.tsx", "src/components/app/money-input.tsx", "src/components/app/segmented.tsx",
