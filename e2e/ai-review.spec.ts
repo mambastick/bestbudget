@@ -91,6 +91,7 @@ for (const locale of ["ru", "en"] as const)
           await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
           await screenshot(page, `${screenshotDir}/recommendations-${locale}-${width}-${theme}.png`, true)
           await page.goto("/dashboard")
+          await expect(page.getByTestId("ai-review-widget")).toHaveCount(1)
           await expect(page.getByTestId("ai-review-widget")).toContainText(
             locale === "ru" ? "Рекомендации по бюджету: 2" : "Budget recommendations: 2",
           )
@@ -105,9 +106,11 @@ for (const locale of ["ru", "en"] as const)
             await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
             await screenshot(page, `${screenshotDir}/settings-${locale}-${width}-${theme}.png`, true)
           }
+          // React briefly stages the next static dashboard in a hidden streaming container.
           await db`update users set locale = 'ru' where id = ${owner.id}`
           await page.setViewportSize({ width: 375, height: 812 })
           await page.goto("/dashboard")
+          await expect(page.getByTestId("ai-review-widget")).toHaveCount(1)
           await expect(page.getByTestId("ai-review-widget")).toContainText("Рекомендации по бюджету: 2")
           await page.getByTestId("ai-review-widget").getByRole("link", { name: "Открыть рекомендации", exact: true }).click()
           await expect(page).toHaveURL(/assistant\/recommendations/)
@@ -172,6 +175,7 @@ for (const locale of ["ru", "en"] as const)
           await expect(page.locator('[data-testid="ai-recommendation"][data-status="pending"]')).toHaveCount(0)
           await expect(page.getByTestId("ai-review-badge")).toHaveCount(0)
           await page.goto("/dashboard")
+          await expect(page.getByTestId("ai-review-widget")).toHaveCount(1)
           await expect(page.getByTestId("ai-review-widget")).toContainText("Рекомендации по бюджету: 0")
           await page.goto("/assistant/recommendations")
           await page.locator("summary").click()
