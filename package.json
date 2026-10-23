@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build && pnpm build:scripts",
+    "build": "next build && node scripts/check-ai-build.mjs && pnpm build:scripts",
     "build:scripts": "esbuild scripts/migrate.ts scripts/admin.ts scripts/backup.ts --bundle --platform=node --format=esm --target=node22 --outdir=dist-scripts --out-extension:.js=.mjs --packages=bundle --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
     "start": "next start",
     "lint": "eslint .",

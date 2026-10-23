@@ -20,6 +20,8 @@ const csp = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Bake the test gate into the artifact; runtime ENV must not enable mock in a normal build.
+  env: { NEXT_PUBLIC_AI_TEST_BUILD: process.env.NEXT_PUBLIC_AI_TEST_BUILD === "1" ? "1" : "0" },
   poweredByHeader: false,
   // Do not write AGENTS.md into the repository when `next dev` runs under a coding agent.
   agentRules: false,
