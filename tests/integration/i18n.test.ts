@@ -1,7 +1,9 @@
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
-import { closeDb } from "@/db"
-import { setUserLocale, getUserLocale } from "@/server/services/preferences"
+import { eq } from "drizzle-orm"
+import { users } from "@/db/schema"
+import { closeDb, getDb } from "@/db"
+import { setUserLocale, getUserLocale, getRecipientLocale, rememberBrowserLocale } from "@/server/services/preferences"
 import { createHousehold, resolveHouseholdCtx } from "@/server/services/households"
 import { listCategories, listAccounts } from "@/server/services/catalog"
 import { AppError, runAction } from "@/server/errors"
@@ -26,6 +28,37 @@ describe("locale preference persistence", () => {
     expect(await getUserLocale(user.id)).toBe("ru")
     await setUserLocale(user.id, null)
     expect(await getUserLocale(user.id)).toBeNull()
+  })
+
+  it("remembers browser language for recipients while explicit preference takes priority", async () => {
+    const user = await createUser()
+    const other = await createUser()
+    expect(await getRecipientLocale(user.id)).toBe("en")
+    await rememberBrowserLocale(user.id, "ru")
+    expect(await getRecipientLocale(user.id)).toBe("ru")
+    await setUserLocale(user.id, "en")
+    expect(await getRecipientLocale(user.id)).toBe("en")
+    await setUserLocale(user.id, null)
+    expect(await getRecipientLocale(user.id)).toBe("ru")
+    await rememberBrowserLocale(user.id, "en")
+    expect(await getRecipientLocale(user.id)).toBe("en")
+    const [profile] = await getDb().select().from(users).where(eq(users.id, other.id))
+    expect(profile).toMatchObject({ locale: null, lastSeenLocale: null })
+    await expect(rememberBrowserLocale(user.id, "de" as never)).rejects.toThrow()
+  })
+
+  it("does not write unchanged browser language and updates it when the browser changes", async () => {
+    const user = await createUser()
+    await rememberBrowserLocale(user.id, "ru")
+    const [before] = await getDb().select().from(users).where(eq(users.id, user.id))
+    vi.setSystemTime(Date.now() + 60_000)
+    await rememberBrowserLocale(user.id, "ru")
+    const [same] = await getDb().select().from(users).where(eq(users.id, user.id))
+    expect(same!.updatedAt).toEqual(before!.updatedAt)
+    await rememberBrowserLocale(user.id, "en")
+    const [changed] = await getDb().select().from(users).where(eq(users.id, user.id))
+    expect(changed!.updatedAt.getTime()).toBeGreaterThan(same!.updatedAt.getTime())
+    expect(changed!.lastSeenLocale).toBe("en")
   })
 
   it("seeds names in the creator's locale and never renames existing data", async () => {

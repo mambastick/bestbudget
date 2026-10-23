@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page } from "./fixtures"
 import { OAuth2Server } from "oauth2-mock-server"
 import { SETUP_TOKEN } from "../playwright.config"
 

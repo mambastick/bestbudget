@@ -1,4 +1,8 @@
 import "server-only"
+import { recipientLocale } from "@/i18n/locale"
+import { notificationTranslator } from "@/i18n/notifications"
+import { errorMessage } from "@/i18n/errors"
+import { getRecipientLocale } from "@/server/services/preferences"
 import { createHmac } from "node:crypto"
 import { and, eq, gt, lt } from "drizzle-orm"
 import { getDb } from "@/db"
@@ -128,25 +132,27 @@ export async function handleTelegramUpdate(raw: unknown, token: string, botId: s
     .set({ lastUpdateAt: new Date(), transportError: null })
     .where(eq(notificationSettings.id, 1))
   const chatId = String(chat.id)
-  const reply = (text: string) =>
-    telegramApi(token, "sendMessage", {
-      chat_id: chatId,
-      text: truncateMessage(text),
-      link_preview_options: { is_disabled: true },
-    })
   const [link] = await db
-    .select({ userId: telegramLinks.userId })
+    .select({ userId: telegramLinks.userId, locale: users.locale, lastSeenLocale: users.lastSeenLocale })
     .from(telegramLinks)
     .innerJoin(users, eq(users.id, telegramLinks.userId))
     .where(and(eq(telegramLinks.chatId, chatId), eq(users.banned, false)))
+  let locale = recipientLocale(link)
+  let t = notificationTranslator(locale)
+  const reply = (text: string) =>
+    telegramApi(token, "sendMessage", {
+      chat_id: chatId,
+      text: truncateMessage(text, 3500, locale),
+      link_preview_options: { is_disabled: true },
+    })
   if (cb) {
-    let text = "Сначала подключите Telegram в профиле BestBudget"
+    let text = t("connectFirst")
     if (link && cb.data) {
       try {
         await confirmTelegramPayment(link.userId, cb.data)
-        text = "✅ Платёж подтверждён"
+        text = t("confirmed")
       } catch (e) {
-        text = e instanceof AppError ? e.message : "Не удалось подтвердить платёж. Откройте приложение."
+        text = e instanceof AppError ? errorMessage(e.messageKey, e.params, locale) : t("confirmFailed")
       }
     }
     await reply(text)
@@ -155,26 +161,28 @@ export async function handleTelegramUpdate(raw: unknown, token: string, botId: s
   const [command, arg] = (m?.text ?? "").trim().split(/\s+/)
   if (command === "/start" && arg) {
     try {
-      await bindTelegram(arg, chatId)
+      const userId = await bindTelegram(arg, chatId)
+      locale = await getRecipientLocale(userId)
+      t = notificationTranslator(locale)
       await reply(
-        "Telegram подключён. Включите канал в настройках уведомлений нужной семьи. Команды: /today, /balance, /stop.",
+        t("connected"),
       )
     } catch {
-      await reply("Ссылка недействительна или истекла. Создайте новую в профиле BestBudget.")
+      await reply(t("linkExpired"))
     }
     return
   }
   if (!link) {
-    await reply("Подключите Telegram в BestBudget: Настройки → Профиль и безопасность.")
+    await reply(t("connectHelp"))
     return
   }
   if (command === "/stop") {
     await disconnectTelegram(link.userId)
-    await reply("Telegram отключён. Подключить заново можно в профиле BestBudget.")
+    await reply(t("disconnected"))
     return
   }
   if (command !== "/today" && command !== "/balance") {
-    await reply("Команды: /today — платежи сегодня и завтра; /balance — баланс; /stop — отключить.")
+    await reply(t("help"))
     return
   }
   // Replies are bounded; no financial data is persisted in the update journal.
@@ -183,7 +191,7 @@ export async function handleTelegramUpdate(raw: unknown, token: string, botId: s
     const ctx = await resolveHouseholdCtx(link.userId, h.id)
     if (!ctx) continue
     assertCan(ctx, "finance.read")
-    if (command === "/balance") sections.push(`${h.name}: ${formatMoney(await actualBalance(ctx), ctx.currency)}`)
+    if (command === "/balance") sections.push(`${h.name}: ${formatMoney(await actualBalance(ctx), ctx.currency, { locale })}`)
     else {
       const today = todayIn(ctx.timezone)
       const payments = await listInRange(ctx, today, addDays(today, 1))
@@ -191,11 +199,12 @@ export async function handleTelegramUpdate(raw: unknown, token: string, botId: s
         { householdId: h.id, currency: ctx.currency, payments, forecast: [], budgets: [] },
         preferencesInput.parse({}),
         today,
+        locale,
       )
-      sections.push(`${h.name}\n${notices.map((n) => n.text).join("\n") || "Сегодня и завтра платежей нет."}`)
+      sections.push(`${h.name}\n${notices.map((n) => n.text).join("\n") || t("noPayments")}`)
     }
   }
-  await reply(sections.join("\n\n") || "Нет доступных семейных пространств.")
+  await reply(sections.join("\n\n") || t("noHouseholds"))
 }
 
 function samePollingConfiguration(current: TelegramConfig, expected: TelegramConfig) {

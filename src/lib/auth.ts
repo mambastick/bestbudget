@@ -6,16 +6,14 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { nextCookies } from "better-auth/next-js"
 import { admin } from "better-auth/plugins/admin"
 import { genericOAuth } from "better-auth/plugins/generic-oauth"
-import { isLocale, LOCALE_COOKIE, resolveLocale } from "@/i18n/locale"
-import { getUserLocale } from "@/server/services/preferences"
-import { loadMessages } from "@/i18n/messages"
-import { createTranslator } from "next-intl"
+import { browserLocale, isLocale, LOCALE_COOKIE } from "@/i18n/locale"
+import { getUserLocale, rememberBrowserLocale } from "@/server/services/preferences"
 import { getDb } from "@/db"
 import { authAccounts, rateLimits, sessions, users, verifications } from "@/db/schema"
 import { audit } from "@/server/audit"
 import { findValidInvitation } from "@/server/services/households"
 import { getAuthMethods, OIDC_PROVIDER_ID, type AuthMethods } from "@/server/services/settings"
-import { sendMail, smtpEnabled } from "./mail"
+import { sendPasswordResetMail, smtpEnabled } from "./mail"
 import { appUrl, env } from "./env"
 
 export const INVITE_COOKIE = "bb_invite"
@@ -76,18 +74,12 @@ function build(methods: AuthMethods) {
       maxPasswordLength: 128,
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: smtpEnabled()
-        ? async ({ user, url }, request) => {
-            const locale = resolveLocale({ user: await getUserLocale(user.id), cookie: readCookie(request?.headers.get("cookie"), LOCALE_COOKIE), acceptLanguage: request?.headers.get("accept-language") })
-            const t = createTranslator({ locale, messages: await loadMessages(locale), namespace: "auth" })
-            await sendMail({
-              to: user.email,
-              subject: t("email.resetSubject"),
-              text: t("email.resetBody", { url }),
-            })
+        ? async ({ user, url }) => {
+            await sendPasswordResetMail({ userId: user.id, to: user.email, url })
           }
         : undefined,
     },
-    user: { additionalFields: { locale: { type: "string", required: false, input: false } } },
+    user: { additionalFields: { locale: { type: "string", required: false, input: false }, lastSeenLocale: { type: "string", required: false, input: false } } },
     account: {
       // SSO identities are never merged into existing accounts by e-mail; linking is explicit, from a signed-in session.
       accountLinking: { enabled: true, disableImplicitLinking: true, allowDifferentEmails: true },
@@ -116,7 +108,7 @@ function build(methods: AuthMethods) {
             const allowed = signupGate.getStore()?.allowed || methods.publicRegistration || (isOidc && oidc?.allowSignup) || (token && await findValidInvitation(token))
             if (!allowed) return false
             const locale = readCookie(ctx?.headers?.get("cookie"), LOCALE_COOKIE)
-            return { data: { ...user, locale: isLocale(locale) ? locale : null } }
+            return { data: { ...user, locale: isLocale(locale) ? locale : null, lastSeenLocale: browserLocale(ctx?.headers?.get("accept-language")) } }
           },
           after: async (user) => {
             // Not awaited: Better Auth may still hold the new row in an open transaction.
@@ -127,6 +119,8 @@ function build(methods: AuthMethods) {
       session: {
         create: {
           after: async (session, ctx) => {
+            const language = ctx?.headers?.get("accept-language")
+            if (language) await rememberBrowserLocale(session.userId, browserLocale(language))
             const locale = await getUserLocale(session.userId)
             ctx?.setCookie(LOCALE_COOKIE, isLocale(locale) ? locale : "", {
               httpOnly: true, sameSite: "lax", secure, path: "/", maxAge: isLocale(locale) ? 60 * 60 * 24 * 365 : 0,

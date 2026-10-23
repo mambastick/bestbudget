@@ -1,5 +1,7 @@
 import "server-only"
 import { and, eq, lte, sql } from "drizzle-orm"
+import { notificationTranslator } from "@/i18n/notifications"
+import type { Locale } from "@/i18n/locale"
 import webpush from "web-push"
 import { getDb } from "@/db"
 import { notificationDeliveries, pushSubscriptions } from "@/db/schema"
@@ -10,34 +12,35 @@ import { allowedPushEndpoint } from "@/server/services/notifications"
 import { vapidConfig } from "@/server/services/notification-settings"
 import { DeliveryError, telegramApi } from "./telegram-api"
 
-export async function sendTelegramNotice(token: string, chatId: string, notice: Notice) {
+export async function sendTelegramNotice(token: string, chatId: string, notice: Notice, locale: Locale = "en") {
+  const t = notificationTranslator(locale)
   const url = `${appUrl()}${notice.path}`
   // Telegram rejects non-public HTTP URLs in inline buttons; local installs still get a text link.
   const keyboard = [
     ...(notice.payment
       ? [
           {
-            text: "✅ Оплачено",
+            text: t("paid"),
             callback_data: `pay:${notice.payment.id}:${notice.payment.version}`,
           },
         ]
       : []),
-    ...(url.startsWith("https://") ? [{ text: "Открыть", url }] : []),
+    ...(url.startsWith("https://") ? [{ text: t("open"), url }] : []),
   ]
   await telegramApi(token, "sendMessage", {
     chat_id: chatId,
-    text: truncateMessage(`${notice.text}\n${url}`, 4096),
+    text: truncateMessage(`${notice.text}\n${url}`, 4096, locale),
     link_preview_options: { is_disabled: true },
     ...(keyboard.length ? { reply_markup: { inline_keyboard: [keyboard] } } : {}),
   })
 }
 
-export async function sendPushNotice(subscription: typeof pushSubscriptions.$inferSelect, notice: Notice) {
+export async function sendPushNotice(subscription: typeof pushSubscriptions.$inferSelect, notice: Notice, locale: Locale = "en") {
   if (!allowedPushEndpoint(subscription.endpoint)) throw new DeliveryError("push_endpoint_invalid")
   const vapid = await vapidConfig()
   const payload = JSON.stringify({
     title: "BestBudget",
-    body: truncateMessage(notice.text, 1000),
+    body: truncateMessage(notice.text, 1000, locale),
     url: notice.path,
     tag: notice.key,
   })

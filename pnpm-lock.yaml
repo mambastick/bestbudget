@@ -86,6 +86,9 @@ importers:
       tailwind-merge:
         specifier: ^3.6.0
         version: 3.7.0
+      use-intl:
+        specifier: 4.14.9
+        version: 4.14.9(@types/react@19.3.0)(react@19.3.1)
       web-push:
         specifier: ^3.6.7
         version: 3.6.7

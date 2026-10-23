@@ -11,24 +11,24 @@ const snapshot: NoticeSnapshot = {
 const p = preferencesInput.parse({})
 describe("notification selection", () => {
   it("formats tomorrow's payment, forecast and budget, with stable event keys", () => {
-    const items = noticesFor(snapshot, p, "2026-10-23")
+    const items = noticesFor(snapshot, p, "2026-10-23", "ru")
     expect(items.map((n) => n.kind)).toEqual(["due", "cash_gap", "budget"])
     expect(items[0]!.text.replace(/\u00a0/g, " ")).toBe("Завтра платёж: Ипотека — 45 000 ₽ со счёта Сбер")
     expect(items[0]!.payment).toEqual({ id, version: 2 })
     expect(items[1]!.text).toContain("−12")
     expect(items[2]!.text).toContain("15%")
     expect(items[0]!.key).toBe(`due:${id}:2026-10-24`)
-    expect(noticesFor(snapshot, p, "2026-10-24")[0]!.key).toBe(items[0]!.key)
-    expect(noticesFor(snapshot, p, "2026-11-01").at(-1)!.key).not.toBe(items.at(-1)!.key)
+    expect(noticesFor(snapshot, p, "2026-10-24", "ru")[0]!.key).toBe(items[0]!.key)
+    expect(noticesFor(snapshot, p, "2026-11-01", "ru").at(-1)!.key).not.toBe(items.at(-1)!.key)
   })
   it("selects overdue, lead time, event switches and exact budget threshold", () => {
-    expect(noticesFor(snapshot, p, "2026-10-26")[0]!.text).toContain("не подтверждена 2 дн.")
-    expect(noticesFor(snapshot, { ...p, daysBefore: 0, cashGap: false, budget: false }, "2026-10-23")).toEqual([])
-    expect(noticesFor(snapshot, { ...p, due: false, overdue: false, cashGap: false, budget: false }, "2026-10-26")).toEqual([])
-    expect(noticesFor(snapshot, { ...p, budgetThreshold: 16 }, "2026-10-23").some((n) => n.kind === "budget")).toBe(false)
+    expect(noticesFor(snapshot, p, "2026-10-26", "ru")[0]!.text).toContain("не подтверждена 2 дня.")
+    expect(noticesFor(snapshot, { ...p, daysBefore: 0, cashGap: false, budget: false }, "2026-10-23", "ru")).toEqual([])
+    expect(noticesFor(snapshot, { ...p, due: false, overdue: false, cashGap: false, budget: false }, "2026-10-26", "ru")).toEqual([])
+    expect(noticesFor(snapshot, { ...p, budgetThreshold: 16 }, "2026-10-23", "ru").some((n) => n.kind === "budget")).toBe(false)
     const exact = { ...snapshot, budgets: [{ id: "food", name: "Продукты", limit: 100001, spent: 115001 }] }
-    expect(noticesFor(exact, p, "2026-10-23").some((n) => n.kind === "budget")).toBe(false)
-    expect(noticesFor({ ...snapshot, payments: snapshot.payments.map((t) => ({ ...t, status: "posted" })) }, p, "2026-10-23").some((n) => n.kind === "due")).toBe(false)
+    expect(noticesFor(exact, p, "2026-10-23", "ru").some((n) => n.kind === "budget")).toBe(false)
+    expect(noticesFor({ ...snapshot, payments: snapshot.payments.map((t) => ({ ...t, status: "posted" })) }, p, "2026-10-23", "ru").some((n) => n.kind === "due")).toBe(false)
   })
   it("keeps payment minor units in the account currency and forecasts in the base currency", () => {
     const foreign = {
@@ -36,15 +36,33 @@ describe("notification selection", () => {
       currency: "EUR",
       payments: snapshot.payments.map((payment) => ({ ...payment, amount: 10000, currency: "USD" })),
     }
-    const notices = noticesFor(foreign, p, "2026-10-23")
+    const notices = noticesFor(foreign, p, "2026-10-23", "ru")
     expect(notices[0]!.text.replace(/\u00a0/g, " ")).toContain("100 $")
     expect(notices[1]!.text.replace(/\u00a0/g, " ")).toContain("−12 300 €")
-    expect(noticesFor(foreign, p, "2026-10-26")[0]!.text.replace(/\u00a0/g, " ")).toContain("100 $")
+    expect(noticesFor(foreign, p, "2026-10-26", "ru")[0]!.text.replace(/\u00a0/g, " ")).toContain("100 $")
     const yen = { ...foreign, payments: foreign.payments.map((payment) => ({ ...payment, amount: 100, currency: "JPY" })) }
-    expect(noticesFor(yen, p, "2026-10-23")[0]!.text.replace(/\u00a0/g, " ")).toContain("100 ¥")
-    const digest = scheduledNotices(foreign, { ...p, digest: true }, "Europe/Moscow", new Date("2026-10-23T09:00:00Z"))
+    expect(noticesFor(yen, p, "2026-10-23", "ru")[0]!.text.replace(/\u00a0/g, " ")).toContain("100 ¥")
+    const digest = scheduledNotices(foreign, { ...p, digest: true }, "Europe/Moscow", new Date("2026-10-23T09:00:00Z"), "ru")
     expect(digest[0]!.text.replace(/\u00a0/g, " ")).toContain("100 $")
     expect(digest[0]!.text.replace(/\u00a0/g, " ")).toContain("−12 300 €")
+  })
+  it("localizes every notice and truncation without translating user data or event keys", () => {
+    const ru = noticesFor(snapshot, p, "2026-10-23", "ru")
+    const en = noticesFor(snapshot, p, "2026-10-23", "en")
+    expect(en.map((n) => n.key)).toEqual(ru.map((n) => n.key))
+    expect(en[0]!.text).toContain("Tomorrow: Ипотека — RUB 45,000 from Сбер")
+    expect(en[1]!.text).toContain("October 28")
+    expect(en[2]!.text).toBe("The “Продукты” budget is 15% over its limit")
+    for (const [count, ending] of [[1, "1 день"], [2, "2 дня"], [5, "5 дней"], [21, "21 день"]] as const) {
+      const day = new Date("2026-10-24T00:00:00Z")
+      day.setUTCDate(day.getUTCDate() + count)
+      expect(noticesFor(snapshot, p, day.toISOString().slice(0, 10), "ru")[0]!.text).toContain(ending)
+    }
+    expect(noticesFor(snapshot, p, "2026-10-26", "en")[0]!.text).toContain("unconfirmed for 2 days")
+    const digest = scheduledNotices({ ...snapshot, payments: [], forecast: [], budgets: [] }, { ...p, digest: true }, "Europe/Moscow", new Date("2026-10-23T09:00:00Z"), "en")
+    expect(digest[0]!.text).toBe("Summary for October 23\nNo upcoming payments or alerts.")
+    expect(truncateMessage("😀".repeat(5000), 1000, "en")).toContain("Open the app")
+    expect(truncateMessage("😀".repeat(5000), 1000, "ru")).toContain("Остальное")
   })
   it("honors crossing and daytime quiet hours and disabled quiet hours", () => {
     expect(isQuiet("23:59", "22:00", "08:00")).toBe(true)
@@ -56,12 +74,12 @@ describe("notification selection", () => {
   it("uses household time zones, digests, month rollover and DST", () => {
     const midnight = new Date("2026-10-31T21:30:00Z")
     const digest = { ...p, digest: true, digestTime: "00:00", quietStart: "00:00", quietEnd: "00:00" }
-    expect(scheduledNotices(snapshot, digest, "Europe/Moscow", midnight)[0]!.key).toBe("digest:family:2026-11-01")
-    expect(scheduledNotices(snapshot, digest, "America/New_York", midnight)[0]!.key).toBe("digest:family:2026-10-31")
-    expect(scheduledNotices(snapshot, { ...p, digest: true }, "Europe/Moscow", new Date("2026-10-23T05:30:00Z"))).toEqual([])
-    expect(scheduledNotices(snapshot, { ...p, digest: true }, "Europe/Moscow", new Date("2026-10-23T06:01:00Z"))[0]!.kind).toBe("digest")
-    expect(scheduledNotices(snapshot, p, "Europe/Moscow", midnight)).toEqual([])
-    for (const iso of ["2026-10-25T00:30:00Z", "2026-10-25T01:30:00Z"]) expect(scheduledNotices(snapshot, digest, "Europe/Berlin", new Date(iso))[0]!.key).toBe("digest:family:2026-10-25")
+    expect(scheduledNotices(snapshot, digest, "Europe/Moscow", midnight, "ru")[0]!.key).toBe("digest:family:2026-11-01")
+    expect(scheduledNotices(snapshot, digest, "America/New_York", midnight, "ru")[0]!.key).toBe("digest:family:2026-10-31")
+    expect(scheduledNotices(snapshot, { ...p, digest: true }, "Europe/Moscow", new Date("2026-10-23T05:30:00Z"), "ru")).toEqual([])
+    expect(scheduledNotices(snapshot, { ...p, digest: true }, "Europe/Moscow", new Date("2026-10-23T06:01:00Z"), "ru")[0]!.kind).toBe("digest")
+    expect(scheduledNotices(snapshot, p, "Europe/Moscow", midnight, "ru")).toEqual([])
+    for (const iso of ["2026-10-25T00:30:00Z", "2026-10-25T01:30:00Z"]) expect(scheduledNotices(snapshot, digest, "Europe/Berlin", new Date(iso), "ru")[0]!.key).toBe("digest:family:2026-10-25")
   })
   it("bounds Unicode payloads and accepts only well-formed private updates and callbacks", () => {
     expect(truncateMessage("😀".repeat(5000)).length).toBeLessThan(4096)

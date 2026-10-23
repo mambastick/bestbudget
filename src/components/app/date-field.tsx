@@ -13,11 +13,11 @@ import { cn } from "@/lib/utils"
 
 function toDate(iso: IsoDate) {
   const [y, m, d] = iso.split("-").map(Number)
-  return new Date(y!, m! - 1, d!)
+  return new Date(Date.UTC(y!, m! - 1, d!))
 }
 
 function toIso(date: Date): IsoDate {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`
 }
 
 /** Date picker with quick choices. `today` comes from the server (household time zone). */
@@ -74,14 +74,16 @@ export function DateField({
         ) : null}
         <Calendar
           mode="single"
+          timeZone="UTC"
+          today={toDate(today)}
           locale={locale === "ru" ? ru : enUS}
           weekStartsOn={1}
           selected={value ? toDate(value) : undefined}
           defaultMonth={toDate(value ?? today)}
           onSelect={(d) => d && pick(toIso(d))}
           captionLayout="dropdown"
-          startMonth={new Date(2000, 0)}
-          endMonth={new Date(2100, 11)}
+          startMonth={new Date(Date.UTC(2000, 0))}
+          endMonth={new Date(Date.UTC(2100, 11))}
         />
       </PopoverContent>
     </Popover>

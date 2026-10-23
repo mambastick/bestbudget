@@ -1,4 +1,4 @@
-import { createTranslator } from "next-intl"
+import { createTranslator } from "use-intl/core"
 import type { z } from "zod"
 import enZod from "zod/v4/locales/en.js"
 import ruZod from "zod/v4/locales/ru.js"

@@ -1,3 +1,5 @@
+import { notificationTranslator } from "@/i18n/notifications"
+import type { Locale } from "@/i18n/locale"
 import { z } from "zod"
 import { addDays, diffDays, formatDay, monthKey, todayIn } from "@/lib/dates"
 import { formatMoney } from "@/lib/money"
@@ -46,8 +48,8 @@ export interface NoticeSnapshot {
   budgets: { id: string; name: string; limit: number | null; spent: number }[]
 }
 
-export function localClock(timeZone: string, now: Date): string {
-  return new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(
+export function localClock(timeZone: string, now: Date, locale: Locale): string {
+  return new Intl.DateTimeFormat(locale, { timeZone, numberingSystem: "latn", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(
     now,
   )
 }
@@ -57,25 +59,26 @@ export function isQuiet(clock: string, start: string, end: string): boolean {
   return start < end ? clock >= start && clock < end : clock >= start || clock < end
 }
 
-export function noticesFor(s: NoticeSnapshot, p: Preferences, today: string): Notice[] {
+export function noticesFor(s: NoticeSnapshot, p: Preferences, today: string, locale: Locale): Notice[] {
+  const translate = notificationTranslator(locale)
   const notices: Notice[] = []
   for (const t of s.payments) {
     if (t.status !== "planned" || t.type === "income") continue
-    const amount = formatMoney(t.amount, t.currency)
+    const amount = formatMoney(t.amount, t.currency, { locale })
     if (t.date < today && p.overdue) {
       notices.push({
         kind: "overdue",
         key: `overdue:${t.id}:${t.date}`,
-        text: `Просрочено: ${t.title} ${amount} — не подтверждена ${diffDays(today, t.date)} дн.`,
+        text: translate("overdue", { title: t.title, amount, count: diffDays(today, t.date) }),
         path: "/transactions",
         payment: { id: t.id, version: t.version },
       })
     } else if (p.due && t.date >= today && t.date <= addDays(today, p.daysBefore)) {
-      const when = t.date === today ? "Сегодня" : t.date === addDays(today, 1) ? "Завтра" : formatDay(t.date)
+      const when = t.date === today ? translate("today") : t.date === addDays(today, 1) ? translate("tomorrow") : formatDay(t.date, locale)
       notices.push({
         kind: "due",
         key: `due:${t.id}:${t.date}`,
-        text: `${when} платёж: ${t.title} — ${amount} со счёта ${t.accountName}`,
+        text: translate("due", { when, title: t.title, amount, account: t.accountName }),
         path: "/transactions",
         payment: { id: t.id, version: t.version },
       })
@@ -86,7 +89,7 @@ export function noticesFor(s: NoticeSnapshot, p: Preferences, today: string): No
     notices.push({
       kind: "cash_gap",
       key: `gap:${s.householdId}:${gap.date}`,
-      text: `Кассовый разрыв: ${formatDay(gap.date)} баланс уйдёт в ${formatMoney(gap.balance, s.currency)}`,
+      text: translate("cashGap", { date: formatDay(gap.date, locale), amount: formatMoney(gap.balance, s.currency, { locale }) }),
       path: "/calendar",
     })
   if (p.budget)
@@ -97,7 +100,7 @@ export function noticesFor(s: NoticeSnapshot, p: Preferences, today: string): No
       notices.push({
         kind: "budget",
         key: `budget:${s.householdId}:${b.id}:${monthKey(today)}:${p.budgetThreshold}`,
-        text: `Бюджет „${b.name}“ превышен на ${excess}%`,
+        text: translate("budget", { name: b.name, percent: excess }),
         path: "/budgets",
       })
     }
@@ -110,19 +113,21 @@ export function scheduledNotices(
   p: Preferences,
   timezone: string,
   now: Date,
+  locale: Locale,
   suppressedBudgets: ReadonlySet<string> = new Set(),
 ): Notice[] {
-  const clock = localClock(timezone, now)
+  const translate = notificationTranslator(locale)
+  const clock = localClock(timezone, now, locale)
   if (isQuiet(clock, p.quietStart, p.quietEnd)) return []
   const today = todayIn(timezone, now)
-  const items = noticesFor(s, p, today).filter((n) => n.kind !== "budget" || !suppressedBudgets.has(n.key))
+  const items = noticesFor(s, p, today, locale).filter((n) => n.kind !== "budget" || !suppressedBudgets.has(n.key))
   if (!p.digest) return items
   if (clock < p.digestTime) return []
   return [
     {
       kind: "digest",
       key: `digest:${s.householdId}:${today}`,
-      text: `Сводка за ${formatDay(today)}\n${items.length ? items.map((n) => n.text).join("\n") : "Нет ближайших платежей и предупреждений."}`,
+      text: translate("digest", { date: formatDay(today, locale), items: items.length ? items.map((n) => n.text).join("\n") : translate("noNotices") }),
       path: "/dashboard",
       budgetKeys: items.filter((n) => n.kind === "budget").map((n) => n.key),
     },
@@ -130,12 +135,12 @@ export function scheduledNotices(
 }
 
 /** Leave space for household name and links; never split surrogate pairs. */
-export function truncateMessage(text: string, max = 3500): string {
+export function truncateMessage(text: string, max = 3500, locale: Locale = "en"): string {
   if (text.length <= max) return text
   return (
     Array.from(text.slice(0, max - 80))
       .join("")
-      .replace(/[\uD800-\uDBFF]$/, "") + "\n…Остальное — в приложении."
+      .replace(/[\uD800-\uDBFF]$/, "") + "\n" + notificationTranslator(locale)("truncated")
   )
 }
 

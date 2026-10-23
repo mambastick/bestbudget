@@ -10,6 +10,7 @@ import {
   users,
 } from "@/db/schema"
 import { preferencesInput, scheduledNotices, type Notice } from "@/domain/notifications"
+import { recipientLocale, type Locale } from "@/i18n/locale"
 import { can } from "@/domain/permissions"
 import { todayIn } from "@/lib/dates"
 import { resolveHouseholdCtx } from "@/server/services/households"
@@ -73,7 +74,7 @@ async function loadSuppressedKeys(p: PreferenceRow, target: DeliveryTarget, toda
   return new Set(delivered.flatMap((d) => [...d.budgetKeys, d.key.replace(/:device:.*$/, "")]))
 }
 
-async function buildTargets(p: PreferenceRow, telegram: TelegramConfig | null) {
+async function buildTargets(p: PreferenceRow, telegram: TelegramConfig | null, locale: Locale) {
   const db = getDb()
   const [link] = p.telegram ? await db.select().from(telegramLinks).where(eq(telegramLinks.userId, p.userId)) : []
   const devices = p.push ? await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, p.userId)) : []
@@ -84,14 +85,14 @@ async function buildTargets(p: PreferenceRow, telegram: TelegramConfig | null) {
     targets.push({
       channel: "telegram",
       suffix: "",
-      send: (notice) => sendTelegramNotice(token, chatId, notice),
+      send: (notice) => sendTelegramNotice(token, chatId, notice, locale),
     })
   }
   for (const device of devices) {
     targets.push({
       channel: "push",
       suffix: `:device:${device.id}`,
-      send: (notice) => sendPushNotice(device, notice),
+      send: (notice) => sendPushNotice(device, notice, locale),
     })
   }
   return targets
@@ -114,18 +115,19 @@ export async function runNotificationJob(now = new Date()) {
   await markInterruptedDeliveries(now)
   const telegram = await loadTelegramConfig()
   const preferences = await getDb()
-    .select({ p: notificationPreferences })
+    .select({ p: notificationPreferences, locale: users.locale, lastSeenLocale: users.lastSeenLocale })
     .from(notificationPreferences)
     .innerJoin(users, eq(users.id, notificationPreferences.userId))
     .where(eq(users.banned, false))
   const materialized = new Set<string>()
   let count = 0
 
-  for (const { p } of preferences) {
+  for (const { p, ...user } of preferences) {
     if (!p.telegram && !p.push) continue
     const ctx = await resolveHouseholdCtx(p.userId, p.householdId)
     if (!ctx || !can(ctx.role, "finance.read")) continue
     try {
+      const locale = recipientLocale(user)
       const today = todayIn(ctx.timezone, now)
       if (!materialized.has(ctx.householdId)) {
         await ensureMaterialized(ctx.householdId, today)
@@ -133,9 +135,9 @@ export async function runNotificationJob(now = new Date()) {
       }
       const snapshot = await notificationSnapshot(ctx, now)
       const settings = preferencesInput.parse(p)
-      for (const target of await buildTargets(p, telegram)) {
+      for (const target of await buildTargets(p, telegram, locale)) {
         const suppressed = await loadSuppressedKeys(p, target, today)
-        const notices = scheduledNotices(snapshot, settings, ctx.timezone, now, suppressed)
+        const notices = scheduledNotices(snapshot, settings, ctx.timezone, now, locale, suppressed)
         for (const notice of notices) {
           // Re-check before each side effect; revocation must not drain a stale outbox.
           if (!(await stillAllowed(p))) break
