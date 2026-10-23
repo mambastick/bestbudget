@@ -8,7 +8,7 @@ import { BackupService, type ScheduleState } from "../../src/server/backup/servi
 process.umask(0o077)
 
 function displayTime(value: string, timeZone: string) {
-  return new Intl.DateTimeFormat("ru-RU", { timeZone, dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
+  return new Intl.DateTimeFormat("en-GB", { timeZone, dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
 }
 async function schedule(config: ReturnType<typeof backupConfig>, service: BackupService) {
   if (!config.BACKUP_ENABLED) {
@@ -29,10 +29,10 @@ async function schedule(config: ReturnType<typeof backupConfig>, service: Backup
   await atomicJson(file, state)
   const controller = new AbortController()
   for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => controller.abort())
-  console.log(`Бэкапы ежедневно в ${config.BACKUP_TIME} (${config.TZ}); следующий: ${displayTime(state.nextRun, config.TZ)}`)
+  console.log(`Daily backups at ${config.BACKUP_TIME} (${config.TZ}); next: ${displayTime(state.nextRun, config.TZ)}`)
   while (!controller.signal.aborted) {
     if (Date.now() >= Date.parse(state.nextRun)) {
-      try { await service.now() } catch (error) { console.error(error instanceof BackupError ? error.message : "Не удалось создать бэкап") }
+      try { await service.now() } catch (error) { console.error(error instanceof BackupError ? error.message : "Could not create backup") }
       state.lastDay = localDay(new Date(), config.TZ)
       state.nextRun = nextDailyRun(new Date(), config.BACKUP_TIME, config.TZ, state.lastDay).toISOString()
       await atomicJson(file, state)
@@ -51,16 +51,16 @@ async function main() {
     case "list": {
       const files = await listBackups(config.BACKUP_DIR)
       if (json) console.log(JSON.stringify(files))
-      else if (!files.length) console.log("Бэкапов пока нет")
-      else for (const file of files) console.log(`${file.name}\t${file.size} байт\t${file.createdAt}`)
+      else if (!files.length) console.log("No backups yet")
+      else for (const file of files) console.log(`${file.name}\t${file.size} bytes\t${file.createdAt}`)
       break
     }
     case "verify":
-      if (!input) throw new BackupError("Укажите файл: verify backups/<имя>.dump")
-      console.log(`Проверено: ${await service.verify(input)}`)
+      if (!input) throw new BackupError("Specify a file: verify backups/<name>.dump")
+      console.log(`Verified: ${await service.verify(input)}`)
       break
     case "restore":
-      if (!input) throw new BackupError("Укажите файл: restore backups/<имя>.dump --yes")
+      if (!input) throw new BackupError("Specify a file: restore backups/<name>.dump --yes")
       await service.restore(input, process.argv.includes("--yes"))
       break
     case "schedule": await schedule(config, service); break
@@ -69,19 +69,19 @@ async function main() {
       if (json) console.log(JSON.stringify(status))
       else if (!status.enabled) console.log("backups disabled (BACKUP_ENABLED=false)")
       else {
-        console.log(status.lastSuccess ? `Последний бэкап: ${displayTime(status.lastSuccess.createdAt, config.TZ)}, ${status.lastSuccess.size} байт (${status.lastSuccess.name})` : "Успешных бэкапов пока нет")
-        console.log(`Следующий запуск: ${status.nextRun ? displayTime(status.nextRun, config.TZ) : "нет данных"} (${status.timeZone})`)
-        const labels: Record<string, string> = { disabled: "выключено", pending: "ожидает выгрузки", ok: "успешно", error: "ошибка" }
+        console.log(status.lastSuccess ? `Last backup: ${displayTime(status.lastSuccess.createdAt, config.TZ)}, ${status.lastSuccess.size} bytes (${status.lastSuccess.name})` : "No successful backups yet")
+        console.log(`Next run: ${status.nextRun ? displayTime(status.nextRun, config.TZ) : "unavailable"} (${status.timeZone})`)
+        const labels: Record<string, string> = { disabled: "disabled", pending: "pending upload", ok: "successful", error: "error" }
         console.log(`S3: ${labels[status.s3.status] ?? status.s3.status}${status.error ? `; ${status.error}` : ""}`)
       }
       if (process.argv.includes("--health") && !status.healthy) process.exitCode = 1
       break
     }
-    default: throw new BackupError("Команды: now | list | verify <файл> | restore <файл> --yes | schedule | status")
+    default: throw new BackupError("Commands: now | list | verify <file> | restore <file> --yes | schedule | status")
   }
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof BackupError ? error.message : "Ошибка бэкапа. Проверьте настройки, права каталога и доступность БД")
+  console.error(error instanceof BackupError ? error.message : "Backup failed. Check settings, directory permissions and database availability")
   process.exitCode = 1
 })

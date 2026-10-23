@@ -16,7 +16,7 @@ export async function atomicJson(file: string, value: unknown) {
 export async function readJson<T>(file: string): Promise<T | undefined> {
   try { return JSON.parse(await readFile(file, "utf8")) as T } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
-    throw new BackupError("Не удалось прочитать статус бэкапа. Проверьте файлы .status.json/.schedule.json")
+    throw new BackupError("Could not read backup status. Check .status.json/.schedule.json files")
   }
 }
 
@@ -51,17 +51,17 @@ export async function sha256(file: string) {
 export function restoreName(input: string, dir: string) {
   const name = path.basename(input)
   if (!backupTimestamp(name) || (input !== name && input !== `backups/${name}` && path.resolve(input) !== path.join(dir, name))) {
-    throw new BackupError("Укажите имя дампа или backups/<имя>.dump из каталога бэкапов")
+    throw new BackupError("Specify a dump filename or backups/<name>.dump from the backup directory")
   }
   return name
 }
 
 export async function verifyChecksum(dir: string, name: string) {
   if (!backupTimestamp(name) || !await regularFile(path.join(dir, name)) || !await regularFile(path.join(dir, `${name}.sha256`))) {
-    throw new BackupError("Нужны оба файла: дамп и .sha256; символические ссылки не поддерживаются")
+    throw new BackupError("Both the dump and .sha256 files are required; symlinks are not supported")
   }
   if (await readFile(path.join(dir, `${name}.sha256`), "utf8") !== `${await sha256(path.join(dir, name))}  ${name}\n`) {
-    throw new BackupError("SHA-256 не совпадает: восстановление отменено")
+    throw new BackupError("SHA-256 mismatch: restore cancelled")
   }
 }
 
@@ -69,5 +69,5 @@ export async function writableDirectory(dir: string) {
   try {
     await mkdir(dir, { recursive: true, mode: 0o700 })
     await access(dir, constants.W_OK)
-  } catch { throw new BackupError("Нет доступа к каталогу бэкапов. Создайте ./backups и проверьте LOCAL_UID/LOCAL_GID") }
+  } catch { throw new BackupError("Cannot access the backup directory. Create ./backups and check LOCAL_UID/LOCAL_GID") }
 }

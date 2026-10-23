@@ -54,7 +54,7 @@ it("uses signed path-style requests for custom S3 endpoints and publishes checks
 it("keeps local data on S3 failure and retries without leaking credentials", async () => {
   const config = backupConfig({ ...process.env, BACKUP_DIR: dir, BACKUP_S3_BUCKET: "family", BACKUP_S3_ENDPOINT: endpoint })
   fail = true
-  await expect(uploadBackups(config)).rejects.toThrow("локальная копия сохранена")
+  await expect(uploadBackups(config)).rejects.toThrow("the local copy was preserved")
   expect(await readFile(path.join(dir, name))).toHaveLength(4)
   fail = false
   await uploadBackups(config)

@@ -48,7 +48,7 @@ export async function setUserBannedAction(userId: string, banned: boolean) {
     if (userId === admin.id) throw new AppError("admin.selfBan")
     const auth = await getAuth()
     const h = await headers()
-    if (banned) await auth.api.banUser({ body: { userId, banReason: "Заблокирован администратором" }, headers: h })
+    if (banned) await auth.api.banUser({ body: { userId, banReason: "Banned by an administrator" }, headers: h })
     else await auth.api.unbanUser({ body: { userId }, headers: h })
     await audit({ action: banned ? "admin.user_ban" : "admin.user_unban", entityType: "user", entityId: userId, actorId: admin.id })
     refresh()

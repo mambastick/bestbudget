@@ -1,4 +1,7 @@
 {
+  "template": {
+    "cashback": "Cashback"
+  },
   "page": {
     "title": "Import statement",
     "description": "CSV and XLSX · up to 10 MB and 50,000 rows"

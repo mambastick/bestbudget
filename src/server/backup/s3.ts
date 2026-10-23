@@ -33,6 +33,6 @@ export async function uploadBackups(config: BackupConfig) {
       await writeFile(receipt, destination, { mode: 0o600 })
     }
   } catch {
-    throw new BackupError("Выгрузка S3 не удалась; локальная копия сохранена. Проверьте endpoint, бакет и ключи доступа")
+    throw new BackupError("S3 upload failed; the local copy was preserved. Check the endpoint, bucket and access keys")
   } finally { client.destroy() }
 }

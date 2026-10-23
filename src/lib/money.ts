@@ -36,7 +36,7 @@ export function formatMoney(minor: number, currency = "RUB", opts: { sign?: bool
   return text
 }
 
-/** Compact form for chart axes: 150 000 → "150 тыс." */
+/** Compact form for chart axes: 150,000 → "150K" (en) */
 export function formatMoneyCompact(minor: number, currency = "RUB", locale = "ru"): string {
   return new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(minor / 10 ** currencyExponent(currency))
 }

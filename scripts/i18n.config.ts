@@ -44,7 +44,13 @@ export const translatedPaths = [
   "src/domain/csv.ts",
   "src/server/services/budgets.ts", "src/server/services/finance-data.ts", "src/server/services/exchange-rates.ts",
   "src/app/actions/finance.ts", "src/app/actions/exchange-rates.ts",
+  // Remaining server boundaries, permission helpers and English-only administration CLI.
+  "src/app/global-error.tsx", "src/app/actions/admin.ts", "src/app/api/import/template/route.ts",
+  "src/domain/permissions.ts", "src/server/backup", "scripts/backup", "src/lib/money.ts",
 ] as const
 
 // Language autonyms remain readable even when the surrounding interface uses another language.
 export const allowedLiterals: readonly string[] = ["Русский"]
+
+// The last-resort root boundary has no next-intl provider and uses a tiny browser-language dictionary.
+export const excludedPaths: readonly string[] = ["src/app/global-error.tsx"]
