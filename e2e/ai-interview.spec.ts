@@ -117,7 +117,7 @@ for (const locale of ["ru", "en"] as const) {
           await page.reload()
           await expect(progress).toContainText(locale === "ru" ? "Шаг 3 из 5" : "Step 3 of 5")
           await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-          await expect(chips.getByRole("button").first()).toBeVisible()
+          await expect(chips.getByRole("button").first()).toBeEnabled()
           if (process.env.UPDATE_SCREENSHOTS === "1")
             await page.screenshot({ path: `${screenshots}/interview-${locale}-${width}-${theme}.png`, animations: "disabled" })
         }
