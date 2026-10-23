@@ -88,10 +88,20 @@ export class BackupService {
   }
 
   async status(now = new Date()) {
+    if (!this.config.BACKUP_ENABLED) return {
+      enabled: false,
+      lastSuccess: null,
+      nextRun: null,
+      timeZone: this.config.TZ,
+      healthy: true,
+      s3: { status: "disabled" },
+      error: null,
+    }
     const files = await listBackups(this.config.BACKUP_DIR)
     const schedule = await readJson<ScheduleState>(path.join(this.config.BACKUP_DIR, ".schedule.json"))
     const state = await readJson<OperationState>(path.join(this.config.BACKUP_DIR, ".status.json"))
     return {
+      enabled: true,
       lastSuccess: files[0] ?? null,
       nextRun: schedule?.nextRun ?? null,
       timeZone: this.config.TZ,

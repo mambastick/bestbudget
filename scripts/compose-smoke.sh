@@ -12,6 +12,7 @@ export APP_URL=http://127.0.0.1:3330 APP_PORT=3330 APP_BIND=127.0.0.1
 export POSTGRES_USER=bestbudget POSTGRES_DB=bestbudget
 export BACKUP_PATH=./backups BACKUP_TIME=03:00 TZ=Europe/Moscow
 export BACKUP_KEEP_LAST=7 BACKUP_KEEP_DAYS=30
+unset BACKUP_ENABLED
 export BESTBUDGET_VERSION=backup-smoke
 LOCAL_UID=$(id -u)
 LOCAL_GID=$(id -g)
@@ -118,3 +119,23 @@ admins | grep -q smoke@example.com
 [ "$(printf "SELECT count(*) FROM auth_accounts a JOIN users u ON u.id=a.user_id WHERE u.email='smoke@example.com' AND a.provider_id='credential' AND a.password IS NOT NULL;\n" | sql)" = 1 ]
 health
 echo 'Checkout-free backup/restore recovered administrator credentials and financial data'
+
+# Disabling automatic dumps must keep --wait healthy and manual commands usable.
+export BACKUP_ENABLED=false
+printf '%s\n' '{"firstDue":"2000-01-01T00:00:00Z","nextRun":"2000-01-01T00:00:00Z"}' > backups/.schedule.json
+files_before=$(find backups -type f -printf '%f %s %T@\n' | sort)
+docker compose up -d --wait --wait-timeout 180
+docker compose logs --no-color --no-log-prefix backup > disabled.log
+[ "$(cat disabled.log)" = 'backups disabled (BACKUP_ENABLED=false)' ]
+[ "$(find backups -type f -printf '%f %s %T@\n' | sort)" = "$files_before" ]
+backup status --json --health | python3 -c 'import json,sys; s=json.load(sys.stdin); assert s["enabled"] is False and s["healthy"] is True and s["nextRun"] is None'
+backup list --json | python3 -c 'import json,sys; assert json.load(sys.stdin)'
+backup now
+docker compose stop app
+backup restore "backups/$dump" --yes
+docker compose start app
+docker compose up -d --wait --wait-timeout 180
+admins | grep -q smoke@example.com
+[ "$(printf "SELECT count(*) FROM transactions WHERE id='44444444-4444-4444-8444-444444444444' AND amount=123456789;\n" | sql)" = 1 ]
+health
+echo 'Disabled scheduler stays healthy; manual backup/list/restore recovered administrator and financial data'
