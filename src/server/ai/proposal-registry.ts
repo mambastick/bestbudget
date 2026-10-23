@@ -106,7 +106,7 @@ registerProposal("account.create", accountInput, {
 registerProposal("recurring.create", ruleInput, {
   permission: "finance.write",
   apply: async (ctx, input) => ({
-    href: "/transactions?tab=recurring",
+    href: "/transactions?tab=rules",
     entityId: (await createRules(ctx, { rule: input }, undefined, ctx.locale))[0]!.id,
   }),
 })
@@ -116,7 +116,7 @@ registerProposal("recurring.update", ruleUpdateInput.extend(idInput.shape), {
   after: (_ctx, input) => input.rule,
   apply: async (ctx, input) => {
     await updateRule(ctx, input.id, input, ctx.locale)
-    return { href: "/transactions?tab=recurring", entityId: input.id }
+    return { href: "/transactions?tab=rules", entityId: input.id }
   },
 })
 registerProposal("recurring.pause", idInput.extend({ endDate: isoDate }), {
@@ -125,12 +125,15 @@ registerProposal("recurring.pause", idInput.extend({ endDate: isoDate }), {
   after: (_ctx, input, before) => ({ title: before?.title, endDate: input.endDate }),
   apply: async (ctx, input) => {
     await stopRule(ctx, input.id, input.endDate)
-    return { href: "/transactions?tab=recurring", entityId: input.id }
+    return { href: "/transactions?tab=rules", entityId: input.id }
   },
 })
 registerProposal("goal.create", goalInput, {
   permission: "finance.write",
-  apply: async (ctx, input) => ({ href: `/goals`, entityId: (await createGoal(ctx, input)).id }),
+  apply: async (ctx, input) => {
+    const goal = await createGoal(ctx, input)
+    return { href: `/goals/${goal.id}`, entityId: goal.id }
+  },
 })
 registerProposal("goal.update", goalChangeInput, {
   permission: "finance.write",
