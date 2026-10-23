@@ -133,7 +133,29 @@ test("offline fallback uses selected locale/theme, retries the original URL and 
 })
 
 test("Chromium install prompt requires a click, is consumed once and appinstalled hides the controls", async ({ page }) => {
-  await profile(page)
+  // Observe the provider subscription: an SSR heading or the load event does not prove effects ran.
+  await page.addInitScript(() => {
+    const addListener = window.addEventListener.bind(window)
+    window.addEventListener = (...args: Parameters<typeof window.addEventListener>) => {
+      addListener(...args)
+      if (args[0] === "beforeinstallprompt") document.documentElement.dataset.installListenerReady = "true"
+    }
+  })
+  // Reproduce a cold CI profile: show SSR content while the hydration scripts are still in flight.
+  let releaseScripts!: () => void
+  const scripts = new Promise<void>((resolve) => { releaseScripts = resolve })
+  await page.route("**/_next/static/**/*.js", async (route) => {
+    await scripts
+    await route.continue()
+  })
+  try {
+    await page.goto("/settings?tab=profile", { waitUntil: "commit" })
+    await expect(page.getByRole("heading", { name: /^(Настройки|Settings)$/ })).toBeVisible()
+  } finally {
+    releaseScripts()
+    await page.unrouteAll({ behavior: "wait" })
+  }
+  await expect(page.locator("html")).toHaveAttribute("data-install-listener-ready", "true")
   await page.evaluate(() => {
     const event = new Event("beforeinstallprompt", { cancelable: true })
     Object.assign(event, { prompt: async () => { document.documentElement.dataset.prompted = "true" }, userChoice: Promise.resolve({ outcome: "accepted" }) })
