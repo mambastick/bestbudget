@@ -1,9 +1,8 @@
-import { execFileSync } from "node:child_process"
-import { mkdir, writeFile } from "node:fs/promises"
-import { expect, test, type Page } from "./fixtures"
-import { BROWSER_TIMEZONE, E2E_ENV } from "../playwright.config"
+import { test, expect, seedDemo, withDb, screenshot, type StorageState, type Page } from "./matrix"
+import { BROWSER_TIMEZONE } from "../playwright.config"
 
-const demo = { name: "Finance Demo", email: "finance-i18n@e2e.test", password: "finance-demo-password-1" }
+let state: StorageState
+let userId: string
 const screenshotDir = "docs/screenshots/i18n/finance"
 const routes = [
   ["/dashboard", "Обзор", "Overview"],
@@ -29,41 +28,24 @@ async function chooseCategory(page: Page) {
   await page.getByRole("option", { name: "Продукты", exact: true }).click()
 }
 
-test.use({ colorScheme: "light", reducedMotion: "reduce" })
 
-test("finance: ru/en seeded views, responsive themes, English transactions, recurring, budgets and CSV", async ({ page, context }, testInfo) => {
-  test.setTimeout(300_000)
-  execFileSync(process.execPath, ["--import", "tsx", "scripts/admin.ts", "create-admin"], {
-    env: { ...process.env, ...E2E_ENV, ADMIN_NAME: demo.name, ADMIN_EMAIL: demo.email, ADMIN_PASSWORD: demo.password },
-  })
-  await page.setViewportSize({ width: 1280, height: 960 })
-  // The seed uses Russian category names as synthetic user data, retained in both UI languages.
-  await context.addCookies([{ name: "bb_locale", value: "ru", url: E2E_ENV.APP_URL }])
-  page.setDefaultTimeout(15_000)
-  const errors: string[] = []
-  page.on("pageerror", (error) => errors.push(error.message))
-  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()) })
-  await page.goto("/login")
-  expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(BROWSER_TIMEZONE)
-  await page.getByLabel("E-mail").fill(demo.email)
-  await page.getByLabel("Пароль", { exact: true }).fill(demo.password)
-  await page.getByRole("button", { name: "Войти", exact: true }).click()
-  await expect(page).toHaveURL(/\/onboarding/)
-  await page.getByLabel("Название").fill("Синтетическая семья")
-  await page.getByRole("button", { name: "Создать", exact: true }).click()
-  await expect(page).toHaveURL(/\/dashboard/)
-  execFileSync(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/seed-demo.ts", demo.email], { env: { ...process.env, ...E2E_ENV } })
-  await mkdir(screenshotDir, { recursive: true })
-  const audit: { locale: string; theme: string; width: number; route: string }[] = []
-  for (const locale of ["ru", "en"] as const) {
-    await page.setViewportSize({ width: 1280, height: 960 })
-    await page.goto("/settings?tab=profile")
-    await page.getByRole("radiogroup", { name: "Язык", exact: true }).getByRole("radio", { name: locale === "ru" ? "Русский" : "English", exact: true }).click()
-    await expect(page.locator("html")).toHaveAttribute("lang", locale)
-    for (const theme of ["light", "dark"]) {
-      await page.evaluate((value) => localStorage.setItem("theme", value), theme)
-      for (const width of [1280, 375]) {
+test.use({ serviceWorkers: "block", colorScheme: "light", reducedMotion: "reduce" })
+test.setTimeout(60_000)
+
+test.beforeAll(async ({ browser }) => {
+  const seeded = await seedDemo(browser, "finance-i18n", "Синтетическая семья")
+  state = seeded.state
+  userId = seeded.id
+})
+test.beforeEach(async ({ context }) => { await context.addCookies(state.cookies) })
+
+for (const locale of ["ru", "en"] as const) {
+  for (const theme of ["light", "dark"] as const) {
+    for (const width of [1280, 375]) {
+      test(`finance: ${locale}, ${theme}, ${width}px`, async ({ page }, testInfo) => {
+        await withDb(async (db) => { await db`update users set locale=${locale} where id=${userId}` })
         await page.setViewportSize({ width, height: width === 375 ? 900 : 960 })
+        await page.addInitScript((value) => localStorage.setItem("theme", value), theme)
         for (const [route, ru, en] of routes) {
           await page.goto(route)
           await expect(page.getByRole("heading", { name: locale === "ru" ? ru : en, exact: true })).toBeVisible()
@@ -84,9 +66,6 @@ test("finance: ru/en seeded views, responsive themes, English transactions, recu
             await expect(tooltip).not.toContainText("RUB")
             await page.mouse.move(0, 0)
           }
-          audit.push({ locale, theme, width, route })
-          const slug = route.replaceAll(/[/?=]/g, "-")
-          await page.screenshot({ path: testInfo.outputPath(`${locale}-${theme}-${width}${slug}.png`), fullPage: true, animations: "disabled" })
           if (route === "/calendar") {
             // Every displayed short amount includes its currency, including forecast balances.
             await expect(page.locator('button[title]').filter({ hasText: locale === "ru" ? /тыс\./ : /K/ }).first()).toContainText("₽")
@@ -105,11 +84,11 @@ test("finance: ru/en seeded views, responsive themes, English transactions, recu
             const balance = page.getByTestId("actual-balance").locator("span[aria-label]").first()
             await expect(balance).toHaveAttribute("aria-label", /₽/)
             await expect(balance).toHaveText((await balance.getAttribute("aria-label"))!)
-            await page.screenshot({ path: `${screenshotDir}/dashboard-en-desktop-light.png`, fullPage: true, animations: "disabled" })
+            await screenshot(page, `${screenshotDir}/dashboard-en-desktop-light.png`, true)
           }
           if (locale === "en" && width === 1280 && theme === "dark" && route === "/calendar") {
             await page.getByRole("radio", { name: "Month", exact: true }).click()
-            await page.screenshot({ path: `${screenshotDir}/calendar-en-desktop-dark.png`, animations: "disabled" })
+            await screenshot(page, `${screenshotDir}/calendar-en-desktop-dark.png`)
           }
         }
         // Shared operation entry point: inspect the full recurring form in every locale/theme/width.
@@ -119,16 +98,21 @@ test("finance: ru/en seeded views, responsive themes, English transactions, recu
         await expect(dialog.getByText(locale === "ru" ? "Периодичность" : "Frequency", { exact: true })).toBeVisible()
         await fits(page)
         if (locale === "en" && width === 375 && theme === "dark") {
-          await page.screenshot({ path: `${screenshotDir}/recurring-en-375-dark.png`, animations: "disabled" })
+          await screenshot(page, `${screenshotDir}/recurring-en-375-dark.png`)
         }
         await dialog.getByRole("button", { name: locale === "ru" ? "Отмена" : "Cancel", exact: true }).click()
         await expect(dialog).toBeHidden()
-      }
+        await testInfo.attach("finance-layout-matrix", {
+          body: JSON.stringify(routes.map(([route]) => ({ locale, theme, width, route }))), contentType: "application/json",
+        })
+        expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(BROWSER_TIMEZONE)
+      })
     }
   }
-  const auditPath = testInfo.outputPath("finance-layout-matrix.json")
-  await writeFile(auditPath, JSON.stringify(audit, null, 2))
-  await testInfo.attach("finance-layout-matrix", { path: auditPath, contentType: "application/json" })
+}
+
+test("finance: English transactions, recurring, budgets and localized CSV", async ({ page, context }) => {
+  await withDb(async (db) => { await db`update users set locale='en' where id=${userId}` })
   await page.setViewportSize({ width: 1280, height: 960 })
   await page.goto("/transactions")
   await page.getByRole("button", { name: "Transaction", exact: true }).first().click()
@@ -191,5 +175,5 @@ test("finance: ru/en seeded views, responsive themes, English transactions, recu
     expect(data?.slice(1, 4)).toEqual(locale === "ru" ? ["Расход", "Выполнена", "Семейный кофе"] : ["Expense", "Posted", "Семейный кофе"])
     expect(data?.[7]).toBe(locale === "ru" ? "-15,67" : "-15.67")
   }
-  expect(errors).toEqual([])
+  await fits(page)
 })

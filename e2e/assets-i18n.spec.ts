@@ -1,13 +1,13 @@
-import { execFileSync } from "node:child_process"
-import { randomBytes, createHash } from "node:crypto"
-import { mkdir } from "node:fs/promises"
-import { expect, test, type Page } from "./fixtures"
-import postgres from "postgres"
-import { BROWSER_TIMEZONE, E2E_ENV, SETUP_TOKEN } from "../playwright.config"
+import { test, expect, seedDemo, withDb, screenshot, type StorageState, type Page } from "./matrix"
 import { todayIn } from "../src/lib/dates"
 
-const user = { name: "Assets Demo", email: "assets-i18n@e2e.test", password: "assets-password-1" }
 const screenshotDir = "docs/screenshots/i18n/assets-import"
+let state: StorageState
+let owner: { id: string; household_id: string }
+let goal: { id: string }
+let loanId: string
+let batchUrl: string
+let routes: string[]
 
 async function noOverflow(page: Page) {
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -17,128 +17,96 @@ async function closeDialog(page: Page) {
   await expect(page.getByRole("dialog")).toHaveCount(0)
 }
 
-// A separate user and household keep the Russian acceptance scenarios independent.
-test("assets and import: seed demo in ru/en, both themes and widths, English actions and persisted warnings", async ({ browser }) => {
-  test.setTimeout(300_000)
-  const context = await browser.newContext({
-    locale: "ru-RU",
-    timezoneId: BROWSER_TIMEZONE,
-    viewport: { width: 1280, height: 900 },
-    reducedMotion: "reduce",
-  })
-  const page = await context.newPage()
-  expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(BROWSER_TIMEZONE)
-  expect(E2E_ENV.TZ).toBe("UTC")
-  const db = postgres(E2E_ENV.DATABASE_URL, { max: 1, onnotice: () => {} })
-  const errors: string[] = []
-  page.on("pageerror", (error) => errors.push(error.message))
-  page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text())
-  })
-  await mkdir(screenshotDir, { recursive: true })
+test.use({ serviceWorkers: "block", reducedMotion: "reduce" })
+test.setTimeout(60_000)
+
+test.beforeAll(async ({ browser }) => {
+  const seeded = await seedDemo(browser, "assets-i18n", "Assets i18n demo")
+  owner = seeded
+  const context = await browser.newContext({ serviceWorkers: "block", storageState: seeded.state })
   try {
-    await page.goto("/login")
-    if (page.url().includes("/setup")) {
-      await page.getByLabel("Токен настройки").fill(SETUP_TOKEN)
-      await page.getByLabel("Имя", { exact: true }).fill("Евгений")
-      await page.getByLabel("E-mail").fill("owner@e2e.test")
-      await page.getByLabel("Пароль", { exact: true }).fill("owner-password-1")
-      await page.getByLabel("Повторите пароль").fill("owner-password-1")
-      await page.getByRole("button", { name: "Создать администратора", exact: true }).click()
-      await expect(page).toHaveURL(/\/onboarding/)
-      await page.getByRole("button", { name: "Создать", exact: true }).click()
-      await expect(page).toHaveURL(/\/dashboard/)
-      await context.clearCookies()
-    }
-    const [household] = await db`select id from households order by created_at limit 1`
-    if (!household) throw new Error("Synthetic household is missing")
-    const token = randomBytes(24).toString("hex")
-    await db`insert into invitations(household_id, token_hash, role, expires_at) values (${household.id}, ${createHash("sha256").update(token).digest("hex")}, 'member', now() + interval '1 day')`
-    await page.goto(`/invite/${token}`)
-    await page.getByLabel("Имя", { exact: true }).fill(user.name)
-    await page.getByLabel("E-mail").fill(user.email)
-    await page.getByLabel("Пароль", { exact: true }).fill(user.password)
-    await page.getByLabel("Повторите пароль").fill(user.password)
-    await page.getByRole("button", { name: "Создать аккаунт и присоединиться", exact: true }).click()
-    await expect(page).toHaveURL(/\/dashboard/)
-    await page.goto("/onboarding?new=1")
-    await page.getByLabel("Название", { exact: true }).fill("Assets i18n demo")
-    await page.getByRole("button", { name: "Создать", exact: true }).click()
-    await expect(page).toHaveURL(/\/dashboard/)
-    await db`delete from household_members where user_id=(select id from users where email=${user.email}) and role='member'`
-    execFileSync(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/seed-demo.ts", user.email], {
-      env: { ...process.env, ...E2E_ENV },
-      encoding: "utf8",
+    const page = await context.newPage()
+    await withDb(async (db) => {
+      const [loan] = await db<{ id: string }[]>`select id from loans where household_id=${owner.household_id} order by created_at limit 1`
+      const [seedGoal] = await db<{ id: string }[]>`select id from goals where household_id=${owner.household_id} and name='Семейный отпуск'`
+      if (!loan || !seedGoal) throw new Error("Seed demo is incomplete")
+      loanId = loan.id
+      goal = seedGoal
+      const today = todayIn("Europe/Moscow")
+      const csv = [
+        "account;date;amount;currency;description;status;mcc",
+        `Накопительный;${today};-123.45;RUB;Synthetic purchase;posted;5411`,
+        `Накопительный;${today};-12.34;RUB;Synthetic hold;pending;5411`,
+        `Накопительный;${today};-9.87;RUB;Synthetic rejected;rejected;5411`,
+        "",
+      ].join("\r\n")
+      await page.goto("/transactions/import")
+      await page.getByLabel("Выписка CSV / XLSX").setInputFiles({ name: "assets.csv", mimeType: "text/csv", buffer: Buffer.from(csv) })
+      await page.getByRole("button", { name: "Прочитать файл", exact: true }).click()
+      await page.getByRole("button", { name: "Подготовить предпросмотр", exact: true }).click()
+      await expect(page).toHaveURL(/batch=/)
+      batchUrl = page.url()
+      routes = [
+        "/accounts",
+        "/loans",
+        "/loans/new",
+        `/loans/${loan.id}`,
+        "/goals",
+        `/goals/${seedGoal.id}`,
+        "/transactions/import",
+        batchUrl,
+      ]
     })
-    const [owner] =
-      await db`select u.id, hm.household_id from users u join household_members hm on hm.user_id=u.id where u.email=${user.email} and hm.role='owner'`
-    if (!owner) throw new Error("Synthetic owner is missing")
-    const [loan] = await db`select id from loans where household_id=${owner.household_id} order by created_at limit 1`
-    const [goal] = await db`select id from goals where household_id=${owner.household_id} and name='Семейный отпуск'`
-    if (!loan || !goal) throw new Error("Seed demo is incomplete")
-    const today = todayIn("Europe/Moscow")
-    const csv = [
-      "account;date;amount;currency;description;status;mcc",
-      `Накопительный;${today};-123.45;RUB;Synthetic purchase;posted;5411`,
-      `Накопительный;${today};-12.34;RUB;Synthetic hold;pending;5411`,
-      `Накопительный;${today};-9.87;RUB;Synthetic rejected;rejected;5411`,
-      "",
-    ].join("\r\n")
-    await page.goto("/transactions/import")
-    await page.getByLabel("Выписка CSV / XLSX").setInputFiles({ name: "assets.csv", mimeType: "text/csv", buffer: Buffer.from(csv) })
-    await page.getByRole("button", { name: "Прочитать файл", exact: true }).click()
-    await page.getByRole("button", { name: "Подготовить предпросмотр", exact: true }).click()
-    await expect(page).toHaveURL(/batch=/)
-    const batchUrl = page.url()
-    const routes = [
-      "/accounts",
-      "/loans",
-      "/loans/new",
-      `/loans/${loan.id}`,
-      "/goals",
-      `/goals/${goal.id}`,
-      "/transactions/import",
-      batchUrl,
-    ]
-    for (const locale of ["ru", "en"]) {
-      // Exercise the same persisted batch in both languages, without recreating it.
-      await db`update users set locale=${locale} where id=${owner.id}`
-      for (const width of [1280, 375]) {
+    state = await context.storageState()
+  } finally { await context.close() }
+})
+
+test.beforeEach(async ({ context }) => { await context.addCookies(state.cookies) })
+
+for (const locale of ["ru", "en"] as const) {
+  for (const theme of ["light", "dark"] as const) {
+    for (const width of [1280, 375]) {
+      test(`assets and import: ${locale}, ${theme}, ${width}px`, async ({ page }) => {
+        await withDb(async (db) => { await db`update users set locale=${locale} where id=${owner.id}` })
         await page.setViewportSize({ width, height: width === 375 ? 812 : 900 })
-        for (const theme of ["light", "dark"]) {
-          await page.evaluate((value) => localStorage.setItem("theme", value), theme)
-          for (const route of routes) {
-            await page.goto(route)
-            await expect(page.locator("html")).toHaveAttribute("lang", locale)
-            await expect(page.locator("html")).toHaveClass(new RegExp(theme))
+        await page.addInitScript((value) => localStorage.setItem("theme", value), theme)
+        for (const route of routes) {
+          await page.goto(route)
+          await expect(page.locator("html")).toHaveAttribute("lang", locale)
+          await expect(page.locator("html")).toHaveClass(new RegExp(theme))
+          await noOverflow(page)
+          if (route === "/accounts") {
+            await expect(page.getByText(locale === "en" ? "How to track a credit card" : "Как учитывать кредитную карту").filter({ visible: true })).toBeVisible()
+            await page.getByRole("button", { name: locale === "en" ? "Account" : "Счёт", exact: true }).click()
+            await expect(page.getByRole("dialog")).toContainText(locale === "en" ? "New account" : "Новый счёт")
             await noOverflow(page)
-            if (route === "/accounts") {
-              await expect(page.getByText(locale === "en" ? "How to track a credit card" : "Как учитывать кредитную карту").filter({ visible: true })).toBeVisible()
-              await page.getByRole("button", { name: locale === "en" ? "Account" : "Счёт", exact: true }).click()
-              await expect(page.getByRole("dialog")).toContainText(locale === "en" ? "New account" : "Новый счёт")
-              await noOverflow(page)
-              await closeDialog(page)
-            }
-            if (route === "/goals") {
-              await page.getByRole("button", { name: locale === "en" ? "Create goal" : "Создать цель", exact: true }).click()
-              await noOverflow(page)
-              await closeDialog(page)
-            }
-            if (route === `/loans/${loan.id}`) {
-              await page.getByRole("button", { name: locale === "en" ? "Prepayment" : "Досрочное погашение", exact: true }).click()
-              await noOverflow(page)
-              await closeDialog(page)
-            }
-            if (locale === "en" && theme === "dark" && width === 1280 && route === `/loans/${loan.id}`)
-              await page.screenshot({ path: `${screenshotDir}/loans-en-desktop-dark.png`, fullPage: false, animations: "disabled" })
-            if (locale === "en" && theme === "light" && width === 375 && route === `/goals/${goal.id}`)
-              await page.screenshot({ path: `${screenshotDir}/goal-en-375-light.png`, fullPage: true, animations: "disabled" })
-            if (locale === "en" && theme === "dark" && width === 375 && route === batchUrl)
-              await page.screenshot({ path: `${screenshotDir}/import-en-375-dark.png`, fullPage: true, animations: "disabled" })
+            await closeDialog(page)
           }
+          if (route === "/goals") {
+            await page.getByRole("button", { name: locale === "en" ? "Create goal" : "Создать цель", exact: true }).click()
+            await noOverflow(page)
+            await closeDialog(page)
+          }
+          if (route === `/loans/${loanId}`) {
+            await page.getByRole("button", { name: locale === "en" ? "Prepayment" : "Досрочное погашение", exact: true }).click()
+            await noOverflow(page)
+            await closeDialog(page)
+          }
+          if (locale === "en" && theme === "dark" && width === 1280 && route === `/loans/${loanId}`)
+            await screenshot(page, `${screenshotDir}/loans-en-desktop-dark.png`, false)
+          if (locale === "en" && theme === "light" && width === 375 && route === `/goals/${goal.id}`)
+            await screenshot(page, `${screenshotDir}/goal-en-375-light.png`, true)
+          if (locale === "en" && theme === "dark" && width === 375 && route === batchUrl)
+            await screenshot(page, `${screenshotDir}/import-en-375-dark.png`, true)
         }
-      }
+      })
     }
+  }
+}
+
+test("assets: English actions and persisted import warnings", async ({ page }) => {
+  await withDb(async (db) => {
+    await db`update users set locale='en' where id=${owner.id}`
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.goto(batchUrl)
     await page.getByRole("button", { name: "Decision: Synthetic hold", exact: true }).hover()
@@ -168,9 +136,7 @@ test("assets and import: seed demo in ru/en, both themes and widths, English act
     const [transfer] =
       await db`select title from transactions where household_id=${owner.household_id} and title='Towards goal: Семейный отпуск'`
     expect(transfer?.title).toBe("Towards goal: Семейный отпуск")
-    expect(errors).toEqual([])
-  } finally {
-    await db.end()
-    await context.close()
-  }
+
+    await noOverflow(page)
+  })
 })

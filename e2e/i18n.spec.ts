@@ -1,5 +1,5 @@
+import { screenshot } from "./matrix"
 import { randomBytes, createHash } from "node:crypto"
-import { mkdir } from "node:fs/promises"
 import postgres from "postgres"
 import { expect, test, type Page } from "./fixtures"
 import { E2E_ENV, SETUP_TOKEN } from "../playwright.config"
@@ -28,7 +28,6 @@ test("system language, saved preference and device theme work on desktop and mob
   const errors: string[] = []
   page.on("pageerror", (error) => errors.push(error.message))
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()) })
-  await mkdir(screenshotDir, { recursive: true })
   try {
     await page.goto("/login")
     if (page.url().includes("/setup")) {
@@ -48,13 +47,13 @@ test("system language, saved preference and device theme work on desktop and mob
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible()
     await expect(page).toHaveTitle("Sign in · BestBudget")
     await expect(page.locator("html")).toHaveAttribute("lang", "en")
-    await page.screenshot({ path: `${screenshotDir}/login-en.png`, animations: "disabled" })
+    await screenshot(page, `${screenshotDir}/login-en.png`)
     await page.getByLabel("Language and theme", { exact: true }).click()
     await page.getByRole("menuitem", { name: "Language", exact: true }).click()
     await page.getByRole("menuitemradio", { name: "Русский", exact: true }).click()
     await expect(page.getByRole("button", { name: "Войти", exact: true })).toBeVisible()
     await expect(page.locator("html")).toHaveAttribute("lang", "ru")
-    await page.screenshot({ path: `${screenshotDir}/login-ru.png`, animations: "disabled" })
+    await screenshot(page, `${screenshotDir}/login-ru.png`)
     await page.reload()
     await expect(page.locator("html")).toHaveAttribute("lang", "ru")
     await context.clearCookies()
@@ -83,7 +82,7 @@ test("system language, saved preference and device theme work on desktop and mob
     await page.keyboard.press("Escape")
     await menu(page, "Language")
     await expect(page.getByRole("menuitemradio", { name: "System language", exact: true })).toHaveAttribute("aria-checked", "true")
-    await page.screenshot({ path: `${screenshotDir}/menu-language-desktop.png`, animations: "disabled" })
+    await screenshot(page, `${screenshotDir}/menu-language-desktop.png`)
     await page.getByRole("menuitemradio", { name: "Русский", exact: true }).click()
     await expect(page.getByRole("heading", { name: "Настройки", exact: true })).toBeVisible()
     await page.reload()
@@ -94,7 +93,7 @@ test("system language, saved preference and device theme work on desktop and mob
     await page.keyboard.press("Escape")
 
     await menu(page, "Тема")
-    await page.screenshot({ path: `${screenshotDir}/menu-theme-desktop.png`, animations: "disabled" })
+    await screenshot(page, `${screenshotDir}/menu-theme-desktop.png`)
     await page.getByRole("menuitemradio", { name: "Тёмная", exact: true }).click()
     await expect(page.locator("html")).toHaveClass(/dark/)
     await page.reload()
@@ -113,12 +112,12 @@ test("system language, saved preference and device theme work on desktop and mob
     await noOverflow(page)
     await page.getByRole("button", { name: "Показать или скрыть меню" }).click()
     await menu(page, "Язык")
-    await page.screenshot({ path: `${screenshotDir}/menu-language-375.png`, animations: "disabled" })
+    await screenshot(page, `${screenshotDir}/menu-language-375.png`)
     await page.getByRole("menuitemradio", { name: "English", exact: true }).click()
     await expect(page.locator("html")).toHaveAttribute("lang", "en")
     // The mobile drawer stays open while changing a preference.
     await menu(page, "Theme")
-    await page.screenshot({ path: `${screenshotDir}/menu-theme-375.png`, animations: "disabled" })
+    await screenshot(page, `${screenshotDir}/menu-theme-375.png`)
     await page.getByRole("menuitemradio", { name: "Dark", exact: true }).click()
     await expect(page.locator("html")).toHaveClass(/dark/)
     await page.keyboard.press("Escape")
