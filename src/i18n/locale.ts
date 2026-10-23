@@ -26,3 +26,9 @@ export function resolveLocale({ user, cookie, acceptLanguage }: {
   if (isLocale(cookie)) return cookie
   return browserLocale(acceptLanguage)
 }
+
+/** Background messages never use the locale of the requester or scheduler. */
+export function recipientLocale(user?: { locale?: unknown; lastSeenLocale?: unknown } | null): Locale {
+  if (isLocale(user?.locale)) return user.locale
+  return isLocale(user?.lastSeenLocale) ? user.lastSeenLocale : "en"
+}

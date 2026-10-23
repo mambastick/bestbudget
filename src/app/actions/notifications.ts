@@ -1,5 +1,7 @@
 "use server"
 
+import { notificationTranslator } from "@/i18n/notifications"
+import { getRecipientLocale } from "@/server/services/preferences"
 import { randomUUID } from "node:crypto"
 import { headers } from "next/headers"
 import { revalidatePath } from "next/cache"
@@ -58,15 +60,17 @@ export async function removePushAction(id: string) {
 export async function testPushAction() {
   return runAction(async () => {
     const user = await actionUser()
+    const locale = await getRecipientLocale(user.id)
+    const t = notificationTranslator(locale)
     const devices = await getDb().select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, user.id))
     if (!devices.length) throw new AppError("notifications.browserRequired")
     for (const device of devices)
       await sendPushNotice(device, {
         kind: "test",
         key: `test:${randomUUID()}`,
-        text: "Тестовое уведомление BestBudget",
+        text: t("test"),
         path: "/settings?tab=profile",
-      })
+      }, locale)
   })
 }
 export async function updateTelegramSettingsAction(input: z.input<typeof telegramSettingsInput>) {
@@ -83,6 +87,8 @@ export async function updateTelegramSettingsAction(input: z.input<typeof telegra
 export async function testTelegramAction() {
   return runAction(async () => {
     const user = await actionSystemAdmin()
+    const locale = await getRecipientLocale(user.id)
+    const t = notificationTranslator(locale)
     const [link] = await getDb().select().from(telegramLinks).where(eq(telegramLinks.userId, user.id))
     const c = await telegramConfig()
     if (!c.token || !link?.chatId)
@@ -90,8 +96,8 @@ export async function testTelegramAction() {
     await sendTelegramNotice(c.token, link.chatId, {
       kind: "test",
       key: `test:${randomUUID()}`,
-      text: "Тестовое уведомление BestBudget",
+      text: t("test"),
       path: "/settings?tab=profile",
-    })
+    }, locale)
   })
 }

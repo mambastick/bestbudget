@@ -19,6 +19,7 @@ import { encryptSecret } from "@/lib/crypto"
 import { addDays, addMonths, startOfMonth, todayIn } from "@/lib/dates"
 import { formatMoney } from "@/lib/money"
 import { POST as webhook } from "@/app/api/telegram/webhook/route"
+import { actualBalance } from "@/server/services/reports"
 import { runNotificationJob } from "@/server/jobs/notifications"
 import { deliverOnce, sendPushNotice } from "@/server/notifications/delivery"
 import { notificationSnapshot } from "@/server/notifications/snapshot"
@@ -107,6 +108,7 @@ afterAll(async () => {
 
 async function fixture() {
   const h = await setupHousehold()
+    await getDb().update(users).set({ locale: "ru" }).where(eq(users.id, h.owner.id))
   const row = await createTransaction(h.ctx, {
     type: "expense",
     title: "Ипотека",
@@ -124,6 +126,56 @@ async function fixture() {
 }
 describe("notification pipeline", () => {
   it.each([
+    { locale: "en" as const, lastSeenLocale: "ru" as const, english: true },
+    { locale: null, lastSeenLocale: "ru" as const, english: false },
+    { locale: null, lastSeenLocale: null, english: true },
+  ])("uses recipient preference $locale / browser $lastSeenLocale for jobs and bot replies", async ({ locale, lastSeenLocale, english }) => {
+    const h = await fixture()
+    await getDb().update(users).set({ locale, lastSeenLocale }).where(eq(users.id, h.owner.id))
+    await getDb().update(telegramLinks).set({ chatId: "991" }).where(eq(telegramLinks.userId, h.owner.id))
+    await subscribePush(h.owner.id, { endpoint: "https://fcm.googleapis.com/fcm/send/locale", keys: { p256dh: "B".repeat(87), auth: "A".repeat(22) } }, "test")
+    await savePreferences(h.ctx, { ...(await getPreferences(h.ctx)), push: true })
+    await runNotificationJob(now)
+    const sent = () => fetchMock.mock.calls.filter(([url]) => url.endsWith("sendMessage")).map(([, options]) => JSON.parse(String(options?.body)))
+    expect(sent()[0].text).toContain(english ? "Tomorrow: Ипотека" : "Завтра платёж: Ипотека")
+    expect(sent()[0].reply_markup.inline_keyboard[0][0].text).toBe(english ? "✅ Paid" : "✅ Оплачено")
+    expect(JSON.parse(String(vi.mocked(webpush.sendNotification).mock.calls[0]![1])).body).toContain(english ? "Tomorrow:" : "Завтра платёж:")
+    for (const [index, text] of ["/start", "/today", "/balance", "/stop"].entries()) {
+      await handleTelegramUpdate({ update_id: 990 + index, message: { text, from: { id: 991, language_code: "en" }, chat: { id: 991, type: "private" } } }, "123:test", "987")
+    }
+    expect(sent()[1].text).toContain(english ? "Commands:" : "Команды:")
+    expect(sent()[2].text).toContain(english ? "Tomorrow:" : "Завтра платёж:")
+    expect(sent()[3].text).toContain(formatMoney(await actualBalance(h.ctx), h.ctx.currency, { locale: english ? "en" : "ru" }))
+    expect(sent()[4].text).toContain(english ? "disconnected" : "отключён")
+  })
+
+  it("uses the newly bound recipient locale and translates callback errors", async () => {
+    const h = await fixture()
+    await getDb().update(users).set({ locale: "en", lastSeenLocale: "ru" }).where(eq(users.id, h.owner.id))
+    const raw = new URL((await createTelegramLink(h.owner.id)).url).searchParams.get("start")!
+    await handleTelegramUpdate({ update_id: 980, message: { text: `/start ${raw}`, from: { id: 981 }, chat: { id: 981, type: "private" } } }, "123:test", "987")
+    await handleTelegramUpdate({ update_id: 981, callback_query: { id: "stale", from: { id: 981 }, data: `pay:${h.row.id}:2`, message: { chat: { id: 981, type: "private" } } } }, "123:test", "987")
+    const sent = fetchMock.mock.calls.filter(([url]) => url.endsWith("sendMessage")).map(([, options]) => JSON.parse(String(options?.body)))
+    expect(sent[0].text).toContain("Telegram is linked.")
+    expect(sent[1].text).toContain("changed")
+    expect(sent[1].text).not.toMatch(/[А-Яа-яЁё]/)
+    expect(await getTransaction(h.ctx, h.row.id)).toMatchObject({ status: "planned", version: 1 })
+  })
+
+  it("registers Russian, English and default command menus once per transport configuration", async () => {
+    await getDb().update(notificationSettings).set({ transportFingerprint: null })
+    await configureTelegramTransport()
+    const commands = fetchMock.mock.calls.filter(([url]) => url.endsWith("setMyCommands")).map(([, options]) => JSON.parse(String(options?.body)))
+    expect(commands.map((c) => c.language_code)).toEqual(["", "en", "ru"])
+    expect(commands[1].commands.map((c: { command: string }) => c.command)).toEqual(["start", "today", "balance", "stop"])
+    expect(commands[1].commands[1].description).toBe("Payments today and tomorrow")
+    expect(commands[2].commands[1].description).toBe("Платежи сегодня и завтра")
+    fetchMock.mockClear()
+    await configureTelegramTransport()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
     { currency: "RUB" as const, limit: 1000000, spent: 1150000, balance: -1150000 },
     { currency: "EUR" as const, limit: 8000, spent: 9200, balance: -9200 },
   ])("sends USD payments and converted forecasts, budgets and balance in $currency", async (base) => {
@@ -133,6 +185,7 @@ describe("notification pipeline", () => {
         { currency: "EUR", date: today, rateToRub: "125", source: "manual" },
       ])
       const h = await setupHousehold()
+    await getDb().update(users).set({ locale: "ru" }).where(eq(users.id, h.owner.id))
       await updateHousehold(h.ctx, { name: h.household.name, currency: base.currency, version: 1 })
       const ctx = (await resolveHouseholdCtx(h.owner.id, h.household.id))!
       const usd = await createAccount(ctx, { name: "USD", kind: "cash", currency: "USD", openingBalance: 0 })
@@ -184,6 +237,7 @@ describe("notification pipeline", () => {
     vi.setSystemTime(at)
     provider.value = "cbr"
     const h = await setupHousehold()
+    await getDb().update(users).set({ locale: "ru" }).where(eq(users.id, h.owner.id))
     const usd = await createAccount(h.ctx, { name: "USD", kind: "cash", currency: "USD", openingBalance: 0 })
     const payment = await createTransaction(h.ctx, {
       type: "expense", accountId: usd.id, categoryId: h.cat("Продукты"), amount: 10000,
@@ -213,6 +267,7 @@ describe("notification pipeline", () => {
     // Drop only the slots configured on the matrix clock before moving this scenario's clock.
     await getDb().delete(applicationSettings).where(eq(applicationSettings.key, "notifications.telegram.rate"))
     const h = await setupHousehold()
+    await getDb().update(users).set({ locale: "ru" }).where(eq(users.id, h.owner.id))
     const payment = await createTransaction(h.ctx, {
       type: "expense", accountId: h.mainAccount, categoryId: h.cat("Продукты"), amount: 10000,
       status: "planned", date: "2027-01-01",

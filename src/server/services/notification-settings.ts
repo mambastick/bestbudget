@@ -1,5 +1,6 @@
 import "server-only"
 import { eq } from "drizzle-orm"
+import { notificationTranslator } from "@/i18n/notifications"
 import webpush from "web-push"
 import { z } from "zod"
 import { getDb } from "@/db"
@@ -33,7 +34,7 @@ export type TelegramConfig = Awaited<ReturnType<typeof telegramConfig>>
 /** Delivery must wait for reconciliation after an ENV token or mode change. */
 export function telegramTransportReady(config: TelegramConfig): boolean {
   if (!config.token || !config.secret || !config.row.botId) return false
-  const fingerprint = hashToken(`${config.token}:${config.mode}:${appUrl()}:${config.secret}`)
+  const fingerprint = hashToken(`i18n-v1:${config.token}:${config.mode}:${appUrl()}:${config.secret}`)
   return config.row.transportFingerprint === fingerprint
 }
 
@@ -129,7 +130,7 @@ export async function configureTelegramTransport(signal?: AbortSignal) {
   const c = await telegramConfig()
   if (!c.token) return null
   const secret = c.secret ?? randomToken()
-  const fingerprint = hashToken(`${c.token}:${c.mode}:${appUrl()}:${secret}`)
+  const fingerprint = hashToken(`i18n-v1:${c.token}:${c.mode}:${appUrl()}:${secret}`)
   if (c.row.transportFingerprint !== fingerprint || !c.row.botId) {
     const bot = await telegramApi<{ id: number; username: string }>(c.token, "getMe", {}, signal)
     if (c.mode === "webhook") {
@@ -145,6 +146,18 @@ export async function configureTelegramTransport(signal?: AbortSignal) {
         signal,
       )
     } else await telegramApi(c.token, "deleteWebhook", {}, signal)
+    for (const language_code of ["", "en", "ru"] as const) {
+      const t = notificationTranslator(language_code === "ru" ? "ru" : "en")
+      await telegramApi(c.token, "setMyCommands", {
+        language_code,
+        commands: [
+          { command: "start", description: t("commandStart") },
+          { command: "today", description: t("commandToday") },
+          { command: "balance", description: t("commandBalance") },
+          { command: "stop", description: t("commandStop") },
+        ],
+      }, signal)
+    }
     signal?.throwIfAborted()
     await getDb().transaction(async (tx) => {
       const [current] = await tx.select().from(notificationSettings).where(eq(notificationSettings.id, 1)).for("update")

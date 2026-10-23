@@ -38,6 +38,7 @@ const money = (name: string) => bigint(name, { mode: "number" })
 export const users = pgTable("users", {
   id: id(),
   locale: text("locale", { enum: ["ru", "en"] }),
+  lastSeenLocale: text("last_seen_locale", { enum: ["ru", "en"] }),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),

@@ -1,0 +1,6 @@
+{
+  "resetSubject": "Reset your BestBudget password",
+  "resetBody": "To set a new password, follow this link (valid for one hour):\n\n{url}\n\nIf you didn't request a password reset, you can ignore this email.",
+  "inviteSubject": "You’re invited to BestBudget",
+  "inviteBody": "{sender} invited you to join the “{household}” household.\n\nJoin here: {url}\n\nIf you weren’t expecting this invitation, you can ignore this email."
+}
