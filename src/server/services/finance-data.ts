@@ -1,7 +1,7 @@
 import "server-only"
 import { and, eq, sql } from "drizzle-orm"
 import { getDb } from "@/db"
-import { financialAccounts, transactions } from "@/db/schema"
+import { financialAccounts, transactions, loanEvents, loans } from "@/db/schema"
 import { addDays, todayIn } from "@/lib/dates"
 import type { HouseholdCtx } from "../context"
 import { createConverter, loadRates } from "./exchange-rates"
@@ -15,7 +15,7 @@ import { createConverter, loadRates } from "./exchange-rates"
 export async function loadFinance(ctx: HouseholdCtx, valuationDates: string[] = []) {
   const db = getDb()
   const today = todayIn(ctx.timezone)
-  const [accounts, grouped] = await Promise.all([
+  const [accounts, grouped, adjustments] = await Promise.all([
     db.select().from(financialAccounts).where(eq(financialAccounts.householdId, ctx.householdId)),
     db.select({
       accountId: transactions.accountId,
@@ -29,9 +29,13 @@ export async function loadFinance(ctx: HouseholdCtx, valuationDates: string[] = 
       count: sql<number>`count(*)::int`,
     }).from(transactions).where(and(eq(transactions.householdId, ctx.householdId), sql`${transactions.status} <> 'skipped'`))
       .groupBy(transactions.accountId, transactions.toAccountId, transactions.categoryId, transactions.date, transactions.type, transactions.status),
+    db.select({ accountId: loans.accountId, date: loanEvents.date, delta: loanEvents.balanceDelta }).from(loanEvents)
+      .innerJoin(loans, and(eq(loans.householdId, loanEvents.householdId), eq(loans.id, loanEvents.loanId)))
+      .where(and(eq(loanEvents.householdId, ctx.householdId), eq(loanEvents.type, "reconciliation"))),
   ])
   const accountMap = new Map(accounts.map((a) => [a.id, a]))
   const rows = grouped.map((r) => ({ ...r, amount: Number(r.amount), toAmount: Number(r.toAmount), currency: accountMap.get(r.accountId)!.currency }))
+  for (const r of adjustments) rows.push({ accountId: r.accountId, toAccountId: null, categoryId: null, date: r.date, type: "transfer", status: "posted", amount: -r.delta!, toAmount: 0, currency: accountMap.get(r.accountId)!.currency, count: 0 })
   const dates = [...new Set([today, ...valuationDates])]
   const needs = [
     ...accounts.flatMap((a) => dates.map((date) => ({ currency: a.currency, date }))),
@@ -49,8 +53,10 @@ export async function loadFinance(ctx: HouseholdCtx, valuationDates: string[] = 
     convert(r.amount, accountMap.get(r.accountId)!.currency, r.status === "posted" ? r.date : today)
   const balances = new Map(accounts.map((a) => [a.id, a.openingBalance]))
   for (const r of rows.filter((r) => r.status === "posted")) applyMovement(balances, r)
-  const balance = accounts.reduce((sum, a) => sum + convert(balances.get(a.id)!, a.currency), 0)
-  return { today, accounts, accountMap, rows, rates, fx, convert, value, balance }
+  const balance = accounts.filter((a) => a.kind !== "loan").reduce((sum, a) => sum + convert(balances.get(a.id)!, a.currency), 0)
+  const netAssets = accounts.reduce((sum, a) => sum + convert(balances.get(a.id)!, a.currency), 0)
+  const debt = accounts.reduce((sum, a) => sum + convert(Math.max(0, -balances.get(a.id)!), a.currency), 0)
+  return { netAssets, debt, balances, today, accounts, accountMap, rows, rates, fx, convert, value, balance }
 }
 
 /** Daily historical valuations also need rates on days without any operations. */

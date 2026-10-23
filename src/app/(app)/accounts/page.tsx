@@ -21,6 +21,7 @@ export default async function AccountsPage() {
           version: a.version,
           currency: a.currency,
           currencyLocked: a.currencyLocked,
+          creditLimit: a.creditLimit,
           openingBalance: a.openingBalance,
           balance: a.balance,
           operations: a.operations,

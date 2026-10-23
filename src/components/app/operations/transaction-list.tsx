@@ -5,6 +5,7 @@ import { CategoryIcon } from "@/components/app/category-icon"
 import { Money } from "@/components/app/money"
 import { Badge } from "@/components/ui/badge"
 import { formatDay, formatWeekday, type IsoDate } from "@/lib/dates"
+import { formatMoney } from "@/lib/money"
 import { cn } from "@/lib/utils"
 import { useCatalog } from "./catalog-context"
 import { OperationMenu } from "./operation-menu"
@@ -29,7 +30,7 @@ export function TransactionList({ rows, today }: { rows: ListRow[]; today: IsoDa
   return (
     <div className="grid grid-cols-1 gap-5">
       {[...groups.entries()].map(([date, items]) => {
-        const net = items.filter((i) => i.status === "posted" && accounts.find((a) => a.id === i.accountId)?.currency === currency).reduce((s, i) => s + (i.type === "income" ? i.amount : i.type === "expense" ? -i.amount : 0), 0)
+        const net = items.filter((i) => i.status === "posted" && accounts.find((a) => a.id === i.accountId)?.currency === currency).reduce((s, i) => s + (i.loanId ? -(i.loanInterest ?? 0) : i.type === "income" ? i.amount : i.type === "expense" ? -i.amount : 0), 0)
         return (
           <section key={date}>
             <div className="mb-1.5 flex items-baseline justify-between px-1 text-xs text-muted-foreground">
@@ -57,7 +58,7 @@ export function TransactionItem({ row, today }: { row: ListRow; today: IsoDate }
   const toCurrency = accounts.find((a) => a.id === row.toAccountId)?.currency
   const planned = row.status === "planned"
   const subtitle =
-    row.type === "transfer" ? `${row.accountName} → ${row.toAccountName}` : [row.categoryName, row.accountName].filter(Boolean).join(" · ")
+    row.loanId ? `тело ${formatMoney(row.loanPrincipal ?? 0, currency)} + проценты ${formatMoney(row.loanInterest ?? 0, currency)}` : row.type === "transfer" ? `${row.accountName} → ${row.toAccountName}` : [row.categoryName, row.accountName].filter(Boolean).join(" · ")
   return (
     <li className={cn("flex items-center gap-3 px-3 py-2.5 sm:px-4", row.status === "skipped" && "opacity-50")}>
       <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => ops.openEdit(row)}>

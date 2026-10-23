@@ -26,7 +26,7 @@ describe("household creation", () => {
     const { ctx } = await setupHousehold()
     const cats = await listCategories(ctx)
     expect(cats.filter((c) => c.kind === "income")).toHaveLength(8)
-    expect(cats.filter((c) => c.kind === "expense")).toHaveLength(16)
+    expect(cats.filter((c) => c.kind === "expense")).toHaveLength(17)
     expect(await listAccounts(ctx)).toHaveLength(1)
     expect(ctx.timezone).toBe("Europe/Moscow")
     expect(ctx.role).toBe("owner")

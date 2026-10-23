@@ -1,6 +1,7 @@
 "use client"
 
 import { Archive, ArchiveRestore, ArrowLeftRight, Banknote, CreditCard, Landmark, MoreHorizontal, Pencil, PiggyBank, Plus, Trash2, Users, Wallet } from "lucide-react"
+import Link from "next/link"
 import { useState } from "react"
 import { createAccountAction, deleteAccountAction, setAccountArchivedAction, updateAccountAction } from "@/app/actions/catalog"
 import { CurrencySelect } from "@/components/app/currency-select"
@@ -30,6 +31,7 @@ export interface AccountItem {
   currency: string
   currencyLocked: boolean
   version: number
+  creditLimit: number
   openingBalance: number
   balance: number
   operations: number
@@ -43,6 +45,7 @@ const ICONS: Record<Kind, typeof Wallet> = {
   savings: PiggyBank,
   shared: Users,
   other: Landmark,
+  loan: Landmark,
 }
 
 export function AccountsView({ accounts, canManage, currency }: { accounts: AccountItem[]; canManage: boolean; currency: string }) {
@@ -67,7 +70,7 @@ export function AccountsView({ accounts, canManage, currency }: { accounts: Acco
         {debt < 0 ? (
           <Card size="sm">
             <CardHeader>
-              <CardDescription>Задолженность (кредитные карты, овердрафт)</CardDescription>
+              <CardDescription>Задолженность</CardDescription>
               <CardTitle className="text-2xl font-semibold">
                 <Money value={debt} currency={currency} tone="expense" />
               </CardTitle>
@@ -130,12 +133,12 @@ function AccountCard({ account: a, canManage, onEdit }: { account: AccountItem; 
           <Icon className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="line-clamp-2 font-medium break-words">{a.name}</div>
+          <div className="line-clamp-2 font-medium break-words">{a.kind === "loan" ? <Link href="/loans" className="hover:underline">{a.name}</Link> : a.name}</div>
           <div className="text-xs text-muted-foreground">
             {ACCOUNT_KIND_LABELS[a.kind]} · {a.operations} опер.
           </div>
         </div>
-        {canManage ? (
+        {canManage && a.kind !== "loan" ? (
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Действия" />}>
               <MoreHorizontal />
@@ -161,6 +164,7 @@ function AccountCard({ account: a, canManage, onEdit }: { account: AccountItem; 
       <div className="text-xs text-muted-foreground">
         начальный остаток <Money value={a.openingBalance} currency={a.currency} />
       </div>
+      {a.kind === "credit_card" ? <div className="mt-2 text-xs text-muted-foreground">Долг: <Money value={Math.max(0, -a.balance)} currency={a.currency} /> · доступно: <Money value={Math.max(0, a.creditLimit + a.balance)} currency={a.currency} /> · лимит: <Money value={a.creditLimit} currency={a.currency} /></div> : null}
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
@@ -188,6 +192,7 @@ function AccountForm({ account, onClose }: { account: AccountItem | null; onClos
   const [name, setName] = useState(account?.name ?? "")
   const [kind, setKind] = useState<Kind>(account?.kind ?? "debit_card")
   const isCredit = kind === "credit_card"
+  const [creditLimit, setCreditLimit] = useState(minorToInput(account?.creditLimit ?? 0, currency))
   // Credit card debt is entered as a positive number and stored as a negative balance.
   const [opening, setOpening] = useState(account ? minorToInput(Math.abs(account.openingBalance), account.currency) : "")
   const [negative, setNegative] = useState(account ? account.openingBalance < 0 : false)
@@ -198,7 +203,7 @@ function AccountForm({ account, onClose }: { account: AccountItem | null; onClos
     const amount = opening.trim() === "" ? 0 : parseMoney(opening, currency)
     if (amount === null) return
     const openingBalance = isCredit || negative ? -amount : amount
-    const input = { name, kind, openingBalance, currency, version: account?.version }
+    const input = { name, kind, openingBalance, currency, creditLimit: isCredit ? parseMoney(creditLimit, currency) ?? 0 : 0, version: account?.version }
     run<unknown>(() => (account ? updateAccountAction(account.id, input) : createAccountAction(input)), {
       success: account ? "Счёт сохранён" : "Счёт создан",
       onSuccess: onClose,
@@ -217,12 +222,12 @@ function AccountForm({ account, onClose }: { account: AccountItem | null; onClos
       </Field>
       <Field>
         <FieldLabel>Тип</FieldLabel>
-        <Select value={kind} onValueChange={(v) => v && setKind(v as Kind)} items={Object.entries(ACCOUNT_KIND_LABELS).map(([value, label]) => ({ value, label }))}>
+        <Select value={kind} onValueChange={(v) => v && setKind(v as Kind)} items={Object.entries(ACCOUNT_KIND_LABELS).filter(([value]) => value !== "loan").map(([value, label]) => ({ value, label }))}>
           <SelectTrigger className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {Object.entries(ACCOUNT_KIND_LABELS).map(([value, label]) => (
+            {Object.entries(ACCOUNT_KIND_LABELS).filter(([value]) => value !== "loan").map(([value, label]) => (
               <SelectItem key={value} value={value}>
                 {label}
               </SelectItem>
@@ -246,6 +251,7 @@ function AccountForm({ account, onClose }: { account: AccountItem | null; onClos
           <p className="text-xs text-muted-foreground">Долг хранится как отрицательный остаток счёта.</p>
         )}
       </Field>
+      {isCredit ? <Field><FieldLabel htmlFor="acc-credit-limit">Кредитный лимит</FieldLabel><MoneyInput id="acc-credit-limit" currency={currency} value={creditLimit} onChange={setCreditLimit} /></Field> : null}
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
           Отмена

@@ -191,7 +191,7 @@ function FundingForm({
   onClose: () => void
 }) {
   const { run, pending } = useAction()
-  const sources = accounts.filter((a) => a.id !== g.accountId && !a.archivedAt)
+  const sources = accounts.filter((a) => a.id !== g.accountId && a.kind !== "loan" && !a.archivedAt)
   const [sourceId, setSourceId] = useState(sources[0]?.id ?? "")
   const source = sources.find((a) => a.id === sourceId)
   const manual = g.kind === "manual"

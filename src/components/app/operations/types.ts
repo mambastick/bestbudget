@@ -4,6 +4,10 @@ export type OperationType = "income" | "expense" | "transfer"
 
 /** The editable shape of a transaction as sent to client components. */
 export interface OperationRow {
+  loanId?: string | null
+  loanPrincipal?: number
+  loanInterest?: number
+  loanPart?: "principal" | "interest" | "prepayment" | null
   id: string
   type: OperationType
   status: "planned" | "posted" | "skipped"

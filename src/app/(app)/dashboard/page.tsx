@@ -1,4 +1,5 @@
 import { GoalsWidget } from "@/components/app/goals/goals-widget"
+import { DebtSummary } from "@/components/app/loans/debt-summary"
 import { FxWarnings } from "@/components/app/fx-warnings"
 import { CalendarClock, Info, PieChart, Plus } from "lucide-react"
 import type { Metadata } from "next"
@@ -63,7 +64,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <div className="text-3xl font-semibold tracking-tight sm:text-4xl">
               <AnimatedMoney value={d.balance} currency={cur} tone={d.balance < 0 ? "expense" : "neutral"} />
             </div>
-            <p className="text-xs text-muted-foreground">Все счета, только подтверждённые операции</p>
+            <p className="text-xs text-muted-foreground">Счета без кредитных обязательств, только подтверждённые операции</p>
             {d.valuationNote ? <p className="text-xs text-muted-foreground">{d.valuationNote}</p> : null}
             {d.staleRateNotes.map((note) => <p key={note} className="text-xs text-muted-foreground">{note}</p>)}
           </div>
@@ -102,6 +103,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           />
         </div>
       </div>
+
+      <DebtSummary debt={d.debt} netAssets={d.netAssets} currency={cur} next={d.nextLoanPayment} />
 
       {firstNegative ? (
         <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm">

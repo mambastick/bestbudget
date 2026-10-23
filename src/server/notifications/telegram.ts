@@ -21,6 +21,7 @@ import { listMemberships, resolveHouseholdCtx } from "@/server/services/househol
 import { disconnectTelegram } from "@/server/services/notifications"
 import { telegramConfig, type TelegramConfig } from "@/server/services/notification-settings"
 import { actualBalance } from "@/server/services/reports"
+import { confirmLoanPayment } from "@/server/services/loans"
 import { confirmTransaction, getTransaction, listInRange } from "@/server/services/transactions"
 import { DeliveryError, telegramApi } from "./telegram-api"
 
@@ -86,7 +87,17 @@ export async function confirmTelegramPayment(userId: string, data: string) {
   if (!ctx) throw new AppError("Нет доступа к операции")
   const current = await getTransaction(ctx, payment.id)
   if (current.status !== "planned") throw new AppError("Операция уже подтверждена или пропущена")
-  await confirmTransaction(ctx, payment.id, { version: payment.version })
+  if (current.loanId) {
+    const today = todayIn(ctx.timezone)
+    await confirmLoanPayment(ctx, payment.id, {
+      version: payment.version,
+      date: current.date > today ? today : current.date,
+      amount: current.amount,
+      allocation: "principal",
+    })
+  } else {
+    await confirmTransaction(ctx, payment.id, { version: payment.version })
+  }
 }
 
 export async function handleTelegramUpdate(raw: unknown, token: string, botId: string) {

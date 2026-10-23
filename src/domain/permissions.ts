@@ -9,6 +9,7 @@ export type HouseholdRole = "owner" | "admin" | "member"
 const MATRIX = {
   "finance.read": ["owner", "admin", "member"],
   "finance.write": ["owner", "admin", "member"],
+  "loans.manage": ["owner", "admin"],
   "catalog.manage": ["owner", "admin"],
   "invitations.manage": ["owner", "admin"],
   "members.manage": ["owner"],

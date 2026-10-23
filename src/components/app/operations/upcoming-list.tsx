@@ -5,12 +5,16 @@ import { getTransactionAction } from "@/app/actions/finance"
 import { Money } from "@/components/app/money"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { formatMoney } from "@/lib/money"
 import { formatDayShort, formatWeekday } from "@/lib/dates"
 import { useOperations } from "./operations-provider"
 
 export interface UpcomingEntry {
   key: string
   id: string | null
+  loanId?: string | null
+  loanPrincipal?: number
+  loanInterest?: number
   ruleId: string | null
   date: string
   type: "income" | "expense" | "transfer"
@@ -32,6 +36,8 @@ export function UpcomingList({ items }: { items: UpcomingEntry[] }) {
       if (!res.ok) return
       if (then === "confirm") ops.openConfirm(res.data)
       else ops.openEdit(res.data)
+    } else if (item.loanId) {
+      ops.openLoan(item.loanId, item.date)
     } else if (item.ruleId) {
       ops.openVirtual(item.ruleId, item.date, then)
     }
@@ -57,6 +63,7 @@ export function UpcomingList({ items }: { items: UpcomingEntry[] }) {
                   </Badge>
                 ) : null}
               </span>
+              {item.loanId ? <span className="block truncate text-xs text-muted-foreground">тело {formatMoney(item.loanPrincipal ?? 0, item.currency)} + проценты {formatMoney(item.loanInterest ?? 0, item.currency)}</span> : null}
             </span>
             <Money
               value={item.amount}

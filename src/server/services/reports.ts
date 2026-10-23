@@ -1,14 +1,15 @@
 import "server-only"
-import { eq } from "drizzle-orm"
+import { and, eq, isNotNull } from "drizzle-orm"
 import { getDb } from "@/db"
-import { categories } from "@/db/schema"
+import { categories, transactions } from "@/db/schema"
 import { effectiveDate, type FlowItem } from "@/domain/forecast"
 import { addDays, addMonths, diffDays, endOfMonth, maxDate, monthKey, startOfMonth, todayIn, type IsoDate } from "@/lib/dates"
 import { balanceValuation } from "@/lib/fx-display"
 import { assertCan, type HouseholdCtx } from "../context"
 import { applyMovement, loadFinance, pastValuationDates, type FinanceData } from "./finance-data"
 import { ensureMaterialized, virtualOccurrences, type VirtualOccurrence } from "./recurring"
-import { listInRange, type TransactionRow } from "./transactions"
+import { ensureLoansMaterialized, virtualLoanPayments } from "./loans"
+import { listInRange, loanDisplayCondition, transactionListQuery, type TransactionRow } from "./transactions"
 
 /** Account balances are valued at the latest known rate, including archived accounts. */
 export async function actualBalance(ctx: HouseholdCtx) {
@@ -17,9 +18,12 @@ export async function actualBalance(ctx: HouseholdCtx) {
 }
 
 async function project(ctx: HouseholdCtx, data: FinanceData, from: IsoDate, to: IsoDate, today: IsoDate) {
-  const virtual = to >= today ? await virtualOccurrences(ctx, today, to, today) : [] as VirtualOccurrence[]
+  const regular = to >= today ? await virtualOccurrences(ctx, today, to, today) : [] as VirtualOccurrence[]
+  const loanParts = to >= today ? await virtualLoanPayments(ctx, today, to) : []
+  const loanVirtual = loanParts
+  const virtual = [...regular, ...loanVirtual]
   const planned = [...data.rows.filter((r) => r.status === "planned" && r.date <= to), ...virtual.map((v) => ({ ...v, status: "planned" as const }))]
-  const plannedItems: FlowItem[] = planned.map((r) => ({ date: r.date, type: r.type, status: "planned", amount: data.value(r) }))
+  const plannedItems: FlowItem[] = planned.map((r) => ({ date: r.date, type: r.type === "transfer" && data.accountMap.get(r.toAccountId ?? "")?.kind === "loan" ? "expense" : r.type, status: "planned", amount: data.value(r) }))
   const movements = [
     ...data.rows.filter((r) => r.status === "posted" && r.date <= to),
     ...planned.map((r) => ({ ...r, date: effectiveDate({ date: r.date, status: "planned" }, today) })),
@@ -37,7 +41,7 @@ async function project(ctx: HouseholdCtx, data: FinanceData, from: IsoDate, to: 
       if (row.type === "income") income += data.value(row)
       if (row.type === "expense") expense += data.value(row)
     }
-    const balance = data.accounts.reduce((sum, a) => sum + data.convert(balances.get(a.id)!, a.currency, date), 0)
+    const balance = data.accounts.filter((a) => a.kind !== "loan").reduce((sum, a) => sum + data.convert(balances.get(a.id)!, a.currency, date), 0)
     days.push({ date, income, expense, balance })
   }
   return { days, plannedItems, virtual }
@@ -52,6 +56,9 @@ export interface UpcomingItem {
   key: string
   id: string | null
   ruleId: string | null
+  loanId?: string | null
+  loanPrincipal?: number
+  loanInterest?: number
   date: IsoDate
   type: "income" | "expense" | "transfer"
   amount: number
@@ -98,6 +105,7 @@ export async function getDashboard(ctx: HouseholdCtx, month: IsoDate) {
   assertCan(ctx, "finance.read")
   const today = todayIn(ctx.timezone)
   await ensureMaterialized(ctx.householdId, today)
+  await ensureLoansMaterialized(ctx, today)
   const monthStart = startOfMonth(month)
   const monthEnd = endOfMonth(month)
   const data = await loadFinance(ctx, pastValuationDates(monthStart, monthEnd, today))
@@ -122,7 +130,8 @@ export async function getDashboard(ctx: HouseholdCtx, month: IsoDate) {
   const catMap = new Map(cats.map((c) => [c.id, c]))
   const upcoming: UpcomingItem[] = [
     ...upcomingRows.filter((r) => r.status === "planned").map((r) => ({
-      key: r.id, id: r.id, ruleId: r.recurringRuleId, date: r.date, type: r.type, amount: r.amount, currency: r.currency,
+      key: r.id, id: r.id, loanId: r.loanId, ruleId: r.recurringRuleId, date: r.date, type: r.type, amount: r.amount, currency: r.currency,
+      loanPrincipal: r.loanPrincipal, loanInterest: r.loanInterest,
       title: r.title, categoryIcon: r.categoryIcon, categoryColor: r.categoryColor, overdue: r.date < today,
     })),
     ...upcomingVirtual.map((v) => ({
@@ -131,9 +140,12 @@ export async function getDashboard(ctx: HouseholdCtx, month: IsoDate) {
       categoryIcon: catMap.get(v.categoryId ?? "")?.icon ?? null, categoryColor: catMap.get(v.categoryId ?? "")?.color ?? null, overdue: false,
     })),
   ].sort((a, b) => a.date.localeCompare(b.date)).slice(0, 10)
+  const [nextLoanPayment] = await transactionListQuery(and(eq(transactions.householdId, ctx.householdId), eq(transactions.status, "planned"), isNotNull(transactions.loanId), loanDisplayCondition)).orderBy(transactions.date).limit(1)
   const foreign = data.accounts.filter((a) => a.currency !== ctx.currency)
   const valuation = balanceValuation(data.rates, foreign.map((a) => a.currency), ctx.currency, today)
   return {
+    nextLoanPayment,
+    netAssets: data.netAssets, debt: data.debt,
     today, monthStart, balance: data.balance, monthIncome: actual.income, monthExpense: actual.expense,
     plannedIncome: planned.income, plannedExpense: planned.expense,
     forecastEndOfMonth: monthProjection.days.at(-1)?.balance ?? data.balance,
@@ -149,13 +161,39 @@ export async function expenseByCategory(ctx: HouseholdCtx, from: IsoDate, to: Is
 }
 
 export type CalendarItem = Pick<TransactionRow,
-  "id" | "type" | "status" | "amount" | "currency" | "toAmount" | "toCurrency" | "title" | "date" | "categoryIcon" | "categoryColor" | "categoryName" | "accountName" | "toAccountName" | "authorName" | "recurringRuleId" | "version"
+  "id" | "type" | "status" | "amount" | "currency" | "toAmount" | "toCurrency" | "title" | "date" | "categoryIcon" | "categoryColor" | "categoryName" | "accountName" | "toAccountName" | "authorName" | "recurringRuleId" | "version" | "loanId" | "loanPart" | "loanPrincipal" | "loanInterest"
 > & { virtual: boolean; key: string }
+
+type ProjectedOccurrence = Awaited<ReturnType<typeof project>>["virtual"][number]
+
+function displayVirtualPayments(rows: ProjectedOccurrence[]) {
+  const out: Array<ProjectedOccurrence & { loanId: string | null; loanPart: "principal" | "interest" | null; loanPrincipal: number; loanInterest: number }> = []
+  const groups = new Map<string, typeof out[number]>()
+  for (const row of rows) {
+    if (!("loanId" in row)) {
+      out.push({ ...row, loanId: null, loanPart: null, loanPrincipal: 0, loanInterest: 0 })
+      continue
+    }
+    const key = `${row.loanId}:${row.date}`
+    const existing = groups.get(key)
+    if (existing) {
+      existing.amount += row.amount
+      existing.loanPrincipal += row.loanPart === "principal" ? row.amount : 0
+      existing.loanInterest += row.loanPart === "interest" ? row.amount : 0
+    } else {
+      const grouped = { ...row, loanPrincipal: row.loanPart === "principal" ? row.amount : 0, loanInterest: row.loanPart === "interest" ? row.amount : 0 }
+      groups.set(key, grouped)
+      out.push(grouped)
+    }
+  }
+  return out
+}
 
 export async function getCalendarMonth(ctx: HouseholdCtx, month: IsoDate) {
   assertCan(ctx, "finance.read")
   const today = todayIn(ctx.timezone)
   await ensureMaterialized(ctx.householdId, today)
+  await ensureLoansMaterialized(ctx, today)
   const from = startOfMonth(month)
   const to = endOfMonth(month)
   const data = await loadFinance(ctx, pastValuationDates(from, to, today))
@@ -166,8 +204,9 @@ export async function getCalendarMonth(ctx: HouseholdCtx, month: IsoDate) {
   const catMap = new Map(cats.map((c) => [c.id, c]))
   const items: CalendarItem[] = [
     ...rows.map((r) => ({ ...r, virtual: false, key: r.id })),
-    ...proj.virtual.filter((v) => v.date >= from && v.date <= to).map((v) => ({
-      id: "", key: `${v.ruleId}:${v.date}`, virtual: true, type: v.type, status: "planned" as const,
+    ...displayVirtualPayments(proj.virtual).filter((v) => v.date >= from && v.date <= to).map((v) => ({
+      id: "", key: `${v.loanId ?? v.ruleId}:${v.date}`, virtual: true, type: v.type, status: "planned" as const,
+      loanId: v.loanId, loanPart: v.loanPart, loanPrincipal: v.loanPrincipal, loanInterest: v.loanInterest,
       amount: v.amount, currency: data.accountMap.get(v.accountId)!.currency, toAmount: v.toAmount,
       toCurrency: v.toAccountId ? data.accountMap.get(v.toAccountId)!.currency : null,
       title: v.title, date: v.date, categoryIcon: catMap.get(v.categoryId ?? "")?.icon ?? null,
@@ -201,6 +240,7 @@ export async function getAnalytics(ctx: HouseholdCtx, from: IsoDate, to: IsoDate
   })
   const change = (cur: number, prev: number) => prev === 0 ? null : Math.round(((cur - prev) / prev) * 1000) / 10
   return {
+    netAssets: data.netAssets, debt: data.debt,
     from, to, current, previous: { ...previous, from: prevFrom, to: prevTo },
     expenseChange: change(current.expense, previous.expense), incomeChange: change(current.income, previous.income),
     categories: categoriesTop, series, forecast, warnings: [...data.fx.warnings],

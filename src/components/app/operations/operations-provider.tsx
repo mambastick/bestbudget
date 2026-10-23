@@ -1,6 +1,9 @@
 "use client"
 
 import { createContext, useCallback, useContext, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
+import { LoanConfirmForm } from "@/components/app/loans/loan-confirm-form"
+import { materializeLoanPaymentAction } from "@/app/actions/loans"
 import { toast } from "sonner"
 import { confirmTransactionAction, getRuleAction, materializeOccurrenceAction } from "@/app/actions/finance"
 import { DateField } from "@/components/app/date-field"
@@ -21,6 +24,7 @@ interface OperationsApi {
   openRule: (rule: RuleRow) => void
   openConfirm: (row: OperationRow) => void
   /** Projected occurrences have no row yet: create it, then edit or confirm. */
+  openLoan: (loanId: string, date: string) => void
   openVirtual: (ruleId: string, date: IsoDate, then: "edit" | "confirm") => void
 }
 
@@ -34,6 +38,7 @@ export function useOperations() {
 
 function toRow(r: OperationRow): OperationRow {
   return {
+    loanId: r.loanId, loanPrincipal: r.loanPrincipal, loanInterest: r.loanInterest, loanPart: r.loanPart,
     id: r.id,
     type: r.type,
     status: r.status,
@@ -52,11 +57,17 @@ function toRow(r: OperationRow): OperationRow {
 }
 
 export function OperationsProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter()
   const [mode, setMode] = useState<OperationDialogMode | null>(null)
   const [open, setOpen] = useState(false)
   const [confirmRow, setConfirmRow] = useState<OperationRow | null>(null)
 
   const openEdit = useCallback(async (row: OperationRow) => {
+    if (row.loanId) {
+      if (row.status === "planned") setConfirmRow(toRow(row))
+      else router.push(`/loans/${row.loanId}`)
+      return
+    }
     let rule: RuleRow | null = null
     if (row.recurringRuleId) {
       const res = await getRuleAction(row.recurringRuleId)
@@ -64,7 +75,7 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
     }
     setMode({ kind: "transaction", row: toRow(row), rule })
     setOpen(true)
-  }, [])
+  }, [router])
 
   const api = useMemo<OperationsApi>(
     () => ({
@@ -78,6 +89,11 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
         setOpen(true)
       },
       openConfirm: (row) => setConfirmRow(toRow(row)),
+      openLoan: async (loanId, date) => {
+        const res = await materializeLoanPaymentAction(loanId, date)
+        if (!res.ok) return void toast.error(res.error)
+        setConfirmRow(toRow(res.data))
+      },
       openVirtual: async (ruleId, date, then) => {
         const res = await materializeOccurrenceAction(ruleId, date)
         if (!res.ok) return void toast.error(res.error)
@@ -101,7 +117,7 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
 function ConfirmOperationDialog({ row, onClose }: { row: OperationRow | null; onClose: () => void }) {
   return (
     <Dialog open={row !== null} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-sm">{row ? <ConfirmForm key={row.id} row={row} onClose={onClose} /> : null}</DialogContent>
+      <DialogContent className="sm:max-w-sm">{row ? row.loanId ? <LoanConfirmForm key={row.id} row={row} onClose={onClose} /> : <ConfirmForm key={row.id} row={row} onClose={onClose} /> : null}</DialogContent>
     </Dialog>
   )
 }

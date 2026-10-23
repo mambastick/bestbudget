@@ -21,6 +21,7 @@ export const DEFAULT_EXPENSE_CATEGORIES: DefaultCategory[] = [
   { name: "ЖКХ", icon: "zap", color: "#ca8a04" },
   { name: "Аренда", icon: "key", color: "#9333ea" },
   { name: "Ипотека", icon: "home", color: "#7c3aed" },
+  { name: "Проценты по кредитам", icon: "landmark", color: "#dc2626" },
   { name: "Кредиты", icon: "landmark", color: "#dc2626" },
   { name: "Подписки", icon: "repeat", color: "#0891b2" },
   { name: "Транспорт", icon: "bus", color: "#2563eb" },
@@ -43,6 +44,7 @@ export const ACCOUNT_KIND_LABELS = {
   savings: "Накопительный счёт",
   shared: "Общий счёт",
   other: "Другое",
+  loan: "Кредит",
 } as const
 
 export const CATEGORY_COLORS = [

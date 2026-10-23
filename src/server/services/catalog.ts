@@ -2,7 +2,7 @@ import "server-only"
 import { and, asc, eq, isNull, or, sql } from "drizzle-orm"
 import { z } from "zod"
 import { getDb } from "@/db"
-import { accountKind, categories, financialAccounts, goals, recurringRules, transactions } from "@/db/schema"
+import { accountKind, categories, financialAccounts, goals, recurringRules, transactions, loans } from "@/db/schema"
 import { CURRENCY_CODES } from "@/lib/currencies"
 import { audit, diff } from "../audit"
 import { assertCan, type HouseholdCtx } from "../context"
@@ -97,6 +97,7 @@ export const accountInput = z.object({
   currency: z.enum(CURRENCY_CODES).optional(),
   /** Minor units; negative allowed (credit card debt, overdraft). */
   openingBalance: z.number().int().safe(),
+  creditLimit: z.number().int().min(0).max(100_000_000_000_000).default(0),
 })
 
 /**
@@ -122,9 +123,10 @@ export async function listAccounts(ctx: HouseholdCtx, opts: { includeArchived?: 
       version: a.version,
       currency: a.currency,
       openingBalance: a.openingBalance,
+      creditLimit: a.creditLimit,
       archivedAt: a.archivedAt,
       sortOrder: a.sortOrder,
-      delta: balanceDelta,
+      delta: sql<string>`${balanceDelta} + coalesce((select sum(e.balance_delta) from loan_events e join loans l on l.id = e.loan_id and l.household_id = e.household_id where l.household_id = ${a.householdId} and l.account_id = ${a.id}), 0)`,
       operations: sql<number>`(select count(*)::int from transactions u where u.household_id = ${a.householdId} and (u.account_id = ${a.id} or u.to_account_id = ${a.id}))`,
       currencyLocked: sql<boolean>`exists(select 1 from transactions u where u.household_id = ${a.householdId} and (u.account_id = ${a.id} or u.to_account_id = ${a.id})) or exists(select 1 from recurring_rules r where r.household_id = ${a.householdId} and (r.account_id = ${a.id} or r.to_account_id = ${a.id})) or exists(select 1 from goals g where g.household_id = ${a.householdId} and g.account_id = ${a.id})`,
     })
@@ -139,6 +141,7 @@ export async function listAccounts(ctx: HouseholdCtx, opts: { includeArchived?: 
 export async function createAccount(ctx: HouseholdCtx, raw: z.input<typeof accountInput>) {
   assertCan(ctx, "catalog.manage")
   const input = accountInput.parse(raw)
+  if (input.kind === "loan") throw new AppError("Создайте кредит в разделе «Кредиты»")
   const [row] = await getDb()
     .insert(financialAccounts)
     .values({ ...input, householdId: ctx.householdId, currency: input.currency ?? ctx.currency, sortOrder: 100 })
@@ -156,6 +159,9 @@ export async function updateAccount(ctx: HouseholdCtx, id: string, raw: z.input<
     .from(financialAccounts)
     .where(and(eq(financialAccounts.id, uuid.parse(id)), eq(financialAccounts.householdId, ctx.householdId)))
   if (!before) throw notFound("Счёт не найден")
+  if (before.kind === "loan" || input.kind === "loan") throw new AppError("Управление кредитом доступно в разделе «Кредиты»")
+  const [loan] = await db.select({ id: loans.id }).from(loans).where(and(eq(loans.householdId, ctx.householdId), eq(loans.paymentAccountId, id))).limit(1)
+  if (loan && input.currency && input.currency !== before.currency) throw new AppError("Валюта счёта используется кредитом")
   if (input.currency && input.currency !== before.currency) {
     const [used] = await db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.householdId, ctx.householdId), or(eq(transactions.accountId, id), eq(transactions.toAccountId, id)))).limit(1)
     const [rule] = await db.select({ id: recurringRules.id }).from(recurringRules).where(and(eq(recurringRules.householdId, ctx.householdId), or(eq(recurringRules.accountId, id), eq(recurringRules.toAccountId, id)))).limit(1)
@@ -172,6 +178,8 @@ export async function setAccountArchived(ctx: HouseholdCtx, id: string, archived
   assertCan(ctx, "catalog.manage")
   uuid.parse(id)
   const db = getDb()
+  const [loan] = await db.select({ id: loans.id }).from(loans).where(and(eq(loans.householdId, ctx.householdId), or(eq(loans.accountId, id), eq(loans.paymentAccountId, id)))).limit(1)
+  if (loan) throw new AppError("Счёт используется кредитом; управляйте им в разделе «Кредиты»")
   if (archived) {
     const [active] = await db
       .select({ n: sql<number>`count(*)::int` })
@@ -192,6 +200,8 @@ export async function deleteAccount(ctx: HouseholdCtx, id: string) {
   assertCan(ctx, "catalog.manage")
   uuid.parse(id)
   const db = getDb()
+  const [loan] = await db.select({ id: loans.id }).from(loans).where(and(eq(loans.householdId, ctx.householdId), or(eq(loans.accountId, id), eq(loans.paymentAccountId, id)))).limit(1)
+  if (loan) throw new AppError("Счёт используется кредитом; управляйте им в разделе «Кредиты»")
   const [used] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(transactions)
