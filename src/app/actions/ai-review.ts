@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { actionHousehold } from "@/server/session"
 import { runAction } from "@/server/errors"
-import { dismissRecommendation, discussRecommendation, runBudgetReview, saveReviewSettings } from "@/server/ai/reviews"
+import { applyRecommendation, dismissRecommendation, discussRecommendation, runBudgetReview, saveReviewSettings } from "@/server/ai/reviews"
 
 const refresh = () => revalidatePath("/", "layout")
 export async function saveAiReviewSettingsAction(input: Parameters<typeof saveReviewSettings>[1]) {
@@ -29,6 +29,14 @@ export async function dismissAiRecommendationAction(id: string) {
 export async function discussAiRecommendationAction(id: string) {
   return runAction(async () => {
     const result = await discussRecommendation(await actionHousehold(), id)
+    refresh()
+    return result
+  })
+}
+
+export async function applyAiRecommendationAction(id: string, selected: Parameters<typeof applyRecommendation>[2]) {
+  return runAction(async () => {
+    const result = await applyRecommendation(await actionHousehold(), id, selected)
     refresh()
     return result
   })

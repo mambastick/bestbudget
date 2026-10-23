@@ -5,13 +5,13 @@ import { aiRecommendations, aiRecommendationProposals, aiReviewDecisions, aiRevi
 import type { ProposalItem } from "@/domain/ai/types"
 import type { HouseholdCtx } from "@/server/context"
 import { AppError, notFound } from "@/server/errors"
-import { todayIn } from "@/lib/dates"
+import { proposalHandlers } from "./proposal-registry"
 import { fingerprint } from "./config"
 
 /** Hashes stay on the server. Generated, untouched planned rows do not change the economic source. */
 export async function reviewSourceFingerprint(ctx: HouseholdCtx) {
   const rows = await getDb().execute<{ hash: string }>(sql`select md5(jsonb_build_array(
-    ${ctx.currency}::text, ${ctx.timezone}::text, ${todayIn(ctx.timezone)}::text,
+    ${ctx.currency}::text, ${ctx.timezone}::text,
     (select jsonb_agg(jsonb_build_array(id, version, archived_at) order by id) from financial_accounts where household_id = ${ctx.householdId}),
     (select jsonb_agg(jsonb_build_array(id, version) order by id) from categories where household_id = ${ctx.householdId}),
     (select jsonb_agg(jsonb_build_array(id, version) order by id) from category_budgets where household_id = ${ctx.householdId}),
@@ -45,9 +45,9 @@ export function reviewItemFingerprint(item: ProposalItem) {
             accountId: input.accountId,
             toAccountId: input.toAccountId,
             categoryId: input.categoryId,
-          kind: input.kind,
-          currency: input.currency,
-          descriptionMode: input.descriptionMode,
+            kind: input.kind,
+            currency: input.currency,
+            descriptionMode: input.descriptionMode,
             descriptionPattern: input.descriptionPattern,
             mcc: input.mcc,
           }
@@ -87,10 +87,7 @@ export async function reviewForProposal(ctx: HouseholdCtx, proposalId: string, l
         eq(aiRecommendations.householdId, aiRecommendationProposals.householdId),
       ),
     )
-    .innerJoin(
-      aiReviews,
-      and(eq(aiReviews.id, aiRecommendations.reviewId), eq(aiReviews.householdId, aiRecommendations.householdId)),
-    )
+    .innerJoin(aiReviews, and(eq(aiReviews.id, aiRecommendations.reviewId), eq(aiReviews.householdId, aiRecommendations.householdId)))
     .where(and(eq(aiRecommendationProposals.householdId, ctx.householdId), eq(aiRecommendationProposals.proposalId, proposalId)))
   const [row] = await (lock ? query.for("update", { of: aiRecommendations }) : query)
   return row
@@ -101,10 +98,19 @@ export async function assertReviewProposalCurrent(ctx: HouseholdCtx, proposalId:
   if (!row || row.review.status !== "completed") throw notFound()
   if (alreadyApplied) return
   if (row.recommendation.status === "dismissed") throw new AppError("ai.proposalClosed")
-  if (
-    row.recommendation.status === "expired" ||
-    row.recommendation.expiresAt <= new Date() ||
-    row.review.sourceFingerprint !== (await reviewSourceFingerprint(ctx))
-  )
-    throw new AppError("ai.expired")
+  if (row.recommendation.status === "expired" || row.recommendation.expiresAt <= new Date()) throw new AppError("ai.expired")
+}
+
+/** Reuse the exact application snapshot; unrelated financial activity cannot invalidate an item. */
+export async function reviewItemStale(ctx: HouseholdCtx, item: ProposalItem) {
+  if (item.result) return false
+  if (item.householdCurrency !== ctx.currency || item.householdTimezone !== ctx.timezone) return true
+  const handler = proposalHandlers.get(item.type)
+  if (!handler) return true
+  try {
+    return fingerprint(await handler.snapshot(ctx, item.input)) !== fingerprint(item.before)
+  } catch (error) {
+    if (error instanceof AppError && ["not_found", "conflict"].includes(error.code)) return true
+    throw error
+  }
 }

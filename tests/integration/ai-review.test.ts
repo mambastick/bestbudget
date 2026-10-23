@@ -27,6 +27,7 @@ import { householdAiView, saveHouseholdAi } from "@/server/ai/access"
 import { fingerprint, getAiConfig, saveAiSettings, snapshot } from "@/server/ai/config"
 import { applyProposal, createProposal, dismissProposal } from "@/server/ai/proposals"
 import {
+  applyRecommendation,
   discussRecommendation,
   dismissRecommendation,
   getReviewSettings,
@@ -145,9 +146,7 @@ describe("periodic AI budget review", () => {
     await expect(saveReviewSettings(ctx, { frequency: "weekly" })).rejects.toMatchObject({ code: "forbidden" })
     await expect(discussRecommendation(other.ctx, rows[0]!.id)).rejects.toBeDefined()
     await expect(
-      db
-        .insert(aiRecommendationProposals)
-        .values({ householdId: other.ctx.householdId, recommendationId: rows[0]!.id, proposalId: p.id }),
+      db.insert(aiRecommendationProposals).values({ householdId: other.ctx.householdId, recommendationId: rows[0]!.id, proposalId: p.id }),
     ).rejects.toBeDefined()
     const discussion = await discussRecommendation(ctx, rows[0]!.id)
     const [chat] = await db.select().from(aiConversations).where(eq(aiConversations.id, discussion.id))
@@ -215,45 +214,136 @@ describe("periodic AI budget review", () => {
     await expect(runBudgetReview(f.ctx)).rejects.toMatchObject({ messageKey: "ai.reviewDailyLimit" })
   })
 
-  it("applies through the existing service, expires changed sources and seven-day-old insights", async () => {
+  it("keeps recommendations after a new transaction and across local midnight", async () => {
+    const f = await reviewed()
+    const before = await reviewSourceFingerprint(f.ctx)
+    expect(f.rows.every((r) => r.proposals.every((p) => p.expiresAt.getTime() === r.expiresAt.getTime()))).toBe(true)
+    const clock = Date.now()
+    try {
+      vi.useFakeTimers({ toFake: ["Date"] })
+      vi.setSystemTime(clock + 86400_000)
+      expect(await reviewSourceFingerprint(f.ctx)).toBe(before)
+      expect((await listRecommendations(f.ctx)).every((r) => r.status === "pending" && !r.sourceChanged)).toBe(true)
+      await createTransaction(f.ctx, {
+        type: "expense",
+        title: "Coffee",
+        amount: 25000,
+        date: todayIn(f.ctx.timezone),
+        categoryId: f.cat("Продукты"),
+        accountId: f.mainAccount,
+        status: "posted",
+      })
+      const rows = await listRecommendations(f.ctx)
+      expect(rows.map((r) => r.id).sort()).toEqual(f.rows.map((r) => r.id).sort())
+      expect(rows.every((r) => r.status === "pending" && r.sourceChanged && r.proposals.every((p) => !p.staleItemIds.length))).toBe(true)
+      expect((await recommendationSummary(f.ctx)).count).toBe(2)
+      const p = rows[0]!.proposals[0]!
+      expect(await applyRecommendation(f.ctx, rows[0]!.id, [{ proposalId: p.id, itemIds: p.items.map((i) => i.id) }])).toEqual({
+        applied: 1,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("marks only a changed budget item stale, keeps valid items actionable and checks again on apply", async () => {
+    const f = await enabled()
+    const categories = (await listCategories(f.ctx)).filter((c) => c.kind === "expense")
+    for (const category of categories) await setBudget(f.ctx, { categoryId: category.id, amount: 500 })
+    await runBudgetReview(f.ctx)
+    const rows = (await listRecommendations(f.ctx)).sort((a, b) => a.proposals[0]!.id.localeCompare(b.proposals[0]!.id))
+    // The valid package sorts first, so the later conflict must roll back its write.
+    const first = rows[1]!,
+      p = first.proposals[0]!,
+      other = rows[0]!.proposals[0]!
+    // A single recommendation can group independent packages.
+    await db.update(aiRecommendationProposals).set({ recommendationId: first.id }).where(eq(aiRecommendationProposals.proposalId, other.id))
+    await setBudget(f.ctx, { categoryId: (p.items[0]!.input as { categoryId: string }).categoryId, amount: 500 })
+    const row = (await listRecommendations(f.ctx)).find((r) => r.id === first.id)!
+    expect(row.status).toBe("pending")
+    expect(row.proposals.find((r) => r.id === p.id)!.staleItemIds).toEqual([p.items[0]!.id])
+    expect(row.proposals.find((r) => r.id === other.id)!.staleItemIds).toEqual([])
+    await expect(
+      applyRecommendation(
+        f.ctx,
+        row.id,
+        [p, other].map((r) => ({ proposalId: r.id, itemIds: r.items.map((i) => i.id) })),
+      ),
+    ).rejects.toMatchObject({ code: "conflict" })
+    // No selected package is committed when another package conflicts.
+    expect(
+      (await db.select().from(categoryBudgets).where(eq(categoryBudgets.householdId, f.ctx.householdId))).every(
+        (budget) => budget.amount === 500,
+      ),
+    ).toBe(true)
+    expect(await applyRecommendation(f.ctx, row.id, [{ proposalId: other.id, itemIds: other.items.map((i) => i.id) }])).toEqual({
+      applied: 1,
+    })
+    expect(
+      await applyProposal(
+        f.ctx,
+        other.id,
+        other.items.map((i) => i.id),
+      ),
+    ).toEqual({ applied: 0 })
+    await expect(applyRecommendation(f.ctx, rows[0]!.id, [{ proposalId: p.id, itemIds: p.items.map((i) => i.id) }])).rejects.toMatchObject({
+      code: "not_found",
+    })
+  })
+
+  it("expires recommendations exactly seven days after publication", async () => {
     const f = await reviewed(),
       first = f.rows[0]!,
       p = first.proposals[0]!
-    expect(
-      await applyProposal(
-        f.ctx,
-        p.id,
-        p.items.map((i) => i.id),
-      ),
-    ).toEqual({ applied: 1 })
-    expect(
-      await applyProposal(
-        f.ctx,
-        p.id,
-        p.items.map((i) => i.id),
-      ),
-    ).toEqual({ applied: 0 })
+    try {
+      vi.useFakeTimers({ toFake: ["Date"] })
+      vi.setSystemTime(first.expiresAt.getTime() - 1)
+      expect((await listRecommendations(f.ctx)).find((r) => r.id === first.id)!.status).toBe("pending")
+      vi.setSystemTime(first.expiresAt)
+      expect((await listRecommendations(f.ctx)).find((r) => r.id === first.id)!.status).toBe("expired")
+      await expect(
+        applyProposal(
+          f.ctx,
+          p.id,
+          p.items.map((i) => i.id),
+        ),
+      ).rejects.toMatchObject({ messageKey: "ai.expired" })
+      await dismissRecommendation(f.ctx, first.id)
+      expect((await listRecommendations(f.ctx)).find((r) => r.id === first.id)!.status).toBe("dismissed")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("replaces old pending recommendations only after successful publication, preserving semantic dedupe", async () => {
+    const f = await reviewed()
+    expect(await runBudgetReview(f.ctx, { periodKey: "weekly:replacement" })).toMatchObject({ status: "completed" })
     const rows = await listRecommendations(f.ctx)
-    expect(rows.find((r) => r.id === first.id)!.status).toBe("applied")
-    const other = rows.find((r) => r.id !== first.id)!
-    expect(other.status).toBe("expired")
+    const pending = rows.filter((r) => r.status === "pending")
+    expect(pending).toHaveLength(2)
+    expect(
+      rows
+        .filter((r) => r.status === "expired")
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual(f.rows.map((r) => r.id).sort())
+    expect(pending.flatMap((r) => r.fingerprints).sort()).toEqual(f.rows.flatMap((r) => r.fingerprints).sort())
+    const old = f.rows[0]!.proposals[0]!
     await expect(
       applyProposal(
         f.ctx,
-        other.proposals[0]!.id,
-        other.proposals[0]!.items.map((i) => i.id),
+        old.id,
+        old.items.map((i) => i.id),
       ),
     ).rejects.toMatchObject({ messageKey: "ai.expired" })
-    expect(await db.select().from(categoryBudgets).where(eq(categoryBudgets.householdId, f.ctx.householdId))).toHaveLength(1)
-    const source = await reviewSourceFingerprint(f.ctx)
-    await db.update(aiReviews).set({ sourceFingerprint: source }).where(eq(aiReviews.householdId, f.ctx.householdId))
-    await db
-      .update(aiRecommendations)
-      .set({ status: "pending", expiresAt: new Date(Date.now() - 1) })
-      .where(eq(aiRecommendations.id, other.id))
-    expect((await listRecommendations(f.ctx)).find((r) => r.id === other.id)!.status).toBe("expired")
-    await dismissRecommendation(f.ctx, other.id)
-    expect((await listRecommendations(f.ctx)).find((r) => r.id === other.id)!.status).toBe("dismissed")
+    await db.update(aiSettings).set({ monthlyTokenLimit: 1 }).where(eq(aiSettings.id, 1))
+    expect(await runBudgetReview(f.ctx, { periodKey: "weekly:quota" })).toMatchObject({ status: "quota_skipped" })
+    expect(
+      (await listRecommendations(f.ctx))
+        .filter((r) => r.status === "pending")
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual(pending.map((r) => r.id).sort())
   })
 
   it("does not send detailed descriptions under aggregates and treats injection as data under detailed consent", async () => {
@@ -338,6 +428,15 @@ describe("periodic AI budget review", () => {
       .update(notificationPreferences)
       .set({ quietStart: "00:00", quietEnd: "00:00" })
       .where(eq(notificationPreferences.userId, f.owner.id))
+    await createTransaction(f.ctx, {
+      type: "expense",
+      title: "Coffee after review",
+      amount: 25000,
+      date: todayIn(f.ctx.timezone),
+      categoryId: f.cat("Продукты"),
+      accountId: f.mainAccount,
+      status: "posted",
+    })
     await deliverReviewNotifications()
     await deliverReviewNotifications()
     expect(send).toHaveBeenCalledOnce()
@@ -374,8 +473,7 @@ describe("periodic AI budget review", () => {
     expect(send.mock.calls[0]![0]).toMatchObject({ to: f.owner.email, subject: "Новые рекомендации по бюджету: 2" })
     expect(send.mock.calls[0]![0].text).not.toContain("Monthly budget")
     expect(
-      (await db.select().from(notificationDeliveries).where(eq(notificationDeliveries.householdId, f.ctx.householdId)))[0]!
-        .channel,
+      (await db.select().from(notificationDeliveries).where(eq(notificationDeliveries.householdId, f.ctx.householdId)))[0]!.channel,
     ).toBe("email")
   })
 

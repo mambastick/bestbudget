@@ -1,6 +1,6 @@
 import "server-only"
 import { randomUUID } from "node:crypto"
-import { and, asc, desc, eq, gt, inArray, lt, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, lt, sql } from "drizzle-orm"
 import { z } from "zod"
 import { getDb, withDb } from "@/db"
 import {
@@ -27,7 +27,7 @@ import { requireAi } from "./access"
 import { chatResponse } from "./chat"
 import { fingerprint } from "./config"
 import { createConversation } from "./conversations"
-import { rejectedFingerprints, reviewItemFingerprint, reviewSourceFingerprint } from "./review-state"
+import { rejectedFingerprints, reviewItemFingerprint, reviewItemStale, reviewSourceFingerprint } from "./review-state"
 
 export async function getReviewSettings(ctx: HouseholdCtx) {
   assertCan(ctx, "finance.read")
@@ -86,7 +86,7 @@ async function publishReview(ctx: HouseholdCtx, id: string) {
   return getDb().transaction(async (db) =>
     withDb(db, async () => {
       await db.select().from(aiReviewSettings).where(eq(aiReviewSettings.householdId, ctx.householdId)).for("update")
-      const { view } = await requireAi(ctx)
+      await requireAi(ctx)
       const [review] = await db
         .select()
         .from(aiReviews)
@@ -94,27 +94,16 @@ async function publishReview(ctx: HouseholdCtx, id: string) {
         .for("update")
       if (!review || review.status !== "running") return
       const output = reviewOutput.parse(review.output)
-      if (review.sourceFingerprint !== (await reviewSourceFingerprint(ctx))) throw conflict()
       const rejected = await rejectedFingerprints(ctx)
-      const active = await db
-        .select({ fingerprints: aiRecommendations.fingerprints })
-        .from(aiRecommendations)
-        .innerJoin(
-          aiReviews,
-          and(eq(aiReviews.householdId, aiRecommendations.householdId), eq(aiReviews.id, aiRecommendations.reviewId)),
-        )
-        .innerJoin(aiConversations, and(eq(aiConversations.householdId, aiReviews.householdId), eq(aiConversations.id, aiReviews.conversationId)))
-        .where(
-          and(
-            eq(aiRecommendations.householdId, ctx.householdId),
-            eq(aiRecommendations.status, "pending"),
-            eq(aiConversations.dataLevel, view.dataLevel),
-            eq(aiConversations.consentFingerprint, fingerprint(view.provider)),
-            eq(aiReviews.sourceFingerprint, review.sourceFingerprint),
-            gt(aiRecommendations.expiresAt, new Date()),
-          ),
-        )
-      const known = new Set([...rejected, ...active.flatMap((r) => r.fingerprints)])
+      // Successful publication replaces the previous inbox atomically, never a failed/quota-skipped run.
+      await db.execute(sql`update ai_recommendations r set status = case
+        when exists (select 1 from ai_recommendation_proposals rp where rp.household_id = r.household_id and rp.recommendation_id = r.id)
+          and not exists (select 1 from ai_recommendation_proposals rp join ai_proposals p on p.household_id = rp.household_id and p.id = rp.proposal_id
+            where rp.household_id = r.household_id and rp.recommendation_id = r.id and p.status != 'applied')
+        then 'applied' else 'expired' end
+        where r.household_id = ${ctx.householdId} and r.status = 'pending'`)
+      const known = new Set(rejected)
+      const expiresAt = new Date(Date.now() + 7 * 86400_000)
       for (const insight of output.insights) {
         const proposals = insight.proposalIds.length
           ? await db
@@ -148,15 +137,18 @@ async function publishReview(ctx: HouseholdCtx, id: string) {
             reviewId: id,
             insight,
             fingerprints: keys,
-            expiresAt: new Date(Date.now() + 7 * 86400_000),
+            expiresAt,
           })
           .returning()
-        if (proposals.length)
+        if (proposals.length) {
           await db
             .insert(aiRecommendationProposals)
-            .values(
-              proposals.map((p) => ({ householdId: ctx.householdId, recommendationId: recommendation!.id, proposalId: p.id })),
-            )
+            .values(proposals.map((p) => ({ householdId: ctx.householdId, recommendationId: recommendation!.id, proposalId: p.id })))
+          await db
+            .update(aiProposals)
+            .set({ expiresAt })
+            .where(and(eq(aiProposals.householdId, ctx.householdId), inArray(aiProposals.id, insight.proposalIds)))
+        }
         keys.forEach((key) => known.add(key))
       }
       // Tool calls that never reached structured submission must not create actionable orphan proposals.
@@ -280,10 +272,7 @@ export async function listRecommendations(ctx: HouseholdCtx) {
   const rows = await getDb()
     .select({ recommendation: aiRecommendations, review: aiReviews })
     .from(aiRecommendations)
-    .innerJoin(
-      aiReviews,
-      and(eq(aiReviews.householdId, aiRecommendations.householdId), eq(aiReviews.id, aiRecommendations.reviewId)),
-    )
+    .innerJoin(aiReviews, and(eq(aiReviews.householdId, aiRecommendations.householdId), eq(aiReviews.id, aiRecommendations.reviewId)))
     .innerJoin(
       aiConversations,
       and(eq(aiConversations.householdId, aiReviews.householdId), eq(aiConversations.id, aiReviews.conversationId)),
@@ -305,29 +294,26 @@ export async function listRecommendations(ctx: HouseholdCtx) {
       .from(aiRecommendationProposals)
       .innerJoin(
         aiProposals,
-        and(
-          eq(aiProposals.householdId, aiRecommendationProposals.householdId),
-          eq(aiProposals.id, aiRecommendationProposals.proposalId),
-        ),
+        and(eq(aiProposals.householdId, aiRecommendationProposals.householdId), eq(aiProposals.id, aiRecommendationProposals.proposalId)),
       )
-      .where(
-        and(eq(aiRecommendationProposals.householdId, ctx.householdId), eq(aiRecommendationProposals.recommendationId, r.id)),
-      )
+      .where(and(eq(aiRecommendationProposals.householdId, ctx.householdId), eq(aiRecommendationProposals.recommendationId, r.id)))
     const applied = proposals.length > 0 && proposals.every(({ proposal: p }) => p.status === "applied")
-    const expired = r.expiresAt <= new Date() || review.sourceFingerprint !== source
+    const expired = r.expiresAt <= new Date()
     const status = r.status === "pending" ? (applied ? "applied" : expired ? "expired" : "pending") : r.status
     if (status !== r.status)
       await getDb()
         .update(aiRecommendations)
         .set({ status })
         .where(
-          and(
-            eq(aiRecommendations.id, r.id),
-            eq(aiRecommendations.householdId, ctx.householdId),
-            eq(aiRecommendations.status, "pending"),
-          ),
+          and(eq(aiRecommendations.id, r.id), eq(aiRecommendations.householdId, ctx.householdId), eq(aiRecommendations.status, "pending")),
         )
-    result.push({ ...r, status, proposals: proposals.map(({ proposal: p }) => ({ ...p, expired: status === "expired" })) })
+    const visibleProposals = []
+    for (const { proposal: p } of proposals) {
+      const staleItemIds = []
+      for (const item of p.items) if (await reviewItemStale(fresh, item)) staleItemIds.push(item.id)
+      visibleProposals.push({ ...p, expired: status === "expired", staleItemIds })
+    }
+    result.push({ ...r, status, sourceChanged: review.sourceFingerprint !== source, proposals: visibleProposals })
   }
   return result
 }
@@ -357,16 +343,10 @@ export async function dismissRecommendation(ctx: HouseholdCtx, id: string) {
         .from(aiRecommendationProposals)
         .innerJoin(
           aiProposals,
-          and(
-            eq(aiProposals.householdId, aiRecommendationProposals.householdId),
-            eq(aiProposals.id, aiRecommendationProposals.proposalId),
-          ),
+          and(eq(aiProposals.householdId, aiRecommendationProposals.householdId), eq(aiProposals.id, aiRecommendationProposals.proposalId)),
         )
-        .where(
-          and(eq(aiRecommendationProposals.householdId, ctx.householdId), eq(aiRecommendationProposals.recommendationId, id)),
-        )
-      if (proposals.some(({ proposal: p }) => p.items.some((item) => !item.result && !can(fresh.role, item.permission))))
-        throw forbidden()
+        .where(and(eq(aiRecommendationProposals.householdId, ctx.householdId), eq(aiRecommendationProposals.recommendationId, id)))
+      if (proposals.some(({ proposal: p }) => p.items.some((item) => !item.result && !can(fresh.role, item.permission)))) throw forbidden()
       if (!proposals.length) assertCan(fresh, "catalog.manage")
       const keys = proposals.length
         ? proposals.flatMap(({ proposal: p }) => p.items.filter((i) => !i.result).map(reviewItemFingerprint))
@@ -452,4 +432,36 @@ export async function recoverInterruptedReviews(now: Date, householdId?: string)
         lt(aiReviews.createdAt, new Date(now.getTime() - 15 * 60_000)),
       ),
     )
+}
+
+/** All selected packages in one recommendation commit together, using the shared application checks. */
+export async function applyRecommendation(ctx: HouseholdCtx, id: string, raw: { proposalId: string; itemIds: string[] }[]) {
+  z.uuid().parse(id)
+  const selected = z
+    .array(z.object({ proposalId: z.uuid(), itemIds: z.array(z.uuid()).min(1).max(20) }))
+    .min(1)
+    .max(20)
+    .parse(raw)
+  if (new Set(selected.map((p) => p.proposalId)).size !== selected.length) throw new AppError("ai.invalidProposal")
+  await requireAi(ctx)
+  return getDb().transaction(async (db) =>
+    withDb(db, async () => {
+      const [row] = await db
+        .select()
+        .from(aiRecommendations)
+        .where(and(eq(aiRecommendations.id, id), eq(aiRecommendations.householdId, ctx.householdId)))
+        .for("update")
+      if (!row) throw notFound()
+      const links = await db
+        .select()
+        .from(aiRecommendationProposals)
+        .where(and(eq(aiRecommendationProposals.recommendationId, id), eq(aiRecommendationProposals.householdId, ctx.householdId)))
+      if (selected.some((p) => !links.some((link) => link.proposalId === p.proposalId))) throw notFound()
+      const { applyProposal } = await import("./proposals")
+      let applied = 0
+      for (const p of selected.sort((a, b) => a.proposalId.localeCompare(b.proposalId)))
+        applied += (await applyProposal(ctx, p.proposalId, p.itemIds)).applied
+      return { applied }
+    }),
+  )
 }

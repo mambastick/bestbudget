@@ -8,7 +8,6 @@ import { isQuiet, localClock } from "@/domain/notifications"
 import { recipientLocale } from "@/i18n/locale"
 import { appUrl } from "@/lib/env"
 import { sendMail, smtpEnabled } from "@/lib/mail"
-import { reviewSourceFingerprint } from "@/server/ai/review-state"
 import { fingerprint } from "@/server/ai/config"
 import { requireAi } from "@/server/ai/access"
 import { recoverInterruptedReviews, reviewOwner, runBudgetReview } from "@/server/ai/reviews"
@@ -67,7 +66,6 @@ export async function deliverReviewNotifications(now = new Date()) {
           },
         })
       if (!targets.length) continue
-      const currentSource = await reviewSourceFingerprint(ctx)
       const pending = await getDb()
         .select({ reviewId: aiReviews.id, recommendationId: aiRecommendations.id })
         .from(aiReviews)
@@ -85,7 +83,6 @@ export async function deliverReviewNotifications(now = new Date()) {
             eq(aiConversations.consentFingerprint, fingerprint(access.view.provider)),
             eq(aiReviews.householdId, p.householdId),
             eq(aiReviews.status, "completed"),
-            eq(aiReviews.sourceFingerprint, currentSource),
             eq(aiRecommendations.status, "pending"),
             gt(aiRecommendations.expiresAt, now),
           ),
