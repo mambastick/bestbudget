@@ -1,7 +1,8 @@
 "use client"
 
-import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react"
+import { createContext, useContext, useEffect, useState, useSyncExternalStore } from "react"
 import { useLocale, useTranslations } from "next-intl"
+import { usePwaInstall } from "@/hooks/use-pwa-install"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -10,11 +11,6 @@ import { HousePlus, Share, Smartphone } from "lucide-react"
 import { installPlatform, isStandalone, subscribeStandalone } from "@/lib/pwa/platform"
 import { PWA_COLORS } from "@/lib/pwa/splash"
 import { registerServiceWorker, watchServiceWorkerUpdates } from "@/lib/pwa/service-worker"
-
-interface InstallPrompt extends Event {
-  prompt: () => Promise<void>
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>
-}
 
 const PwaContext = createContext({ standalone: false, install: () => {} })
 export const usePwa = () => useContext(PwaContext)
@@ -26,23 +22,8 @@ export function PwaProvider({ children }: { children: React.ReactNode }) {
   const { resolvedTheme } = useTheme()
   const standalone = useSyncExternalStore(subscribeStandalone, isStandalone, () => false)
   const platform = useSyncExternalStore(subscribePlatform, installPlatform, () => "browser" as const)
-  const [installed, setInstalled] = useState(false)
+  const { installed, takePrompt } = usePwaInstall()
   const [instructions, setInstructions] = useState(false)
-  const prompt = useRef<InstallPrompt | null>(null)
-
-  useEffect(() => {
-    const beforeInstall = (event: Event) => {
-      event.preventDefault()
-      prompt.current = event as InstallPrompt
-    }
-    const onInstalled = () => { prompt.current = null; setInstalled(true) }
-    window.addEventListener("beforeinstallprompt", beforeInstall)
-    window.addEventListener("appinstalled", onInstalled)
-    return () => {
-      window.removeEventListener("beforeinstallprompt", beforeInstall)
-      window.removeEventListener("appinstalled", onInstalled)
-    }
-  }, [])
 
   useEffect(() => {
     document.documentElement.classList.toggle("standalone", standalone)
@@ -139,8 +120,7 @@ export function PwaProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   async function install() {
-    const deferred = prompt.current
-    prompt.current = null
+    const deferred = takePrompt()
     if (!deferred) return setInstructions(true)
     try {
       await deferred.prompt()

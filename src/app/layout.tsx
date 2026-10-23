@@ -8,6 +8,7 @@ import { isLocale, LOCALE_COOKIE } from "@/i18n/locale"
 import { LocalePreferenceProvider } from "@/components/app/preferences"
 import { Providers } from "@/components/providers"
 import { PWA_COLORS, SPLASH_SCREENS } from "@/lib/pwa/splash"
+import { INSTALL_PROMPT_BOOTSTRAP } from "@/lib/pwa/install-prompt"
 import "./globals.css"
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -38,6 +39,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang={locale} suppressHydrationWarning>
       <head>
+        <script id="bb-pwa-install" dangerouslySetInnerHTML={{ __html: INSTALL_PROMPT_BOOTSTRAP }} />
         {SPLASH_SCREENS.flatMap(([width, height, scale]) => (["light", "dark"] as const).flatMap((theme) =>
           (["portrait", "landscape"] as const).map((orientation) => {
             const w = (orientation === "portrait" ? width : height) * scale

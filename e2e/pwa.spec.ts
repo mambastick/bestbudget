@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import type { BrowserContext, Page } from "@playwright/test"
 import { expect, test } from "./fixtures"
+import { INSTALL_STATE_EVENT } from "../src/lib/pwa/install-prompt"
 import { BROWSER_TIMEZONE, E2E_ENV } from "../playwright.config"
 
 const user = { name: "PWA Demo", email: "pwa@e2e.test", password: "pwa-demo-password-1" }
@@ -61,10 +62,17 @@ test.beforeAll(async ({ browser }) => {
   await page.waitForLoadState("networkidle")
   cookies = await context.cookies()
   await context.close()
-  if (!fresh) return
-  execFileSync(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/seed-demo.ts", user.email], {
+  if (fresh) execFileSync(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/seed-demo.ts", user.email], {
     env: { ...process.env, ...E2E_ENV }, stdio: "pipe",
   })
+  const seeded = await browser.newContext({ locale: "ru-RU" })
+  await seeded.addCookies(cookies)
+  const dashboard = await seeded.newPage()
+  await dashboard.goto("/dashboard")
+  await expect(dashboard).toHaveURL(/\/dashboard$/)
+  await expect(dashboard.getByTestId("actual-balance").filter({ visible: true })).toBeVisible()
+  cookies = await seeded.cookies()
+  await seeded.close()
 })
 
 test.beforeEach(async ({ context }) => { await context.addCookies(cookies) })
@@ -132,16 +140,14 @@ test("offline fallback uses selected locale/theme, retries the original URL and 
   await expect(page.getByRole("heading", { name: "Нет соединения" })).toBeVisible()
 })
 
-test("Chromium install prompt requires a click, is consumed once and appinstalled hides the controls", async ({ page }) => {
-  // Observe the provider subscription: an SSR heading or the load event does not prove effects ran.
-  await page.addInitScript(() => {
+async function profileBeforeHydration(page: Page, beforeHydration: () => Promise<void>) {
+  await page.addInitScript((eventName) => {
     const addListener = window.addEventListener.bind(window)
     window.addEventListener = (...args: Parameters<typeof window.addEventListener>) => {
       addListener(...args)
-      if (args[0] === "beforeinstallprompt") document.documentElement.dataset.installListenerReady = "true"
+      if (args[0] === eventName) document.documentElement.dataset.installSubscriberReady = "true"
     }
-  })
-  // Reproduce a cold CI profile: show SSR content while the hydration scripts are still in flight.
+  }, INSTALL_STATE_EVENT)
   let releaseScripts!: () => void
   const scripts = new Promise<void>((resolve) => { releaseScripts = resolve })
   await page.route("**/_next/static/**/*.js", async (route) => {
@@ -151,26 +157,61 @@ test("Chromium install prompt requires a click, is consumed once and appinstalle
   try {
     await page.goto("/settings?tab=profile", { waitUntil: "commit" })
     await expect(page.getByRole("heading", { name: /^(Настройки|Settings)$/ })).toBeVisible()
+    // No React subscription exists yet: only the parser-executed inline capture can handle the event.
+    await expect(page.locator("html")).not.toHaveAttribute("data-install-subscriber-ready", "true")
+    await beforeHydration()
   } finally {
     releaseScripts()
     await page.unrouteAll({ behavior: "wait" })
   }
-  await expect(page.locator("html")).toHaveAttribute("data-install-listener-ready", "true")
-  await page.evaluate(() => {
+  await expect(page.locator("html")).toHaveAttribute("data-install-subscriber-ready", "true")
+}
+
+async function emitInstallPrompt(page: Page) {
+  const result = await page.evaluate(() => {
     const event = new Event("beforeinstallprompt", { cancelable: true })
-    Object.assign(event, { prompt: async () => { document.documentElement.dataset.prompted = "true" }, userChoice: Promise.resolve({ outcome: "accepted" }) })
+    Object.assign(event, {
+      prompt: async () => {
+        const html = document.documentElement
+        html.dataset.promptCount = String(Number(html.dataset.promptCount ?? 0) + 1)
+      },
+      userChoice: Promise.resolve({ outcome: "accepted" }),
+    })
     window.dispatchEvent(event)
-    document.documentElement.dataset.prevented = String(event.defaultPrevented)
+    return { prevented: event.defaultPrevented, retained: window.__bbInstallState?.prompt === event }
   })
-  await expect(page.locator("html")).toHaveAttribute("data-prevented", "true")
-  await expect(page.locator("html")).not.toHaveAttribute("data-prompted", "true")
-  await page.getByRole("button", { name: "Установить приложение", exact: true }).click()
-  await expect(page.locator("html")).toHaveAttribute("data-prompted", "true")
-  await page.getByRole("button", { name: "Установить приложение", exact: true }).click()
-  await expect(page.getByRole("dialog")).toContainText("Как установить BestBudget")
-  await page.getByRole("button", { name: "Понятно" }).click()
-  await page.evaluate(() => window.dispatchEvent(new Event("appinstalled")))
+  expect(result).toEqual({ prevented: true, retained: true })
+}
+
+for (const timing of ["before hydration", "after hydration"] as const) {
+  test(`Chromium install prompt ${timing}: click, single consumption and appinstalled`, async ({ page }) => {
+    await profileBeforeHydration(page, async () => {
+      if (timing === "before hydration") await emitInstallPrompt(page)
+    })
+    if (timing === "after hydration") await emitInstallPrompt(page)
+    await expect(page.locator("html")).not.toHaveAttribute("data-prompt-count", /.+/)
+    await page.getByRole("button", { name: "Установить приложение", exact: true }).click()
+    await expect(page.locator("html")).toHaveAttribute("data-prompt-count", "1")
+    expect(await page.evaluate(() => window.__bbInstallState?.prompt === null)).toBe(true)
+    await page.getByRole("button", { name: "Установить приложение", exact: true }).click()
+    await expect(page.getByRole("dialog")).toContainText("Как установить BestBudget")
+    await expect(page.locator("html")).toHaveAttribute("data-prompt-count", "1")
+    await page.getByRole("button", { name: "Понятно" }).click()
+    await page.evaluate(() => window.dispatchEvent(new Event("appinstalled")))
+    await expect(page.getByRole("button", { name: "Установить приложение", exact: true })).toHaveCount(0)
+  })
+}
+
+test("appinstalled before hydration clears the prompt and hides both install controls", async ({ page }) => {
+  await profileBeforeHydration(page, async () => {
+    await emitInstallPrompt(page)
+    await page.evaluate(() => window.dispatchEvent(new Event("appinstalled")))
+    expect(await page.evaluate(() => window.__bbInstallState)).toEqual({ prompt: null, installed: true })
+  })
   await expect(page.getByRole("button", { name: "Установить приложение", exact: true })).toHaveCount(0)
+  await page.getByRole("button").filter({ hasText: user.email }).click()
+  await expect(page.getByRole("menuitem", { name: "Установить приложение", exact: true })).toHaveCount(0)
+  await expect(page.locator("html")).not.toHaveAttribute("data-prompt-count", /.+/)
 })
 
 test("English install instructions use the PWA namespace at 375px", async ({ page }) => {
