@@ -95,6 +95,9 @@ describe("statement normalization", () => {
       const row = normalizeRow(["DEMO_A", "2026-10-20", "-1.00", "RUB", "Shop", status, ""], mapping, "bestbudget-v1", "2")
       expect(row.status).toBe(status === "weird" ? "unknown" : status)
       expect(row.warnings).not.toHaveLength(0)
+      expect(row.errors).toHaveLength(0)
+      if (status === "pending") expect(row.warnings).toContain("Операция ещё не проведена банком — импортируйте позже")
+      if (status === "rejected") expect(row.warnings).toContain("Операция отклонена банком — строка будет пропущена")
     }
   })
 })
