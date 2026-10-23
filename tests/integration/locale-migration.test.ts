@@ -16,7 +16,12 @@ it("adds the background locale fallback to populated profiles without changing p
     expect((await db.query("select name, locale, last_seen_locale from users order by name")).rows).toEqual([
       { name: "English", locale: "en", last_seen_locale: null },
       { name: "Russian", locale: "ru", last_seen_locale: null },
-      { name: "System", locale: null, last_seen_locale: null },
+      { name: "System", locale: null, last_seen_locale: "ru" },
+    ])
+    await db.exec("insert into users (name, email) values ('New system', 'new@test'); insert into users (name, email, last_seen_locale) values ('New browser', 'browser@test', 'en')")
+    expect((await db.query("select name, locale, last_seen_locale from users where email in ('new@test', 'browser@test') order by name")).rows).toEqual([
+      { name: "New browser", locale: null, last_seen_locale: "en" },
+      { name: "New system", locale: null, last_seen_locale: null },
     ])
   } finally { await db.close() }
 })

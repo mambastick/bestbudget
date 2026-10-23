@@ -62,6 +62,19 @@ test("administration: seed demo in ru/en, 1280/375px and light/dark", async ({ b
         }
       }
     }
+    // Reuse the session in another browser language without signing in again.
+    const englishContext = await browser.newContext({ locale: "en-US", storageState: await context.storageState() })
+    try {
+      const englishPage = await englishContext.newPage()
+      await englishPage.goto("/admin?tab=notifications")
+      await expect(englishPage.locator("html")).toHaveAttribute("lang", "en")
+      const [englishBrowser] = await sql`select locale, last_seen_locale from users where id = ${profile!.id}`
+      expect(englishBrowser).toMatchObject({ locale: "en", last_seen_locale: "en" })
+    } finally { await englishContext.close() }
+    await page.reload()
+    await expect(page.locator("html")).toHaveAttribute("lang", "en")
+    const [russianBrowser] = await sql`select locale, last_seen_locale from users where id = ${profile!.id}`
+    expect(russianBrowser).toMatchObject({ locale: "en", last_seen_locale: "ru" })
     expect(errors).toEqual([])
   } finally { await sql.end(); await context.close() }
 })

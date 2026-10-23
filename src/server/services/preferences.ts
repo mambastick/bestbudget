@@ -1,6 +1,6 @@
 import "server-only"
 import { cache } from "react"
-import { eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { z } from "zod"
 import { getDb } from "@/db"
 import { users } from "@/db/schema"
@@ -24,5 +24,9 @@ export async function getRecipientLocale(userId: string): Promise<Locale> {
 }
 
 export async function rememberBrowserLocale(userId: string, locale: Locale) {
-  await getDb().update(users).set({ lastSeenLocale: z.enum(LOCALES).parse(locale) }).where(eq(users.id, userId))
+  const parsed = z.enum(LOCALES).parse(locale)
+  await getDb().update(users).set({ lastSeenLocale: parsed }).where(and(
+    eq(users.id, userId),
+    sql`${users.lastSeenLocale} is distinct from ${parsed}`,
+  ))
 }

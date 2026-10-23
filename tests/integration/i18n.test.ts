@@ -47,6 +47,20 @@ describe("locale preference persistence", () => {
     await expect(rememberBrowserLocale(user.id, "de" as never)).rejects.toThrow()
   })
 
+  it("does not write unchanged browser language and updates it when the browser changes", async () => {
+    const user = await createUser()
+    await rememberBrowserLocale(user.id, "ru")
+    const [before] = await getDb().select().from(users).where(eq(users.id, user.id))
+    vi.setSystemTime(Date.now() + 60_000)
+    await rememberBrowserLocale(user.id, "ru")
+    const [same] = await getDb().select().from(users).where(eq(users.id, user.id))
+    expect(same!.updatedAt).toEqual(before!.updatedAt)
+    await rememberBrowserLocale(user.id, "en")
+    const [changed] = await getDb().select().from(users).where(eq(users.id, user.id))
+    expect(changed!.updatedAt.getTime()).toBeGreaterThan(same!.updatedAt.getTime())
+    expect(changed!.lastSeenLocale).toBe("en")
+  })
+
   it("seeds names in the creator's locale and never renames existing data", async () => {
     const user = await createUser()
     const household = await createHousehold(user.id, { name: "Test" }, "en")
