@@ -1,5 +1,5 @@
 import "server-only"
-import { and, asc, eq, isNull } from "drizzle-orm"
+import { and, asc, eq, isNull, sql } from "drizzle-orm"
 import { z } from "zod"
 import { getDb } from "@/db"
 import { categories, categoryBudgets } from "@/db/schema"
@@ -85,7 +85,7 @@ export async function setBudget(ctx: HouseholdCtx, raw: z.input<typeof budgetInp
       .values({ householdId: ctx.householdId, categoryId: input.categoryId, amount: input.amount, updatedBy: ctx.userId })
       .onConflictDoUpdate({
         target: [categoryBudgets.householdId, categoryBudgets.categoryId],
-        set: { amount: input.amount, updatedBy: ctx.userId },
+        set: { amount: input.amount, updatedBy: ctx.userId, version: sql`${categoryBudgets.version} + 1` },
       })
   }
   await audit({ action: "budget.set", entityType: "category", entityId: input.categoryId, householdId: ctx.householdId, actorId: ctx.userId, meta: { amount: input.amount } })

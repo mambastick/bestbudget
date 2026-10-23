@@ -1,3 +1,5 @@
+import type { UIMessage } from "ai"
+import type { ProposalItem, ProviderSnapshot } from "@/domain/ai/types"
 import { relations, sql } from "drizzle-orm"
 import type { IncomingRow, PreviewInput, RowProposal } from "@/domain/import/types"
 import {
@@ -213,6 +215,7 @@ export const categories = pgTable(
       .notNull()
       .references(() => households.id, { onDelete: "cascade" }),
     kind: categoryKind("kind").notNull(),
+    version: integer("version").notNull().default(1),
     name: text("name").notNull(),
     icon: text("icon").notNull().default("circle"),
     color: text("color").notNull().default("#64748b"),
@@ -620,6 +623,7 @@ export const categoryBudgets = pgTable(
       .notNull()
       .references(() => households.id, { onDelete: "cascade" }),
     categoryId: uuid("category_id").notNull(),
+    version: integer("version").notNull().default(1),
     /** Monthly limit in minor units. */
     amount: money("amount").notNull(),
     updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
@@ -791,3 +795,96 @@ export const notificationSettings = pgTable("notification_settings", {
 export type Goal = typeof goals.$inferSelect
 export type Loan = typeof loans.$inferSelect
 export type LoanEvent = typeof loanEvents.$inferSelect
+
+
+// AI is opt-in at both installation and household levels.
+export const aiSettings = pgTable("ai_settings", {
+  id: smallint("id").primaryKey().default(1),
+  enabled: boolean("enabled").notNull().default(false),
+  provider: text("provider").notNull().default("openai"),
+  baseUrl: text("base_url").notNull().default(""),
+  apiKeyEncrypted: text("api_key_encrypted"),
+  model: text("model").notNull().default(""),
+  temperature: numeric("temperature"),
+  monthlyTokenLimit: bigint("monthly_token_limit", { mode: "number" }).notNull().default(0),
+  selfHosted: boolean("self_hosted").notNull().default(false),
+  gigachatScope: text("gigachat_scope").notNull().default("GIGACHAT_API_PERS"),
+  gigachatAuthUrl: text("gigachat_auth_url").notNull().default("https://ngw.devices.sberbank.ru:9443/api/v2/oauth"),
+  verifiedFingerprint: text("verified_fingerprint"),
+  version: integer("version").notNull().default(1),
+  updatedAt: updatedAt(),
+}, (t) => [check("ai_settings_singleton_ck", sql`${t.id} = 1`), check("ai_settings_limit_ck", sql`${t.monthlyTokenLimit} >= 0`)])
+
+export const aiHouseholdSettings = pgTable("ai_household_settings", {
+  householdId: uuid("household_id").primaryKey().references(() => households.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  consentAt: timestamp("consent_at", { withTimezone: true }),
+  consentBy: uuid("consent_by").references(() => users.id, { onDelete: "cascade" }),
+  dataLevel: text("data_level", { enum: ["aggregates", "detailed"] }).notNull().default("aggregates"),
+  providerSnapshot: jsonb("provider_snapshot").$type<ProviderSnapshot>(),
+  version: integer("version").notNull().default(1),
+  updatedAt: updatedAt(),
+}, (t) => [check("ai_household_data_level_ck", sql`${t.dataLevel} in ('aggregates', 'detailed')`)])
+
+export const aiConversations = pgTable("ai_conversations", {
+  id: id(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  kind: text("kind", { enum: ["chat", "onboarding", "review"] }).notNull().default("chat"),
+  dataLevel: text("data_level", { enum: ["aggregates", "detailed"] }).notNull(),
+  consentFingerprint: text("consent_fingerprint").notNull(),
+  busyUntil: timestamp("busy_until", { withTimezone: true }),
+  createdAt: createdAt(),
+}, (t) => [
+  unique("ai_conversations_household_id_uq").on(t.householdId, t.id),
+  index("ai_conversations_user_idx").on(t.householdId, t.userId, t.createdAt),
+  foreignKey({ columns: [t.householdId, t.userId], foreignColumns: [householdMembers.householdId, householdMembers.userId] }).onDelete("cascade"),
+  check("ai_conversations_kind_ck", sql`${t.kind} in ('chat', 'onboarding', 'review')`),
+])
+
+export const aiMessages = pgTable("ai_messages", {
+  id: uuid("id").primaryKey(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  conversationId: uuid("conversation_id").notNull(),
+  role: text("role", { enum: ["user", "assistant"] }).notNull(),
+  parts: jsonb("parts").$type<UIMessage["parts"]>().notNull(),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  createdAt: createdAt(),
+}, (t) => [
+  unique("ai_messages_household_conversation_id_uq").on(t.householdId, t.conversationId, t.id),
+  foreignKey({ columns: [t.householdId, t.conversationId], foreignColumns: [aiConversations.householdId, aiConversations.id] }).onDelete("cascade"),
+  index("ai_messages_conversation_idx").on(t.conversationId, t.createdAt),
+])
+
+export const aiProposals = pgTable("ai_proposals", {
+  id: id(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  conversationId: uuid("conversation_id").notNull(),
+  messageId: uuid("message_id").notNull(),
+  title: text("title").notNull(),
+  status: text("status", { enum: ["pending", "applied", "partially_applied", "dismissed", "expired", "failed"] }).notNull().default("pending"),
+  items: jsonb("items").$type<ProposalItem[]>().notNull(),
+  appliedBy: uuid("applied_by").references(() => users.id, { onDelete: "cascade" }),
+  appliedAt: timestamp("applied_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: createdAt(),
+}, (t) => [
+  foreignKey({ columns: [t.householdId, t.conversationId, t.messageId], foreignColumns: [aiMessages.householdId, aiMessages.conversationId, aiMessages.id] }).onDelete("cascade"),
+  index("ai_proposals_conversation_idx").on(t.householdId, t.conversationId),
+  check("ai_proposals_status_ck", sql`${t.status} in ('pending', 'applied', 'partially_applied', 'dismissed', 'expired', 'failed')`),
+])
+
+export const aiUsage = pgTable("ai_usage", {
+  id: id(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  model: text("model").notNull(),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  reservedTokens: integer("reserved_tokens").notNull().default(0),
+  errorCode: text("error_code"),
+  durationMs: integer("duration_ms"),
+  createdAt: createdAt(),
+}, (t) => [index("ai_usage_month_idx").on(t.householdId, t.createdAt), index("ai_usage_user_idx").on(t.userId, t.createdAt)])
