@@ -148,9 +148,11 @@ test("assets and import: seed demo in ru/en, both themes and widths, English act
     await page.goto("/accounts")
     await page.getByRole("button", { name: "Account", exact: true }).click()
     await page.getByLabel("Name", { exact: true }).fill("Travel card")
-    await page.getByLabel("Opening balance", { exact: true }).fill("1234.56")
+    const opening = page.getByLabel("Opening balance", { exact: true })
+    await opening.fill("1234.56")
+    await expect(opening.locator("..")).toContainText("₽")
     await page.getByRole("button", { name: "Save", exact: true }).click()
-    await expect(page.getByRole("listitem").filter({ hasText: "Travel card" })).toContainText("RUB 1,234.56")
+    await expect(page.getByRole("listitem").filter({ hasText: "Travel card" })).toContainText("₽1,234.56")
 
     await page.goto(`/goals/${goal.id}`)
     await page.getByRole("button", { name: "Add money", exact: true }).click()

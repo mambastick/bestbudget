@@ -14,5 +14,5 @@ export function currencyExponent(currency: string): number {
 }
 
 export function currencySymbol(currency: string, locale = "ru"): string {
-  return new Intl.NumberFormat(locale, { style: "currency", currency }).formatToParts(0).find((p) => p.type === "currency")!.value
+  return new Intl.NumberFormat(locale, { style: "currency", currency, currencyDisplay: "narrowSymbol" }).formatToParts(0).find((p) => p.type === "currency")!.value
 }

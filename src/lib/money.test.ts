@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { formatMoney, formatMoneyShort, minorToInput, parseMoney } from "./money"
+import { formatMoney, formatMoneyCompact, formatMoneyShort, minorToInput, parseMoney } from "./money"
+import { currencySymbol } from "./currencies"
 import { addMonths, todayIn } from "./dates"
 
 describe("parseMoney", () => {
@@ -68,5 +69,38 @@ describe("currency exponents", () => {
     expect(formatMoney(123456, "USD")).toContain("234,56")
     expect(parseMoney("1,234", "BHD")).toBe(1234)
     expect(minorToInput(1234, "BHD")).toBe("1,234")
+  })
+})
+
+describe("narrow currency symbols", () => {
+  const plain = (value: string) => value.replace(/\s/g, " ")
+
+  it.each([
+    ["RUB", 471_182_774, "4 711 827,74 ₽", "₽4,711,827.74", "₽"],
+    ["USD", 10_001, "100,01 $", "$100.01", "$"],
+    ["EUR", 5_001, "50,01 €", "€50.01", "€"],
+    ["JPY", 100, "100 ¥", "¥100", "¥"],
+    ["CNY", 10_001, "100,01 ¥", "¥100.01", "¥"],
+  ] as const)("formats %s amounts and input suffixes in both locales", (currency, minor, ru, en, symbol) => {
+    expect(plain(formatMoney(minor, currency, { locale: "ru" }))).toBe(ru)
+    expect(plain(formatMoney(minor, currency, { locale: "en" }))).toBe(en)
+    expect(currencySymbol(currency, "ru")).toBe(symbol)
+    expect(currencySymbol(currency, "en")).toBe(symbol)
+  })
+
+  it("keeps whole-amount precision and signs unchanged", () => {
+    expect(plain(formatMoney(10_000, "USD", { locale: "ru" }))).toBe("100 $")
+    expect(formatMoney(10_000, "USD", { locale: "en" })).toBe("$100")
+    expect(formatMoney(5_000, "EUR", { locale: "en" })).toBe("€50")
+    expect(formatMoney(-471_182_774, "RUB", { locale: "en" })).toBe("−₽4,711,827.74")
+    expect(formatMoney(471_182_774, "RUB", { locale: "en", sign: true })).toBe("+₽4,711,827.74")
+  })
+
+  it("preserves number-only chart and calendar abbreviations", () => {
+    expect(formatMoneyCompact(600_000_000, "RUB", "en")).toBe("6M")
+    expect(formatMoneyCompact(450_000_000, "RUB", "en")).toBe("4.5M")
+    expect(plain(formatMoneyCompact(450_000_000, "RUB", "ru"))).toBe("4,5 млн")
+    expect(formatMoneyShort(1_250_000, "USD", "en")).toBe("12.5K")
+    expect(formatMoneyShort(1_250_000, "USD", "ru")).toBe("12,5к")
   })
 })
