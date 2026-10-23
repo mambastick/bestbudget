@@ -19,6 +19,7 @@ import { notificationAdmin } from "@/server/notifications/view"
 import { requireHousehold, requireSystemAdmin } from "@/server/session"
 import { defaultRedirectUri, getAppSettings, getAuthMethods, getOidcConfig } from "@/server/services/settings"
 import { listHouseholdsForAdmin, listSystemEvents, listUsersForAdmin } from "@/server/services/users"
+import { hasOidcRoleDemotionWarning } from "@/server/services/oidc-roles"
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations("admin")
@@ -32,6 +33,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   const { timezone: timeZone } = await requireHousehold()
   const t = await getTranslations("admin")
   const locale = await getLocale()
+  const adminGroup = env().OIDC_ADMIN_GROUP
+  const demotionWarning = adminGroup && await hasOidcRoleDemotionWarning()
   const TABS = tabKeys.map((key) => ({ key, label: t(key) }))
   const EVENT_LABELS: Record<string, string> = {
     "auth.sign_in": t("signedIn"),
@@ -44,6 +47,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     "admin.user_role": t("roleUpdated"),
     "admin.user_password_reset": t("passwordReset"),
     "admin.user_sessions_revoked": t("sessionsRevoked"),
+    "oidc.role_demotion_blocked": t("oidcDemotionBlockedEvent"),
+    "oidc.role_demotion_resolved": t("oidcDemotionResolvedEvent"),
     "household.delete": t("householdDeleted"),
     "cli.admin_created": t("cliAdmin"),
     "cli.password_reset": t("cliPassword"),
@@ -156,6 +161,11 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
           </>
         }
       />
+      {adminGroup && demotionWarning ? (
+        <p role="alert" className="min-w-0 break-words rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm text-foreground [overflow-wrap:anywhere]">
+          {t("oidcDemotionBlocked", { group: adminGroup })}
+        </p>
+      ) : null}
       <NavTabs tabs={TABS.map((t) => ({ ...t, href: `/admin?tab=${t.key}` }))} active={tab} />
       {content}
     </div>

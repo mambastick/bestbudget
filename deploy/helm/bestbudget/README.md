@@ -19,6 +19,7 @@ helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0
 | `auth.forceLocalLogin` | `false` | Emergency access: force password login on. |
 | `existingSecret` | `""` | Secret with `BETTER_AUTH_SECRET`, `SETUP_TOKEN`, `DATABASE_URL` (+ optional `ENCRYPTION_KEY`, `OIDC_CLIENT_SECRET`, `SMTP_URL`). |
 | `oidc.*` | empty | OpenID Connect provider; empty issuer = configure SSO in the admin UI. |
+| `oidc.roleMapping.*` | empty | Optional native `user/admin` roles from a verified group claim; set `groupsClaim`, `userGroup`, `adminGroup` together. Admin membership alone grants access. |
 | `fxProvider` | `cbr` | `FX_PROVIDER`: Bank of Russia XML + database cache; `none` disables network and uses manual rates only. |
 | `smtp.url`, `smtp.from` | empty | E-mail for self-service password reset. |
 | `postgresql.enabled` | `true` | Bundled single-instance PostgreSQL (StatefulSet + PVC). |

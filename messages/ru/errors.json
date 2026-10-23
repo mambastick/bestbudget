@@ -18,7 +18,8 @@
     "banned": "Аккаунт заблокирован администратором",
     "passwordDisabled": "Вход по паролю отключён администратором",
     "invalidLink": "Ссылка недействительна или устарела",
-    "linked": "Этот SSO-аккаунт уже привязан к другому пользователю"
+    "linked": "Этот SSO-аккаунт уже привязан к другому пользователю",
+    "oidcAccessDenied": "У вашего SSO-аккаунта нет доступа к этому приложению. Обратитесь к администратору."
   },
   "setup": {
     "tokenMissing": "SETUP_TOKEN не задан в переменных окружения",
@@ -284,5 +285,9 @@
   },
   "request": {
     "invalidOrigin": "Недопустимый источник запроса"
+  },
+  "configuration": {
+    "oidcMappingRequired": "Задайте OIDC_GROUPS_CLAIM, OIDC_USER_GROUP и OIDC_ADMIN_GROUP вместе",
+    "oidcGroupsDistinct": "OIDC_ADMIN_GROUP должен отличаться от OIDC_USER_GROUP"
   }
 }

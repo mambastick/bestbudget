@@ -47,6 +47,12 @@ oidc:
   enabled: true
   # Create accounts on first SSO login (otherwise an invitation is required).
   allowSignup: false
+  # Optional native system role mapping. Set all three or leave all empty.
+  # Admin group alone grants admin; neither group/malformed claim denies OIDC sign-in.
+  roleMapping:
+    groupsClaim: ""
+    userGroup: ""
+    adminGroup: ""
 
 # Optional e-mail for self-service password reset.
 smtp:

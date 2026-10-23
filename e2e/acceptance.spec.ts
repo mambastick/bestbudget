@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "./fixtures"
 import { OAuth2Server } from "oauth2-mock-server"
-import { SETUP_TOKEN } from "../playwright.config"
+import postgres from "postgres"
+import { E2E_ENV, SETUP_TOKEN } from "../playwright.config"
 
 /**
  * The v1 acceptance scenario: first admin, household, recurring income with two accruals,
@@ -308,7 +309,7 @@ test.describe.serial("single sign-on (OIDC)", () => {
   })
 
   test("admin configures the provider in the UI and links it to the account", async ({ page }) => {
-    identity = { sub: "owner-sub", email: ADMIN.email, email_verified: true, name: ADMIN.name }
+    identity = { sub: "owner-sub", email: ADMIN.email, email_verified: true, name: ADMIN.name, groups: [E2E_ENV.OIDC_ADMIN_GROUP] }
     await login(page, ADMIN)
     await page.goto("/admin?tab=auth")
     await page.getByLabel("Issuer URL").fill(idp.issuer.url!)
@@ -333,7 +334,7 @@ test.describe.serial("single sign-on (OIDC)", () => {
   })
 
   test("linked user signs in with SSO; unknown SSO users need an invitation", async ({ browser }) => {
-    identity = { sub: "owner-sub", email: ADMIN.email, email_verified: true, name: ADMIN.name }
+    identity = { sub: "owner-sub", email: ADMIN.email, email_verified: true, name: ADMIN.name, groups: [E2E_ENV.OIDC_ADMIN_GROUP] }
     const context = await browser.newContext({ locale: "ru-RU" })
     await context.addInitScript(() => Object.defineProperty(navigator, "standalone", { get: () => true }))
     const page = await context.newPage()
@@ -343,7 +344,7 @@ test.describe.serial("single sign-on (OIDC)", () => {
     await expect(page.locator("html")).toHaveClass(/standalone/)
     await expect(page.getByText(ADMIN.email)).toBeVisible()
 
-    identity = { sub: "stranger-sub", email: "stranger@e2e.test", email_verified: true, name: "Stranger" }
+    identity = { sub: "stranger-sub", email: "stranger@e2e.test", email_verified: true, name: "Stranger", groups: [E2E_ENV.OIDC_USER_GROUP] }
     const stranger = await (await browser.newContext({ locale: "ru-RU" })).newPage()
     await stranger.goto("/login")
     await stranger.getByRole("button", { name: "Войти через Keycloak" }).click()
@@ -352,12 +353,131 @@ test.describe.serial("single sign-on (OIDC)", () => {
   })
 
   test("an SSO identity with the same e-mail as a local account is not merged silently", async ({ browser }) => {
-    identity = { sub: "impostor-sub", email: SPOUSE.email, email_verified: true, name: "Impostor" }
+    identity = { sub: "impostor-sub", email: SPOUSE.email, email_verified: true, name: "Impostor", groups: [E2E_ENV.OIDC_ADMIN_GROUP] }
     const page = await (await browser.newContext({ locale: "ru-RU" })).newPage()
     await page.goto("/login")
     await page.getByRole("button", { name: "Войти через Keycloak" }).click()
     await expect(page).toHaveURL(/\/login\?error=/)
   })
+
+  test("group promotion and demotion take effect on all sessions without changing family roles", async ({ browser }) => {
+    const sql = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+    const existing = await browser.newContext({ locale: "ru-RU" })
+    // Keep another active admin so the owner's deliberate demotion can proceed.
+    const [recovery] = await sql`insert into users (name, email, role) values ('Recovery admin', 'recovery-oidc@e2e.test', 'admin') returning id`
+    try {
+      const memberships = await sql`select * from household_members order by household_id, user_id`
+      const [owner] = await sql`select id from users where email = ${ADMIN.email}`
+      await sql`update users set locale = 'en' where id = ${owner!.id}`
+      identity = { sub: "owner-sub", email: ADMIN.email, email_verified: true, name: ADMIN.name, groups: [E2E_ENV.OIDC_ADMIN_GROUP] }
+      const page = await existing.newPage()
+      await page.goto("/login")
+      await page.getByRole("button", { name: "Войти через Keycloak" }).click()
+      await expect(page).toHaveURL(/\/dashboard/)
+      await expect(page.locator("html")).toHaveAttribute("lang", "en")
+      expect((await existing.cookies()).find((cookie) => cookie.name === "bb_locale")?.value).toBe("en")
+
+      for (const role of ["user", "admin"] as const) {
+        identity.groups = [role === "admin" ? E2E_ENV.OIDC_ADMIN_GROUP : E2E_ENV.OIDC_USER_GROUP]
+        const context = await browser.newContext({ locale: "en-US" })
+        try {
+          const next = await context.newPage()
+          await next.goto("/login")
+          await next.getByRole("button", { name: "Sign in with Keycloak" }).click()
+          await expect(next).toHaveURL(/\/dashboard/)
+          await expect(next.locator("html")).toHaveAttribute("lang", "en")
+          const response = await context.request.get(`${E2E_ENV.APP_URL}/api/auth/get-session`)
+          expect((await response.json()).user).toMatchObject({ id: owner!.id, role, locale: "en" })
+          const oldSession = await existing.request.get(`${E2E_ENV.APP_URL}/api/auth/get-session`)
+          expect((await oldSession.json()).user).toMatchObject({ id: owner!.id, role })
+          await next.goto("/admin")
+          await expect(next).toHaveURL(role === "admin" ? /\/admin/ : /\/dashboard/)
+          expect(await sql`select * from household_members order by household_id, user_id`).toEqual(memberships)
+        } finally { await context.close() }
+      }
+    } finally {
+      await sql`update users set role = 'admin', locale = null where email = ${ADMIN.email}`
+      await sql`delete from users where id = ${recovery!.id}`
+      await sql.end()
+      await existing.close()
+    }
+  })
+
+  test("the last active administrator keeps access and sees a persistent ru/en group warning", async ({ browser }, testInfo) => {
+    const sql = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+    const others = await sql`select id from users where role = 'admin' and banned = false and email <> ${ADMIN.email}`
+    const otherIds = others.map((user) => user.id as string)
+    if (otherIds.length) await sql`update users set banned = true where id in ${sql(otherIds)}`
+    try {
+      for (const locale of ["ru", "en"] as const) {
+        identity = { sub: "owner-sub", email: ADMIN.email, email_verified: true, name: ADMIN.name, groups: [E2E_ENV.OIDC_USER_GROUP] }
+        const context = await browser.newContext({ locale: locale === "ru" ? "ru-RU" : "en-US", viewport: { width: 375, height: 900 }, colorScheme: "dark" })
+        try {
+          const page = await context.newPage()
+          await page.goto("/login")
+          await page.getByRole("button", { name: locale === "ru" ? "Войти через Keycloak" : "Sign in with Keycloak" }).click()
+          await expect(page).toHaveURL(/\/dashboard/)
+          const response = await context.request.get(`${E2E_ENV.APP_URL}/api/auth/get-session`)
+          expect((await response.json()).user.role).toBe("admin")
+          await page.goto("/admin?tab=auth")
+          const warning = page.getByRole("alert").filter({ hasText: locale === "ru" ? "Синхронизация групп" : "Group synchronization" })
+          await expect(warning).toHaveText(locale === "ru"
+            ? `Синхронизация групп хотела снять права у последнего активного администратора. Права сохранены — добавьте администратора в группу «${E2E_ENV.OIDC_ADMIN_GROUP}».`
+            : `Group synchronization tried to remove the last active administrator’s access. Access was preserved — add an administrator to the “${E2E_ENV.OIDC_ADMIN_GROUP}” group.`)
+          await page.reload()
+          await expect(warning).toBeVisible()
+          await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375)
+          await page.screenshot({ path: testInfo.outputPath(`oidc-lockout-${locale}-375.png`), fullPage: true })
+          await page.goto("/admin?tab=events")
+          await expect(page.getByText(locale === "ru" ? "Понижение последнего администратора через SSO заблокировано" : "SSO demotion of the last administrator blocked", { exact: true }).first()).toBeVisible()
+        } finally { await context.close() }
+      }
+      identity = { sub: "owner-sub", email: ADMIN.email, email_verified: true, name: ADMIN.name, groups: [E2E_ENV.OIDC_ADMIN_GROUP] }
+      const context = await browser.newContext({ locale: "en-US" })
+      try {
+        const page = await context.newPage()
+        await page.goto("/login")
+        await page.getByRole("button", { name: "Sign in with Keycloak" }).click()
+        await expect(page).toHaveURL(/\/dashboard/)
+        await page.goto("/admin")
+        await expect(page.getByRole("alert").filter({ hasText: "Group synchronization" })).toHaveCount(0)
+      } finally { await context.close() }
+    } finally {
+      if (otherIds.length) await sql`update users set banned = false where id in ${sql(otherIds)}`
+      await sql.end()
+    }
+  })
+
+  for (const locale of ["ru", "en"] as const) {
+    test(`group denial is localized in ${locale} at 375px and the SSO button waits for hydration`, async ({ browser }, testInfo) => {
+      const context = await browser.newContext({ locale: locale === "ru" ? "ru-RU" : "en-US", viewport: { width: 375, height: 812 }, colorScheme: "dark" })
+      const sql = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+      try {
+        const page = await context.newPage()
+        const button = locale === "ru" ? "Войти через Keycloak" : "Sign in with Keycloak"
+        const message = locale === "ru"
+          ? "У вашего SSO-аккаунта нет доступа к этому приложению. Обратитесь к администратору."
+          : "Your SSO account does not have access to this application. Contact your administrator."
+        for (const groups of [undefined, "app-budget-admins", [E2E_ENV.OIDC_ADMIN_GROUP, 42], ["unrelated-admins"]]) {
+          identity = { sub: `denied-${locale}`, email: `denied-${locale}@e2e.test`, email_verified: true, name: "Denied", groups }
+          await page.goto("/login")
+          await page.getByRole("button", { name: button }).click()
+          await expect(page).toHaveURL(/\/login\?error=oidc_access_denied/)
+          await expect(page.getByRole("alert").filter({ hasText: message })).toHaveText(message)
+          expect(await (await context.request.get(`${E2E_ENV.APP_URL}/api/auth/get-session`)).json()).toBeNull()
+          expect(await sql`select id from users where email = ${`denied-${locale}@e2e.test`}`).toHaveLength(0)
+          await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375)
+        }
+        await page.screenshot({ path: testInfo.outputPath(`oidc-denied-${locale}-375.png`), fullPage: true })
+        const noJs = await browser.newContext({ javaScriptEnabled: false, locale: locale === "ru" ? "ru-RU" : "en-US" })
+        try {
+          const unhydrated = await noJs.newPage()
+          await unhydrated.goto("/login")
+          await expect(unhydrated.getByRole("button", { name: button })).toBeDisabled()
+        } finally { await noJs.close() }
+      } finally { await sql.end(); await context.close() }
+    })
+  }
 })
 
 async function login(page: Page, user: { email: string; password: string }) {

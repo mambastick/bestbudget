@@ -1,5 +1,6 @@
 import "server-only"
 import { z } from "zod"
+import { errorMessage } from "@/i18n/errors"
 
 const bool = z
   .enum(["true", "false", "1", "0", "yes", "no", ""])
@@ -31,6 +32,9 @@ const schema = z.object({
   OIDC_REDIRECT_URI: optionalString,
   OIDC_ENABLED: z.enum(["true", "false"]).optional(),
   OIDC_ALLOW_SIGNUP: bool,
+  OIDC_GROUPS_CLAIM: optionalString,
+  OIDC_USER_GROUP: optionalString,
+  OIDC_ADMIN_GROUP: optionalString,
 
   JOBS_ENABLED: z.enum(["true", "false"]).optional(),
   TELEGRAM_BOT_TOKEN: optionalString,
@@ -42,6 +46,14 @@ const schema = z.object({
 
   SMTP_URL: optionalString,
   SMTP_FROM: optionalString,
+}).superRefine((e, ctx) => {
+  const mapping = [e.OIDC_GROUPS_CLAIM, e.OIDC_USER_GROUP, e.OIDC_ADMIN_GROUP]
+  if (mapping.some(Boolean) && !mapping.every(Boolean)) {
+    ctx.addIssue({ code: "custom", path: ["OIDC_GROUPS_CLAIM"], message: errorMessage("configuration.oidcMappingRequired", {}, "en") })
+  }
+  if (e.OIDC_USER_GROUP && e.OIDC_USER_GROUP === e.OIDC_ADMIN_GROUP) {
+    ctx.addIssue({ code: "custom", path: ["OIDC_ADMIN_GROUP"], message: errorMessage("configuration.oidcGroupsDistinct", {}, "en") })
+  }
 })
 
 export type Env = z.infer<typeof schema>

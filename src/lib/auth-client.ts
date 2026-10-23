@@ -13,6 +13,8 @@ export function authErrorMessage(error: { code?: string; message?: string; statu
   if (!error) return errorMessage("auth.request", {}, locale)
   if (error.status === 429) return errorMessage("auth.rateLimit", {}, locale)
   switch (error.code) {
+    case "oidc_access_denied":
+      return errorMessage("auth.oidcAccessDenied", {}, locale)
     case "INVALID_EMAIL_OR_PASSWORD":
       return errorMessage("auth.credentials", {}, locale)
     case "USER_ALREADY_EXISTS":
