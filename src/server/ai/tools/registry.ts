@@ -9,12 +9,14 @@ export interface ToolContext {
   ctx: HouseholdCtx
   conversationId: string
   messageId: string
+  kind?: "chat" | "onboarding" | "review"
 }
 export interface AiTool {
   name: string
   description: string
   kind: "read" | "propose"
   detailed?: boolean
+  conversationKinds?: readonly ("chat" | "onboarding" | "review")[]
   inputSchema: z.ZodType
   execute(input: unknown, context: ToolContext): Promise<unknown>
 }
@@ -36,6 +38,7 @@ export async function buildTools(context: ToolContext) {
   const tools: ToolSet = {}
   let calls = 0
   for (const definition of toolRegistry.values()) {
+    if (definition.conversationKinds && !definition.conversationKinds.includes(context.kind ?? "chat")) continue
     if (definition.detailed && view.dataLevel !== "detailed") continue
     tools[definition.name] = tool({
       description: definition.description,

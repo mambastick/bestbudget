@@ -1,3 +1,4 @@
+import type { ReviewOutput } from "@/domain/ai/review"
 import type { UIMessage } from "ai"
 import type { ProposalItem, ProviderSnapshot } from "@/domain/ai/types"
 import { relations, sql } from "drizzle-orm"
@@ -711,6 +712,8 @@ export type Invitation = typeof invitations.$inferSelect
 export const notificationPreferences = pgTable("notification_preferences", {
   userId: uuid("user_id").notNull(),
   householdId: uuid("household_id").notNull(),
+  aiReview: boolean("ai_review").notNull().default(true),
+  reviewEmail: boolean("review_email").notNull().default(false),
   telegram: boolean("telegram").notNull().default(false),
   push: boolean("push").notNull().default(false),
   due: boolean("due").notNull().default(true),
@@ -864,6 +867,7 @@ export const aiProposals = pgTable("ai_proposals", {
   conversationId: uuid("conversation_id").notNull(),
   messageId: uuid("message_id").notNull(),
   title: text("title").notNull(),
+  author: text("author", { enum: ["assistant", "ai_review"] }).notNull().default("assistant"),
   status: text("status", { enum: ["pending", "applied", "partially_applied", "dismissed", "expired", "failed"] }).notNull().default("pending"),
   items: jsonb("items").$type<ProposalItem[]>().notNull(),
   appliedBy: uuid("applied_by").references(() => users.id, { onDelete: "cascade" }),
@@ -871,6 +875,7 @@ export const aiProposals = pgTable("ai_proposals", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: createdAt(),
 }, (t) => [
+  unique("ai_proposals_household_id_uq").on(t.householdId, t.id),
   foreignKey({ columns: [t.householdId, t.conversationId, t.messageId], foreignColumns: [aiMessages.householdId, aiMessages.conversationId, aiMessages.id] }).onDelete("cascade"),
   index("ai_proposals_conversation_idx").on(t.householdId, t.conversationId),
   check("ai_proposals_status_ck", sql`${t.status} in ('pending', 'applied', 'partially_applied', 'dismissed', 'expired', 'failed')`),
@@ -889,3 +894,75 @@ export const aiUsage = pgTable("ai_usage", {
   durationMs: integer("duration_ms"),
   createdAt: createdAt(),
 }, (t) => [index("ai_usage_month_idx").on(t.householdId, t.createdAt), index("ai_usage_user_idx").on(t.userId, t.createdAt)])
+
+
+export const aiReviewSettings = pgTable("ai_review_settings", {
+  householdId: uuid("household_id").primaryKey().references(() => households.id, { onDelete: "cascade" }),
+  frequency: text("frequency", { enum: ["off", "weekly", "monthly"] }).notNull().default("off"),
+  weekday: smallint("weekday").notNull().default(1),
+  monthDay: smallint("month_day").notNull().default(1),
+  time: text("time").notNull().default("09:00"),
+  telegram: boolean("telegram").notNull().default(true),
+  push: boolean("push").notNull().default(true),
+  email: boolean("email").notNull().default(true),
+  version: integer("version").notNull().default(1),
+  updatedAt: updatedAt(),
+}, (t) => [
+  check("ai_review_settings_frequency_ck", sql`${t.frequency} in ('off', 'weekly', 'monthly')`),
+  check("ai_review_settings_day_ck", sql`${t.weekday} between 1 and 7 and ${t.monthDay} between 1 and 31`),
+  check("ai_review_settings_time_ck", sql`${t.time} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'`),
+])
+
+export const aiReviews = pgTable("ai_reviews", {
+  id: id(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  periodKey: text("period_key").notNull(),
+  source: text("source", { enum: ["scheduled", "manual"] }).notNull(),
+  status: text("status", { enum: ["running", "completed", "quota_skipped", "failed", "interrupted", "disabled"] }).notNull().default("running"),
+  conversationId: uuid("conversation_id"),
+  sourceFingerprint: text("source_fingerprint").notNull(),
+  output: jsonb("output").$type<ReviewOutput>(),
+  createdAt: createdAt(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+}, (t) => [
+  unique("ai_reviews_period_uq").on(t.householdId, t.periodKey),
+  unique("ai_reviews_household_id_uq").on(t.householdId, t.id),
+  index("ai_reviews_created_idx").on(t.householdId, t.createdAt),
+  foreignKey({ columns: [t.householdId, t.conversationId], foreignColumns: [aiConversations.householdId, aiConversations.id] }).onDelete("cascade"),
+  check("ai_reviews_status_ck", sql`${t.status} in ('running', 'completed', 'quota_skipped', 'failed', 'interrupted', 'disabled')`),
+])
+
+export const aiRecommendations = pgTable("ai_recommendations", {
+  id: id(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  reviewId: uuid("review_id").notNull(),
+  insight: jsonb("insight").$type<ReviewOutput["insights"][number]>().notNull(),
+  fingerprints: jsonb("fingerprints").$type<string[]>().notNull(),
+  status: text("status", { enum: ["pending", "applied", "dismissed", "expired"] }).notNull().default("pending"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: createdAt(),
+}, (t) => [
+  unique("ai_recommendations_household_id_uq").on(t.householdId, t.id),
+  index("ai_recommendations_status_idx").on(t.householdId, t.status),
+  foreignKey({ columns: [t.householdId, t.reviewId], foreignColumns: [aiReviews.householdId, aiReviews.id] }).onDelete("cascade"),
+  check("ai_recommendations_status_ck", sql`${t.status} in ('pending', 'applied', 'dismissed', 'expired')`),
+])
+
+export const aiRecommendationProposals = pgTable("ai_recommendation_proposals", {
+  householdId: uuid("household_id").notNull(),
+  recommendationId: uuid("recommendation_id").notNull(),
+  proposalId: uuid("proposal_id").notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.recommendationId, t.proposalId] }),
+  unique("ai_recommendation_proposals_proposal_uq").on(t.householdId, t.proposalId),
+  foreignKey({ columns: [t.householdId, t.recommendationId], foreignColumns: [aiRecommendations.householdId, aiRecommendations.id] }).onDelete("cascade"),
+  foreignKey({ columns: [t.householdId, t.proposalId], foreignColumns: [aiProposals.householdId, aiProposals.id] }).onDelete("cascade"),
+])
+
+/** Decisions survive conversation deletion and regrouping/rewording of proposals. */
+export const aiReviewDecisions = pgTable("ai_review_decisions", {
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  fingerprint: text("fingerprint").notNull(),
+  decidedBy: uuid("decided_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+}, (t) => [primaryKey({ columns: [t.householdId, t.fingerprint] })])

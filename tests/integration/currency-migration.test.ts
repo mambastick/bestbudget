@@ -32,6 +32,17 @@ it("upgrades beta operations, transfers and recurring rules without changing RUB
     const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", migrations), "utf8")) as { entries: { tag: string }[] }
     for (const entry of journal.entries.filter((entry) => entry.tag !== "0000_init")) {
       await db.exec(readFileSync(new URL(`${entry.tag}.sql`, migrations), "utf8"))
+      if (entry.tag === "0011_ai_reservation_expiry") {
+        await db.exec(`
+          insert into users(id, name, email) values ('00000000-0000-4000-8000-000000000009', 'Beta AI owner', 'beta-ai@example.test');
+          insert into household_members(household_id, user_id, role) values ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000009', 'owner');
+          insert into ai_household_settings(household_id, enabled, consent_at, consent_by) values ('00000000-0000-4000-8000-000000000001', true, now(), '00000000-0000-4000-8000-000000000009');
+          insert into notification_preferences(household_id, user_id, telegram) values ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000009', true);
+          insert into ai_conversations(id, household_id, user_id, title, data_level, consent_fingerprint) values ('00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000009', 'Beta chat', 'aggregates', 'beta');
+          insert into ai_messages(id, household_id, conversation_id, role, parts) values ('00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000010', 'assistant', '[]');
+          insert into ai_proposals(household_id, conversation_id, message_id, title, items, expires_at) values ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000011', 'Beta proposal', '[]', now() + interval '7 days');
+        `)
+      }
       if (entry.tag === "0005_savings_goals") {
         // Exercise the loan upgrade with existing goals and an automatic funding link from main.
         await db.exec(`
@@ -59,6 +70,10 @@ it("upgrades beta operations, transfers and recurring rules without changing RUB
     expect((await db.query("select amount::text, version from category_budgets")).rows).toEqual([{ amount: "123456", version: 1 }])
     expect((await db.query("select version from categories order by id")).rows).toEqual([{ version: 1 }, { version: 1 }])
     expect((await db.query("select count(*)::int as n from ai_settings")).rows).toEqual([{ n: 0 }])
+    expect((await db.query("select telegram, ai_review, review_email from notification_preferences")).rows).toEqual([{ telegram: true, ai_review: true, review_email: false }])
+    expect((await db.query("select author, status, title from ai_proposals")).rows).toEqual([{ author: "assistant", status: "pending", title: "Beta proposal" }])
+    expect((await db.query("select enabled, data_level from ai_household_settings")).rows).toEqual([{ enabled: true, data_level: "aggregates" }])
+    expect((await db.query("select count(*)::int as n from ai_review_settings")).rows).toEqual([{ n: 0 }])
     // Existing RUB transfer rules can still materialize after all migrations, with no to_amount backfill needed.
     await db.exec(`insert into transactions(household_id, type, status, title, date, account_id, to_account_id, recurring_rule_id, occurrence_date, amount)
       select household_id, type, 'planned', title, '2026-11-01', account_id, to_account_id, id, '2026-11-01', amount from recurring_rules where type = 'transfer'`)

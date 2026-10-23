@@ -57,6 +57,7 @@ export interface ShellProps {
   user: { name: string; email: string; isAdmin: boolean }
   households: { id: string; name: string; role: HouseholdRole }[]
   activeHouseholdId: string
+  aiRecommendationCount?: number
   aiEnabled?: boolean
   children: React.ReactNode
 }
@@ -69,13 +70,13 @@ function initials(name: string) {
     .join("")
 }
 
-export function AppShell({ user, households, activeHouseholdId, aiEnabled, children }: ShellProps) {
+export function AppShell({ user, households, activeHouseholdId, aiEnabled, aiRecommendationCount, children }: ShellProps) {
   const assistant = usePathname().startsWith("/assistant")
   // Client session reads can persist rolling cookies; server-component reads cannot write them.
   authClient.useSession()
   return (
     <SidebarProvider>
-      <AppSidebar aiEnabled={aiEnabled} user={user} households={households} activeHouseholdId={activeHouseholdId} />
+      <AppSidebar aiRecommendationCount={aiRecommendationCount} aiEnabled={aiEnabled} user={user} households={households} activeHouseholdId={activeHouseholdId} />
       <SidebarInset className="min-w-0">
         <Header title={households.find((h) => h.id === activeHouseholdId)?.name ?? "BestBudget"} />
         <main className={assistant ? "mx-auto w-full max-w-6xl min-h-0 flex-1 px-3 pt-3 sm:px-6 sm:pt-6" : "mx-auto w-full max-w-6xl flex-1 px-4 pt-4 pb-24 sm:px-6 sm:pt-6 md:pb-10"}>{children}</main>
@@ -86,7 +87,7 @@ export function AppShell({ user, households, activeHouseholdId, aiEnabled, child
   )
 }
 
-function AppSidebar({ user, households, activeHouseholdId, aiEnabled }: Omit<ShellProps, "children">) {
+function AppSidebar({ user, households, activeHouseholdId, aiEnabled, aiRecommendationCount }: Omit<ShellProps, "children">) {
   const t = useTranslations("nav")
   const ai = useTranslations("ai")
   const roles = useTranslations("common.roles")
@@ -160,6 +161,7 @@ function AppSidebar({ user, households, activeHouseholdId, aiEnabled }: Omit<She
                   >
                     <item.icon />
                     <span>{item.label}</span>
+                    {item.href === "/assistant" && Boolean(aiRecommendationCount) ? <span data-testid="ai-review-badge" aria-label={ai("review.widgetTitle", { count: aiRecommendationCount! })} className="ml-auto rounded-full bg-primary px-1.5 text-xs text-primary-foreground">{aiRecommendationCount}</span> : null}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 </AnimateIcon>

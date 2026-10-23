@@ -4,6 +4,7 @@ import { env } from "@/lib/env"
 
 export const NOTIFICATION_JOB_LOCK = 1
 export const TELEGRAM_POLLING_LOCK = 2
+export const AI_REVIEW_JOB_LOCK = 3
 
 /** Pin one session for the entire job; service queries keep using the normal pool. */
 export async function withJobLock<T>(key: number, job: (signal: AbortSignal) => Promise<T>): Promise<T | undefined> {

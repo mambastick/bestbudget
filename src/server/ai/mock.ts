@@ -18,12 +18,100 @@ export function mockModel(): LanguageModel {
       warnings: [],
     }),
     doStream: async (options) => {
+      if (options.tools?.some((t) => t.type === "function" && t.name === "submit_budget_review")) {
+        const outputs = options.prompt
+          .filter((m) => m.role === "tool")
+          .flatMap((m) => m.content)
+          .filter((o) => o.type === "tool-result")
+        const data = outputs.find((o) => o.toolName === "get_review_period")?.output
+        const value =
+          data?.type === "json"
+            ? (data.value as {
+                period?: { from: string; to: string }
+                overview?: { budgets?: { rows?: { id: string; name: string }[] } }
+              })
+            : null
+        const cats = value?.overview?.budgets?.rows?.slice(0, 2) ?? []
+        const proposed = outputs.filter((o) => o.toolName === "propose_budget_changes")
+        const submitted = outputs.some((o) => o.toolName === "submit_budget_review")
+        const english = options.prompt.some(
+          (m) => m.role === "system" && typeof m.content === "string" && m.content.includes("locale=en"),
+        )
+        let call: { toolName: string; input: string } | undefined
+        if (!data) call = { toolName: "get_review_period", input: "{}" }
+        else if (
+          options.tools?.some((t) => t.type === "function" && t.name === "search_transactions") &&
+          !outputs.some((o) => o.toolName === "search_transactions")
+        )
+          call = {
+            toolName: "search_transactions",
+            input: JSON.stringify({ query: "", from: value!.period!.from, to: value!.period!.to }),
+          }
+        else if (proposed.length < cats.length) {
+          const cat = cats[proposed.length]!
+          call = {
+            toolName: "propose_budget_changes",
+            input: JSON.stringify({
+              title: english ? `Monthly budget: ${cat.name}` : `Месячный лимит: ${cat.name}`,
+              items: [{ type: "budget.set", input: { categoryId: cat.id, amount: (proposed.length + 1) * 100000 } }],
+            }),
+          }
+        } else if (!submitted)
+          call = {
+            toolName: "submit_budget_review",
+            input: JSON.stringify({
+              insights: proposed.flatMap((p, i) => {
+                const result = p.output.type === "json" ? (p.output.value as { status: string; proposalId: string }) : null
+                return result?.status === "pending"
+                  ? [
+                      {
+                        type: "budget",
+                        entityId: cats[i]!.id,
+                        direction: "increase",
+                        title: english ? `Plan spending: ${cats[i]!.name}` : `План расходов: ${cats[i]!.name}`,
+                        explanation: english
+                          ? `Set a monthly limit of ${(i + 1) * 1000} RUB to plan this category. Review the amount before applying.`
+                          : `Для планирования категории предлагается лимит ${(i + 1) * 1000} ₽ в месяц. Проверьте сумму перед применением.`,
+                        importance: i ? "medium" : "high",
+                        proposalIds: [result.proposalId],
+                      },
+                    ]
+                  : []
+              }),
+            }),
+          }
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "stream-start" as const, warnings: [] },
+              ...(call
+                ? [{ type: "tool-call" as const, toolCallId: crypto.randomUUID(), ...call }]
+                : [
+                    { type: "text-start" as const, id: "review" },
+                    {
+                      type: "text-delta" as const,
+                      id: "review",
+                      delta: english ? "Budget review prepared." : "Разбор бюджета подготовлен.",
+                    },
+                    { type: "text-end" as const, id: "review" },
+                  ]),
+              {
+                type: "finish" as const,
+                finishReason: { unified: call ? ("tool-calls" as const) : ("stop" as const), raw: call ? "tool_calls" : "stop" },
+                usage,
+              },
+            ],
+          }),
+        }
+      }
       const latestUser = JSON.stringify(options.prompt.findLast((m) => m.role === "user"))
       if (/Попробуй ещё раз|Try again/.test(latestUser)) throw new Error("SyntheticProviderUnavailable")
       const slow = /Помоги настроить бюджеты, пожалуйста|Help me set up budgets, please/.test(latestUser)
       const outputs = options.prompt.filter((m) => m.role === "tool").flatMap((m) => m.content)
       const categoryResult = outputs.find((o) => o.type === "tool-result" && o.toolName === "list_categories")
-      const english = options.prompt.some((m) => m.role === "system" && typeof m.content === "string" && m.content.includes("locale=en"))
+      const english = options.prompt.some(
+        (m) => m.role === "system" && typeof m.content === "string" && m.content.includes("locale=en"),
+      )
       const userText = JSON.stringify(options.prompt.filter((m) => m.role === "user"))
       const wantsBudgets = /budget|бюджет/i.test(userText)
       const hasSearch = options.tools?.some((t) => t.type === "function" && t.name === "search_transactions")
@@ -42,7 +130,8 @@ export function mockModel(): LanguageModel {
       else if (!wantsBudgets) call = undefined
       else if (!categoryResult) call = { toolName: "list_categories", input: "{}" }
       else if (!outputs.some((o) => o.type === "tool-result" && o.toolName === "propose_budget_changes")) {
-        const result = categoryResult.type === "tool-result" && categoryResult.output.type === "json" ? categoryResult.output.value : []
+        const result =
+          categoryResult.type === "tool-result" && categoryResult.output.type === "json" ? categoryResult.output.value : []
         const cats = (Array.isArray(result) ? result : [])
           .filter((c) => c && typeof c === "object" && "kind" in c && c.kind === "expense")
           .slice(0, 3)

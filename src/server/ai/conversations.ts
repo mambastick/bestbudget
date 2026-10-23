@@ -1,6 +1,6 @@
 import "server-only"
 import { randomUUID } from "node:crypto"
-import { and, asc, desc, eq, gte, gt, isNotNull, isNull, lt, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gte, gt, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm"
 import { z } from "zod"
 import type { UIMessage } from "ai"
 import { getDb, withDb } from "@/db"
@@ -15,7 +15,7 @@ export async function listConversations(ctx: HouseholdCtx) {
   return getDb()
     .select({ id: aiConversations.id, title: aiConversations.title, kind: aiConversations.kind })
     .from(aiConversations)
-    .where(and(eq(aiConversations.householdId, ctx.householdId), eq(aiConversations.userId, ctx.userId)))
+    .where(and(eq(aiConversations.householdId, ctx.householdId), eq(aiConversations.userId, ctx.userId), ne(aiConversations.kind, "review")))
     .orderBy(desc(aiConversations.createdAt))
     .limit(100)
 }
@@ -185,6 +185,7 @@ export async function beginTurn(ctx: HouseholdCtx, raw: z.input<typeof turnInput
       const messages = existing ? history.slice(0, userIndex + 1) : history
       return {
         config,
+        kind: conversation.kind,
         dataLevel: view.dataLevel,
         messageId,
         usageId: usage!.id,

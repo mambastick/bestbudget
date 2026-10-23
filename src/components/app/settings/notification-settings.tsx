@@ -15,6 +15,8 @@ import {
   subscribePushAction,
   testPushAction,
 } from "@/app/actions/notifications"
+import { HydratedControls } from "@/components/app/hydrated-controls"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Toggle } from "@/components/app/admin/auth-settings"
 import { LinkButton } from "@/components/app/link-button"
 import { Section } from "@/components/app/settings/section"
@@ -53,6 +55,7 @@ function deviceName(ua: string, t: (key: string) => string) {
 }
 export function NotificationSettings(props: Awaited<ReturnType<typeof notificationProfile>>) {
   const t = useTranslations("settings")
+  const ai = useTranslations("ai.review")
   const router = useRouter()
   const [p, setP] = useState(props.preferences)
   const [link, setLink] = useState<string | null>(null)
@@ -188,6 +191,11 @@ export function NotificationSettings(props: Awaited<ReturnType<typeof notificati
         >
           <Toggle label={t("notification.telegramNotifications")} checked={p.telegram} onChange={(v) => setP({ ...p, telegram: v })} />
           <Toggle label={t("notification.webPushNotifications")} checked={p.push} onChange={(v) => setP({ ...p, push: v })} />
+          <HydratedControls loadingLabel={ai("loading")}>
+            <label className="flex items-center gap-2 text-sm"><Checkbox checked={p.aiReview} onCheckedChange={(checked) => setP({ ...p, aiReview: checked })} />{ai("personalReview")}</label>
+            <label className="flex items-center gap-2 text-sm"><Checkbox checked={p.reviewEmail} onCheckedChange={(checked) => setP({ ...p, reviewEmail: checked })} />{ai("personalEmail")}</label>
+            <p className="text-xs text-muted-foreground">{ai("emailHint")}</p>
+          </HydratedControls>
           <Toggle label={t("notification.upcomingPayments")} checked={p.due} onChange={(v) => setP({ ...p, due: v })} />
           <Toggle label={t("notification.overduePayments")} checked={p.overdue} onChange={(v) => setP({ ...p, overdue: v })} />
           <Toggle label={t("notification.cashGap")} checked={p.cashGap} onChange={(v) => setP({ ...p, cashGap: v })} />
