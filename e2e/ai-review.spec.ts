@@ -141,14 +141,26 @@ test("budget reviews: opt-in schedule, recommendations, apply/dismiss, repeat su
     await expect(page.locator('[data-testid="ai-recommendation"][data-status="pending"]')).toHaveCount(2)
     await expect(page.getByTestId("ai-stale-item")).toHaveCount(0)
     await expect(page.getByTestId("ai-review-changed")).toBeVisible()
-    const changedCategory = await cards.nth(1).getByRole("checkbox").getAttribute("aria-label")
-    await db`insert into category_budgets(household_id, category_id, amount, updated_by)
-      select ${owner.household_id}, id, 900, ${owner.id} from categories
-      where household_id = ${owner.household_id} and kind = 'expense' and name = ${changedCategory}`
+    const [changedCategory] = await db`
+      with target as (
+        select id from ai_recommendations where household_id = ${owner.household_id}
+        order by created_at desc offset 1 limit 1
+      )
+      select c.id, c.name from target r
+      join ai_recommendation_proposals l on l.recommendation_id = r.id and l.household_id = ${owner.household_id}
+      join ai_proposals p on p.id = l.proposal_id and p.household_id = l.household_id
+      cross join lateral jsonb_array_elements(p.items) item
+      join categories c on c.id = (item->'after'->>'categoryId')::uuid and c.household_id = p.household_id
+      where item->>'type' = 'budget.set'`
+    expect(changedCategory).toBeDefined()
+    expect(await cards.nth(1).getByRole("checkbox").getAttribute("aria-label")).toContain(changedCategory!.name)
+    const changedBudgets = await db`insert into category_budgets(household_id, category_id, amount, updated_by)
+      values (${owner.household_id}, ${changedCategory!.id}, 900, ${owner.id}) returning id`
+    expect(changedBudgets).toHaveLength(1)
     await page.reload()
     await expect(cards.first().getByRole("checkbox")).toBeEnabled()
     await expect(cards.nth(1).getByRole("checkbox")).toBeDisabled()
-    await expect(page.getByTestId("ai-stale-item")).toContainText(changedCategory!)
+    await expect(page.getByTestId("ai-stale-item")).toContainText(changedCategory!.name)
     await expect(cards.nth(1).getByRole("button", { name: "Применить выбранное", exact: true })).toBeDisabled()
     const firstId = await cards.first().getAttribute("data-status")
     expect(firstId).toBe("pending")
