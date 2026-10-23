@@ -23,6 +23,8 @@ const env = {
   OIDC_GROUPS_CLAIM: "groups",
   OIDC_USER_GROUP: "app-budget-users",
   OIDC_ADMIN_GROUP: "app-budget-admins",
+  NEXT_PUBLIC_AI_TEST_BUILD: "1",
+  AI_TEST_MODE: "1",
   PORT: String(PORT),
   HOSTNAME: "127.0.0.1",
   TZ: "UTC",

@@ -49,7 +49,9 @@ async function project(ctx: HouseholdCtx, data: FinanceData, from: IsoDate, to: 
 
 export async function projection(ctx: HouseholdCtx, from: IsoDate, to: IsoDate, today: IsoDate, locale = "ru") {
   assertCan(ctx, "finance.read")
-  return project(ctx, await loadFinance(ctx, pastValuationDates(from, to, today), locale), from, to, today)
+  const data = await loadFinance(ctx, pastValuationDates(from, to, today), locale)
+  const result = await project(ctx, data, from, to, today)
+  return { ...result, warnings: [...data.fx.warnings] }
 }
 
 export interface UpcomingItem {

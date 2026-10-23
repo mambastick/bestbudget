@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build && pnpm build:scripts",
+    "build": "next build && node scripts/check-ai-build.mjs && pnpm build:scripts",
     "build:scripts": "esbuild scripts/migrate.ts scripts/admin.ts scripts/backup.ts --bundle --platform=node --format=esm --target=node22 --outdir=dist-scripts --out-extension:.js=.mjs --packages=bundle --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
     "start": "next start",
     "lint": "eslint .",
@@ -25,10 +25,16 @@
     "i18n:check": "tsx scripts/check-i18n.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "4.0.87",
+    "@ai-sdk/google": "4.0.104",
+    "@ai-sdk/openai": "4.0.101",
+    "@ai-sdk/openai-compatible": "3.0.77",
+    "@ai-sdk/react": "4.0.154",
     "@animate-ui/react": "^2.0.0",
     "@aws-sdk/client-s3": "^3.1156.0",
     "@base-ui/react": "^1.4.1",
     "@fontsource-variable/inter": "^5.2.8",
+    "ai": "7.0.150",
     "better-auth": "^1.7.12",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -46,6 +52,7 @@
     "react": "^19.3.1",
     "react-day-picker": "^10.0.2",
     "react-dom": "^19.3.1",
+    "react-markdown": "10.1.0",
     "read-excel-file": "^9.3.12",
     "recharts": "^3.8.0",
     "server-only": "^0.0.1",

@@ -289,5 +289,25 @@
   "configuration": {
     "oidcMappingRequired": "Set OIDC_GROUPS_CLAIM, OIDC_USER_GROUP and OIDC_ADMIN_GROUP together",
     "oidcGroupsDistinct": "OIDC_ADMIN_GROUP must differ from OIDC_USER_GROUP"
+  },
+  "ai": {
+    "disabled": "Assistant is disabled or household consent must be renewed.",
+    "mockDisabled": "Test provider is unavailable in this build.",
+    "envLocked": "Configuration is managed through ENV.",
+    "noTools": "This model does not support tool calling. Choose another model.",
+    "connectionFailed": "Connection and tool check failed. Check the URL, key and model.",
+    "modelsFailed": "Could not list models. You can enter a model manually.",
+    "consentRequired": "Confirm consent to share data with the selected provider.",
+    "consentChanged": "Privacy settings changed. Start a new conversation.",
+    "invalidProposal": "Invalid proposal.",
+    "expired": "This proposal expired. Ask for a new one.",
+    "proposalClosed": "This proposal is closed.",
+    "detailedRequired": "Transaction search requires detailed access.",
+    "toolLimit": "Tool limit reached. Start another request.",
+    "monthlyLimit": "Monthly token limit reached or insufficient allowance for a request.",
+    "rateLimit": "Too many requests. Retry in a minute.",
+    "busy": "A response is still being prepared. Wait for it to finish.",
+    "contextLimit": "This conversation is too large. Start a new one.",
+    "providerError": "The provider did not respond. Retry your request."
   }
 }

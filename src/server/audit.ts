@@ -1,6 +1,13 @@
 import "server-only"
+import { AsyncLocalStorage } from "node:async_hooks"
 import { getDb, type DbOrTx } from "@/db"
 import { auditLogs } from "@/db/schema"
+
+const auditScope = new AsyncLocalStorage<{ source: "ai"; proposalId: string }>()
+
+export function withAiAudit<T>(proposalId: string, fn: () => Promise<T>) {
+  return auditScope.run({ source: "ai", proposalId }, fn)
+}
 
 export interface AuditEntry {
   action: string
@@ -19,7 +26,7 @@ export async function audit(entry: AuditEntry, db: DbOrTx = getDb()) {
     entityId: entry.entityId ?? null,
     householdId: entry.householdId ?? null,
     actorId: entry.actorId ?? null,
-    meta: entry.meta ?? null,
+    meta: auditScope.getStore() ? { ...entry.meta, ...auditScope.getStore() } : entry.meta ?? null,
   })
 }
 

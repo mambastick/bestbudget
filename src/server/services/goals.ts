@@ -487,7 +487,7 @@ export async function getGoalDetail(ctx: HouseholdCtx, id: string) {
   }
 }
 
-export async function automateGoal(ctx: HouseholdCtx, id: string, raw: { accountId: string; day: number; version: number }) {
+export async function previewGoalAutomation(ctx: HouseholdCtx, id: string, raw: { accountId: string; day: number; version: number }) {
   assertCan(ctx, "finance.write")
   const input = z.object({ accountId: z.uuid(), day: z.number().int().min(1).max(31), version: z.number().int().positive() }).parse(raw)
   const detail = await getGoalDetail(ctx, id)
@@ -517,6 +517,11 @@ export async function automateGoal(ctx: HouseholdCtx, id: string, raw: { account
   }
   const amount = Math.max(1, await quote(required, source.currency))
   const toAmount = required
+  return { g, input, startDate, amount, toAmount, currency: source.currency }
+}
+
+export async function automateGoal(ctx: HouseholdCtx, id: string, raw: { accountId: string; day: number; version: number }) {
+  const { g, input, startDate, amount, toAmount, currency } = await previewGoalAutomation(ctx, id, raw)
   return getDb().transaction(async (tx) => {
     const before = await owned(tx, ctx, id, true)
     if (before.version !== input.version || before.status === "archived") throw conflict()
@@ -532,8 +537,8 @@ export async function automateGoal(ctx: HouseholdCtx, id: string, raw: { account
           type: "transfer",
           title: assetTranslator("goals", ctx.locale)("generated.transfer", { name: g.name }),
           amount,
-          toAmount: source.currency === g.accountCurrency ? undefined : toAmount,
-          accountId: source.id,
+          toAmount: currency === g.accountCurrency ? undefined : toAmount,
+          accountId: input.accountId,
           toAccountId: g.accountId,
           frequency: "monthly",
           dayOfMonth: input.day,

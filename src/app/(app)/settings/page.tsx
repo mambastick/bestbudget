@@ -1,3 +1,6 @@
+import { AiHouseholdSettings } from "@/components/app/ai/household-settings"
+import { householdAiView } from "@/server/ai/access"
+import { fingerprint } from "@/server/ai/config"
 import { getTranslations } from "next-intl/server"
 import type { Metadata } from "next"
 import { NotificationSettings } from "@/components/app/settings/notification-settings"
@@ -38,14 +41,18 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       listMembers(ctx),
       can(ctx.role, "invitations.manage") ? listInvitations(ctx) : Promise.resolve([]),
     ])
+    const aiView = await householdAiView(ctx)
     content = (
-      <HouseholdSettings
-        household={{ name: household.name, timezone: household.timezone, currency: household.currency, version: household.version }}
-        members={members.map((m) => ({ ...m, joinedAt: m.joinedAt.toISOString() }))}
-        invitations={invitations.map((i) => ({ ...i, expiresAt: i.expiresAt.toISOString(), createdAt: i.createdAt.toISOString() }))}
-        currentUserId={ctx.userId}
-        role={ctx.role}
-      />
+      <>
+        <HouseholdSettings
+          household={{ name: household.name, timezone: household.timezone, currency: household.currency, version: household.version }}
+          members={members.map((m) => ({ ...m, joinedAt: m.joinedAt.toISOString() }))}
+          invitations={invitations.map((i) => ({ ...i, expiresAt: i.expiresAt.toISOString(), createdAt: i.createdAt.toISOString() }))}
+          currentUserId={ctx.userId}
+          role={ctx.role}
+        />
+        <AiHouseholdSettings view={aiView} providerFingerprint={fingerprint(aiView.provider)} owner={ctx.role === "owner"} />
+      </>
     )
   } else if (tab === "categories") {
     const categories = await listCategories(ctx, { includeArchived: true })

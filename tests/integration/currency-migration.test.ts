@@ -25,6 +25,7 @@ it("upgrades beta operations, transfers and recurring rules without changing RUB
         ('00000000-0000-4000-8000-000000000001', 'expense', 'posted', 'Beta expense', '2026-10-01', '00000000-0000-4000-8000-000000000002', null, '00000000-0000-4000-8000-000000000005', null, null, 6789),
         ('00000000-0000-4000-8000-000000000001', 'transfer', 'planned', 'Beta rule occurrence', '2026-10-01', '00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003', null, '00000000-0000-4000-8000-000000000006', '2026-10-01', 54321);
     `)
+    await db.exec(`insert into category_budgets(household_id, category_id, amount) values ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000005', 123456)`)
     const beforeOperations = (await db.query("select id, type, status, title, date, account_id, to_account_id, category_id, recurring_rule_id, occurrence_date, amount::text, version from transactions order by title")).rows
     const beforeRules = (await db.query("select id, title, amount::text, account_id, to_account_id, category_id, start_date, generate_from, version from recurring_rules order by title")).rows
     // Use the journal so the upgrade test also remains valid after additive migrations/rebases.
@@ -55,6 +56,9 @@ it("upgrades beta operations, transfers and recurring rules without changing RUB
     expect((await db.query("select indexdef from pg_indexes where indexname = 'transactions_household_status_date_idx'")).rows).toEqual([
       { indexdef: expect.stringContaining("(household_id, status, date)") },
     ])
+    expect((await db.query("select amount::text, version from category_budgets")).rows).toEqual([{ amount: "123456", version: 1 }])
+    expect((await db.query("select version from categories order by id")).rows).toEqual([{ version: 1 }, { version: 1 }])
+    expect((await db.query("select count(*)::int as n from ai_settings")).rows).toEqual([{ n: 0 }])
     // Existing RUB transfer rules can still materialize after all migrations, with no to_amount backfill needed.
     await db.exec(`insert into transactions(household_id, type, status, title, date, account_id, to_account_id, recurring_rule_id, occurrence_date, amount)
       select household_id, type, 'planned', title, '2026-11-01', account_id, to_account_id, id, '2026-11-01', amount from recurring_rules where type = 'transfer'`)

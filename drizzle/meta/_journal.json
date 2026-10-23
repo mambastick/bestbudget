@@ -71,6 +71,20 @@
       "when": 1792751929539,
       "tag": "0009_recipient_last_seen_locale",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792765482779,
+      "tag": "0010_ai_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792773104789,
+      "tag": "0011_ai_reservation_expiry",
+      "breakpoints": true
     }
   ]
 }
