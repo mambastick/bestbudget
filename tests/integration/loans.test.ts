@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { describe, expect, it } from "vitest"
 import { getDb } from "@/db"
 import { financialAccounts, loanEvents, loans, transactions, exchangeRates } from "@/db/schema"
@@ -6,7 +6,6 @@ import { addDays, addMonths, startOfMonth, todayIn } from "@/lib/dates"
 import { confirmTelegramPayment } from "@/server/notifications/telegram"
 import { notificationSnapshot } from "@/server/notifications/snapshot"
 import { automateGoal, contributeToGoal, createGoal, transferToGoal } from "@/server/services/goals"
-import { saveManualRate } from "@/server/services/exchange-rates"
 import { createAccount, listAccounts, updateAccount } from "@/server/services/catalog"
 import {
   createLoan,
@@ -58,6 +57,21 @@ async function fixture(overrides: Partial<LoanInput> = {}) {
   return { ...f, today, loan, input }
 }
 
+/** FX rates are global, so these fixtures must restore the shared key even if an assertion fails. */
+async function withUsdRate(date: string, run: () => Promise<void>) {
+  const db = getDb()
+  const key = and(eq(exchangeRates.currency, "USD"), eq(exchangeRates.date, date), eq(exchangeRates.source, "manual"))
+  const [before] = await db.select().from(exchangeRates).where(key)
+  await db.insert(exchangeRates).values({ currency: "USD", date, rateToRub: "100", source: "manual" })
+    .onConflictDoUpdate({ target: [exchangeRates.currency, exchangeRates.date, exchangeRates.source], set: { rateToRub: "100" } })
+  try {
+    await run()
+  } finally {
+    if (before) await db.update(exchangeRates).set({ rateToRub: before.rateToRub }).where(key)
+    else await db.delete(exchangeRates).where(key)
+  }
+}
+
 async function parts(id: string) {
   return getDb().select().from(transactions).where(eq(transactions.loanId, id)).orderBy(transactions.loanDueDate, transactions.loanPart)
 }
@@ -92,21 +106,22 @@ describe("loans", () => {
 
   it("counts savings goal accounts once in net assets, including FX, without adding manual contributions", async () => {
     const f = await fixture()
-    await saveManualRate(f.ctx.userId, { currency: "USD", date: f.today, rateToRub: "100" })
-    const savings = await createAccount(f.ctx, { name: "Копилка", kind: "savings", openingBalance: 20_000_00 })
-    const usd = await createAccount(f.ctx, { name: "USD savings", kind: "savings", currency: "USD", openingBalance: 100_00 })
-    await createGoal(f.ctx, { name: "Отпуск", kind: "account", currency: "RUB", targetAmount: 10_000_00, accountId: savings.id, priority: 1 })
-    const goal = await createGoal(f.ctx, { name: "Подушка", kind: "account", currency: "RUB", targetAmount: 30_000_00, accountId: savings.id, priority: 2 })
-    await createGoal(f.ctx, { name: "USD цель", kind: "account", currency: "USD", targetAmount: 1_000_00, accountId: usd.id })
-    const manual = await createGoal(f.ctx, { name: "Ручная копилка", kind: "manual", currency: "RUB", targetAmount: 50_000_00 })
-    await contributeToGoal(f.ctx, manual.id, { date: f.today, amount: 10_000_00 })
-    const before = await getDashboard(f.ctx, f.today)
-    expect(before.balance).toBe(30_000_00)
-    expect(before.netAssets).toBe(-70_000_00)
-    await transferToGoal(f.ctx, goal.id, { accountId: f.mainAccount, amount: 5_000_00, date: f.today })
-    expect((await getDashboard(f.ctx, f.today)).netAssets).toBe(before.netAssets)
-    const payment = await confirmFirst(f)
-    expect((await getDashboard(f.ctx, f.today)).netAssets).toBe(before.netAssets - payment.loanInterest)
+    await withUsdRate(f.today, async () => {
+      const savings = await createAccount(f.ctx, { name: "Копилка", kind: "savings", openingBalance: 20_000_00 })
+      const usd = await createAccount(f.ctx, { name: "USD savings", kind: "savings", currency: "USD", openingBalance: 100_00 })
+      await createGoal(f.ctx, { name: "Отпуск", kind: "account", currency: "RUB", targetAmount: 10_000_00, accountId: savings.id, priority: 1 })
+      const goal = await createGoal(f.ctx, { name: "Подушка", kind: "account", currency: "RUB", targetAmount: 30_000_00, accountId: savings.id, priority: 2 })
+      await createGoal(f.ctx, { name: "USD цель", kind: "account", currency: "USD", targetAmount: 1_000_00, accountId: usd.id })
+      const manual = await createGoal(f.ctx, { name: "Ручная копилка", kind: "manual", currency: "RUB", targetAmount: 50_000_00 })
+      await contributeToGoal(f.ctx, manual.id, { date: f.today, amount: 10_000_00 })
+      const before = await getDashboard(f.ctx, f.today)
+      expect(before.balance).toBe(30_000_00)
+      expect(before.netAssets).toBe(-70_000_00)
+      await transferToGoal(f.ctx, goal.id, { accountId: f.mainAccount, amount: 5_000_00, date: f.today })
+      expect((await getDashboard(f.ctx, f.today)).netAssets).toBe(before.netAssets)
+      const payment = await confirmFirst(f)
+      expect((await getDashboard(f.ctx, f.today)).netAssets).toBe(before.netAssets - payment.loanInterest)
+    })
   })
 
   it("keeps goal funding and grouped loan payments in materialized and virtual calendars and projections", async () => {
@@ -437,36 +452,34 @@ describe("loans", () => {
   it("values foreign-currency liabilities and credit cards in the household base currency", async () => {
     const f = await setupHousehold("FX loans")
     const today = todayIn(f.ctx.timezone)
-    await getDb()
-      .insert(exchangeRates)
-      .values({ currency: "USD", date: today, rateToRub: "100", source: "manual" })
-      .onConflictDoUpdate({ target: [exchangeRates.currency, exchangeRates.date, exchangeRates.source], set: { rateToRub: "100" } })
-    const usd = await createAccount(f.ctx, { name: "USD payments", kind: "debit_card", currency: "USD", openingBalance: 5000_00 })
-    const loan = await createLoan(f.ctx, {
-      name: "USD loan",
-      lender: "Bank",
-      kind: "consumer",
-      principal: 2000_00,
-      trackingBalance: 1000_00,
-      annualRate: "0",
-      startDate: addMonths(today, -3),
-      trackingDate: today,
-      firstPaymentDate: addMonths(today, 1),
-      termMonths: 12,
-      paymentDay: Number(today.slice(8)),
-      scheduleType: "annuity",
-      interestMethod: "monthly",
-      paymentAccountId: usd.id,
+    await withUsdRate(today, async () => {
+      const usd = await createAccount(f.ctx, { name: "USD payments", kind: "debit_card", currency: "USD", openingBalance: 5000_00 })
+      const loan = await createLoan(f.ctx, {
+        name: "USD loan",
+        lender: "Bank",
+        kind: "consumer",
+        principal: 2000_00,
+        trackingBalance: 1000_00,
+        annualRate: "0",
+        startDate: addMonths(today, -3),
+        trackingDate: today,
+        firstPaymentDate: addMonths(today, 1),
+        termMonths: 12,
+        paymentDay: Number(today.slice(8)),
+        scheduleType: "annuity",
+        interestMethod: "monthly",
+        paymentAccountId: usd.id,
+      })
+      expect((await listAccounts(f.ctx)).find((a) => a.id === usd.id)!.creditLimit).toBe(0)
+      const card = await createAccount(f.ctx, { name: "Card", kind: "credit_card", openingBalance: -10_000_00, creditLimit: 100_000_00 })
+      expect(card.creditLimit).toBe(100_000_00)
+      await expect(getDb().update(financialAccounts).set({ creditLimit: -1 }).where(eq(financialAccounts.id, card.id))).rejects.toThrow()
+      const dashboard = await getDashboard(f.ctx, today)
+      expect(dashboard.debt).toBe(110_000_00)
+      expect(dashboard.balance).toBe(490_000_00)
+      expect(dashboard.netAssets).toBe(390_000_00)
+      expect((await getLoan(f.ctx, loan.id)).currency).toBe("USD")
     })
-    expect((await listAccounts(f.ctx)).find((a) => a.id === usd.id)!.creditLimit).toBe(0)
-    const card = await createAccount(f.ctx, { name: "Card", kind: "credit_card", openingBalance: -10_000_00, creditLimit: 100_000_00 })
-    expect(card.creditLimit).toBe(100_000_00)
-    await expect(getDb().update(financialAccounts).set({ creditLimit: -1 }).where(eq(financialAccounts.id, card.id))).rejects.toThrow()
-    const dashboard = await getDashboard(f.ctx, today)
-    expect(dashboard.debt).toBe(110_000_00)
-    expect(dashboard.balance).toBe(490_000_00)
-    expect(dashboard.netAssets).toBe(390_000_00)
-    expect((await getLoan(f.ctx, loan.id)).currency).toBe("USD")
   })
 
   it("validates event payloads and preserves touched plans before reconciliation", async () => {
