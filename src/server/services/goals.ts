@@ -17,7 +17,7 @@ import { createTransaction, isoDate } from "./transactions"
 
 export const goalInput = z
   .object({
-    name: z.string().trim().min(1, "Укажите название").max(60),
+    name: z.string().trim().min(1, "validation.titleRequired").max(60),
     icon: z
       .string()
       .regex(/^[a-z0-9-]{1,40}$/)
@@ -37,19 +37,19 @@ export const goalInput = z
     priority: z.number().int().min(1).max(1000).default(100),
     sortOrder: z.number().int().min(0).max(10000).default(0),
   })
-  .refine((g) => (g.kind === "account") === (g.accountId !== null), { message: "Выберите накопительный счёт", path: ["accountId"] })
-  .refine((g) => g.kind === "account" || g.allocatedAmount === null, { message: "Лимит распределения доступен только для счёта" })
+  .refine((g) => (g.kind === "account") === (g.accountId !== null), { message: "validation.savingsAccount", path: ["accountId"] })
+  .refine((g) => g.kind === "account" || g.allocatedAmount === null, { message: "validation.accountAllocation" })
 
 export type GoalInput = z.input<typeof goalInput>
 
 async function owned(db: DbOrTx, ctx: HouseholdCtx, id: string, lock = false) {
-  if (!z.uuid().safeParse(id).success) throw notFound("Цель не найдена")
+  if (!z.uuid().safeParse(id).success) throw notFound("goal.notFound")
   const query = db
     .select()
     .from(goals)
     .where(and(eq(goals.householdId, ctx.householdId), eq(goals.id, id)))
   const [goal] = await (lock ? query.for("update") : query)
-  if (!goal) throw notFound("Цель не найдена")
+  if (!goal) throw notFound("goal.notFound")
   return goal
 }
 
@@ -59,8 +59,8 @@ async function checkAccount(db: DbOrTx, ctx: HouseholdCtx, input: z.output<typeo
     .select()
     .from(financialAccounts)
     .where(and(eq(financialAccounts.householdId, ctx.householdId), eq(financialAccounts.id, input.accountId)))
-  if (!account) throw notFound("Счёт не найден")
-  if (account.kind !== "savings" || account.archivedAt) throw new AppError("Выберите активный накопительный счёт")
+  if (!account) throw notFound("account.notFound")
+  if (account.kind !== "savings" || account.archivedAt) throw new AppError("goal.activeSavingsAccount")
 }
 
 export async function createGoal(ctx: HouseholdCtx, raw: GoalInput) {
@@ -94,7 +94,7 @@ export async function updateGoal(ctx: HouseholdCtx, id: string, raw: GoalInput &
   return getDb().transaction(async (tx) => {
     const before = await owned(tx, ctx, id, true)
     if (before.kind !== input.kind || before.accountId !== input.accountId || before.currency !== input.currency) {
-      throw new AppError("Тип, счёт и валюта цели закреплены при создании. Создайте новую цель, чтобы сохранить историю.")
+      throw new AppError("goal.identityLocked")
     }
     const [row] = await tx
       .update(goals)
@@ -150,17 +150,17 @@ export const contributionInput = z.object({
     .int()
     .min(-100_000_000_000_000)
     .max(100_000_000_000_000)
-    .refine((a) => a !== 0, "Укажите ненулевую сумму"),
+    .refine((a) => a !== 0, "validation.nonzero"),
   comment: z.string().trim().max(1000).default(""),
 })
 
 export async function contributeToGoal(ctx: HouseholdCtx, id: string, raw: z.input<typeof contributionInput>) {
   assertCan(ctx, "finance.write")
   const input = contributionInput.parse(raw)
-  if (input.date > todayIn(ctx.timezone)) throw new AppError("Взнос нельзя записать будущей датой")
+  if (input.date > todayIn(ctx.timezone)) throw new AppError("goal.futureContribution")
   return getDb().transaction(async (tx) => {
     const goal = await owned(tx, ctx, id, true)
-    if (goal.kind !== "manual" || goal.status === "archived") throw new AppError("Ручные взносы доступны для ручной цели вне архива")
+    if (goal.kind !== "manual" || goal.status === "archived") throw new AppError("goal.manualRequired")
     const previous = await tx
       .select({ amount: goalContributions.amount })
       .from(goalContributions)
@@ -193,8 +193,8 @@ export async function transferToGoal(
   assertCan(ctx, "finance.write")
   return getDb().transaction(async (tx) => {
     const goal = await owned(tx, ctx, id, true)
-    if (!goal.accountId || goal.status === "archived") throw new AppError("Цель не привязана к активному счёту")
-    if (isoDate.parse(raw.date) > todayIn(ctx.timezone)) throw new AppError("Для будущего перевода используйте регулярное пополнение")
+    if (!goal.accountId || goal.status === "archived") throw new AppError("goal.inactiveAccount")
+    if (isoDate.parse(raw.date) > todayIn(ctx.timezone)) throw new AppError("goal.futureTransfer")
     return createTransaction(
       ctx,
       { ...raw, type: "transfer", status: "posted", toAccountId: goal.accountId, title: `На цель: ${goal.name}` },
@@ -414,7 +414,7 @@ export type GoalSummary = Awaited<ReturnType<typeof listGoals>>["goals"][number]
 export async function getGoalDetail(ctx: HouseholdCtx, id: string) {
   const { d, result } = await summaries(ctx)
   const goal = result.find((g) => g.id === id)
-  if (!goal) throw notFound("Цель не найдена")
+  if (!goal) throw notFound("goal.notFound")
   const from = addMonths(d.today, -3)
   const history =
     goal.kind === "manual"
@@ -481,17 +481,17 @@ export async function automateGoal(ctx: HouseholdCtx, id: string, raw: { account
   const detail = await getGoalDetail(ctx, id)
   const g = detail.goal
   if (!g.accountId || g.status === "archived" || g.target === null || g.progress === null)
-    throw new AppError("Автопополнение доступно для цели на счёте с известным прогрессом")
-  if (g.fundingGap === null) throw new AppError("Лимит распределения ниже суммы цели или не хватает курса для вышестоящей цели")
+    throw new AppError("goal.progressRequired")
+  if (g.fundingGap === null) throw new AppError("goal.insufficientAllocation")
   if (!g.targetDate || g.targetDate <= detail.today || !g.monthlyRequired)
-    throw new AppError("Укажите будущий срок и непогашенную сумму цели")
+    throw new AppError("goal.futureTargetRequired")
   const [source] = await getDb()
     .select()
     .from(financialAccounts)
     .where(and(eq(financialAccounts.householdId, ctx.householdId), eq(financialAccounts.id, input.accountId)))
-  if (!source || source.id === g.accountId) throw new AppError("Выберите другой счёт списания")
+  if (!source || source.id === g.accountId) throw new AppError("goal.differentSource")
   const schedule = automaticGoalSchedule(detail.today, g.targetDate, input.day, g.fundingGap)
-  if (!schedule) throw new AppError("Первое пополнение после срока цели. Выберите другой день или продлите срок.")
+  if (!schedule) throw new AppError("goal.topupAfterDeadline")
   const { startDate, amount: required } = schedule
   const quote = async (required: number, to: string) => {
     const rates = await loadRates([
@@ -500,7 +500,7 @@ export async function automateGoal(ctx: HouseholdCtx, id: string, raw: { account
     ])
     const fromRate = selectRate(rates, g.accountCurrency!, detail.today)
     const toRate = selectRate(rates, to, detail.today)
-    if (g.accountCurrency !== to && (!fromRate || !toRate)) throw new AppError("Для автопополнения нужен курс валют")
+    if (g.accountCurrency !== to && (!fromRate || !toRate)) throw new AppError("goal.rateRequired")
     return g.accountCurrency === to ? required : convertMinor(required, g.accountCurrency!, to, fromRate!.rateToRub, toRate!.rateToRub)
   }
   const amount = Math.max(1, await quote(required, source.currency))
@@ -512,7 +512,7 @@ export async function automateGoal(ctx: HouseholdCtx, id: string, raw: { account
       .select()
       .from(recurringRules)
       .where(and(eq(recurringRules.householdId, ctx.householdId), eq(recurringRules.goalId, id)))
-    if (existing) throw new AppError("Автопополнение уже настроено. Измените или остановите его в регулярных операциях.")
+    if (existing) throw new AppError("goal.topupExists")
     const [rule] = await createRules(
       ctx,
       {

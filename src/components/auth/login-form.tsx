@@ -1,5 +1,7 @@
 "use client"
 
+import { useLocale, useTranslations } from "next-intl"
+
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
@@ -26,6 +28,8 @@ export function LoginForm({
   next?: string
   error?: string
 }) {
+  const locale = useLocale()
+  const t = useTranslations("auth")
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -38,7 +42,7 @@ export function LoginForm({
     setError(undefined)
     const { error } = await authClient.signIn.email({ email: email.trim(), password })
     if (error) {
-      setError(authErrorMessage(error))
+      setError(authErrorMessage(error, locale))
       setPending(false)
       return
     }
@@ -49,8 +53,8 @@ export function LoginForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-xl">Вход</CardTitle>
-        <CardDescription>Семейный бюджет: доходы, расходы и прогноз</CardDescription>
+        <CardTitle className="text-xl">{t("login.title")}</CardTitle>
+        <CardDescription>{t("login.familyFinancesIncomeExpensesAndForecasts")}</CardDescription>
       </CardHeader>
       <CardContent className="grid grid-cols-1 gap-4">
         {error ? <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">{error}</p> : null}
@@ -62,36 +66,34 @@ export function LoginForm({
             </Field>
             <Field>
               <div className="flex items-center justify-between">
-                <FieldLabel htmlFor="password">Пароль</FieldLabel>
+                <FieldLabel htmlFor="password">{t("login.password")}</FieldLabel>
                 {canResetPassword ? (
                   <Link href="/forgot-password" className="text-xs text-muted-foreground underline-offset-4 hover:underline">
-                    Забыли пароль?
-                  </Link>
+                    {t("login.forgotPassword")}{" "}</Link>
                 ) : null}
               </div>
               <PasswordInput id="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
             </Field>
             <Button type="submit" className="w-full" disabled={pending}>
-              {pending ? "Вход…" : "Войти"}
+              {pending ? t("login.signingIn") : t("login.signIn")}
             </Button>
           </form>
         ) : null}
         {local && sso ? (
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <div className="h-px flex-1 bg-border" /> или <div className="h-px flex-1 bg-border" />
+            <div className="h-px flex-1 bg-border" /> {t("login.or")}{" "}<div className="h-px flex-1 bg-border" />
           </div>
         ) : null}
         {sso ? <SsoButton name={sso.name} callbackURL={next} /> : null}
         {publicRegistration ? (
           <p className="text-center text-sm text-muted-foreground">
-            Нет аккаунта?{" "}
+            {t("login.donTHaveAnAccount")}{" "}
             <Link href="/register" className="text-foreground underline underline-offset-4">
-              Зарегистрироваться
-            </Link>
+              {t("login.createAnAccount")}{" "}</Link>
           </p>
         ) : (
           <p className="text-center text-xs text-muted-foreground">
-            Регистрация — по приглашению. {canResetPassword ? "" : "Если вы забыли пароль, обратитесь к администратору."}
+            {t("login.registrationIsByInvitation")}{" "}{canResetPassword ? "" : t("login.ifYouForgotYourPasswordContactYourAdministrator")}
           </p>
         )}
       </CardContent>

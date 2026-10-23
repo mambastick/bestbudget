@@ -56,7 +56,7 @@ async function ownedBatch(db: DbOrTx, ctx: HouseholdCtx, id: string, lock = fals
     .from(importBatches)
     .where(and(eq(importBatches.householdId, ctx.householdId), eq(importBatches.id, id)))
   const [batch] = await (lock ? query.for("update") : query)
-  if (!batch) throw notFound("Импорт не найден")
+  if (!batch) throw notFound("import.notFound")
   return batch
 }
 
@@ -101,12 +101,12 @@ export async function previewImport(ctx: HouseholdCtx, bytes: Uint8Array, raw: P
       .select()
       .from(importProfiles)
       .where(and(eq(importProfiles.householdId, ctx.householdId), eq(importProfiles.id, z.uuid().parse(input.profile))))
-    if (!profile) throw notFound("Профиль не найден")
+    if (!profile) throw notFound("import.profileNotFound")
   } else if (input.profile !== "custom") {
     input.mapping = profileMapping(input.profile, headers)
     const required = ["date", "amount", "currency", "description"] as const
     if (required.some((field) => input.mapping.columns[field] === undefined))
-      throw new AppError("Заголовки не соответствуют выбранному профилю. Используйте мастер колонок.")
+      throw new AppError("import.headersMismatch")
   }
   const m = input.mapping
   if (
@@ -115,7 +115,7 @@ export async function previewImport(ctx: HouseholdCtx, bytes: Uint8Array, raw: P
     (m.amountMode === "separate" ? m.columns.income === undefined || m.columns.expense === undefined : m.columns.amount === undefined) ||
     (m.amountMode === "direction" && m.columns.direction === undefined)
   )
-    throw new AppError("Укажите колонки даты, описания и суммы/направления")
+    throw new AppError("import.columnsRequired")
   const db = getDb()
   await ensureLoansMaterialized(ctx, todayIn(ctx.timezone))
   const [accounts, cats, rules] = await Promise.all([
@@ -170,10 +170,10 @@ export async function previewImport(ctx: HouseholdCtx, bytes: Uint8Array, raw: P
         decision: "skip" as ImportRow["decision"],
       }
     })
-  if (!parsed.length || parsed.length > MAX_ROWS) throw new AppError("Нужно от 1 до 50 000 непустых строк")
+  if (!parsed.length || parsed.length > MAX_ROWS) throw new AppError("import.rowCount")
   const turnover = parsed.reduce((sum, r) => sum + BigInt(Math.abs(r.normalized.amountMinorSigned ?? 0)), 0n)
   if (turnover > BigInt(Number.MAX_SAFE_INTEGER))
-    throw new AppError("Суммарный оборот файла слишком велик для точного учёта. Разделите файл на меньшие периоды.")
+    throw new AppError("import.turnoverTooLarge")
   const dates = parsed.flatMap((r) => (r.normalized.effectiveDate ? [r.normalized.effectiveDate] : [])).sort()
   const warnings: string[] = []
   const hash = createHash("sha256").update(bytes).digest("hex")
@@ -530,7 +530,7 @@ export async function commitImport(ctx: HouseholdCtx, raw: z.input<typeof commit
     const decisions = new Map(input.decisions.map((d) => [d.rowId, d]))
     const rowIds = new Set(rows.map((r) => r.id))
     if (decisions.size !== input.decisions.length || input.decisions.some((d) => !rowIds.has(d.rowId)))
-      throw new AppError("Некорректные решения строк")
+      throw new AppError("import.invalidDecisions")
     const selected = rows.map((r) => ({ ...r, choice: decisions.get(r.id) ?? ({ rowId: r.id, decision: r.decision } as RowDecision) }))
     const byRowIndex = new Map(selected.map((r) => [r.rowIndex, r]))
     const plannedGroups = new Map<string, typeof selected>()
@@ -553,7 +553,7 @@ export async function commitImport(ctx: HouseholdCtx, raw: z.input<typeof commit
       const key = externalKey(batch.source, row.accountId, row.normalized.externalId)
       if (!key || row.choice.decision === "skip") continue
       if (externalKeys.has(key) && row.choice.decision !== "link")
-        throw new AppError(`${row.rowLocator}: стабильный банковский ID уже импортирован`)
+        throw new AppError("import.externalIdExists", { rowLocator: row.rowLocator })
       externalKeys.add(key)
     }
     // A preview may have become stale after another import; never silently accept new duplicates.
@@ -566,10 +566,10 @@ export async function commitImport(ctx: HouseholdCtx, raw: z.input<typeof commit
           !(r.choice.allowDuplicate && r.choice.decision === "create" && r.proposal.candidates.some((c) => c.kind === "duplicate")),
       )
     )
-      throw new AppError("Найдены ранее импортированные строки. Пропустите дубли или обновите предпросмотр и явно разрешите создание.")
+      throw new AppError("import.duplicates")
     const reconciliation = reconcileBalances(rows)
     if (reconciliation.some((r) => !r.matches) && !input.acknowledgeBalance)
-      throw new AppError("Остатки не сходятся. Проверьте строки и явно подтвердите расхождение.")
+      throw new AppError("import.balanceMismatch")
     const counters = { rows: rows.length, created: 0, confirmed: 0, linked: 0, skipped: 0 }
     const consumed = new Set<string>(),
       usedTransactions = new Set<string>()
@@ -599,15 +599,15 @@ export async function commitImport(ctx: HouseholdCtx, raw: z.input<typeof commit
         .where(and(eq(importRows.id, row.id), eq(importRows.householdId, ctx.householdId)))
     }
     const getTarget = async (candidate: Candidate) => {
-      if (!candidate.transactionId) throw new AppError("Выберите операцию-кандидат")
+      if (!candidate.transactionId) throw new AppError("import.candidateRequired")
       const [target] = await tx
         .select()
         .from(transactions)
         .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.id, candidate.transactionId)))
         .for("update")
-      if (!target) throw notFound("Сопоставленная операция удалена")
+      if (!target) throw notFound("import.matchedDeleted")
       if (candidate.version !== undefined && target.version !== candidate.version) throw conflict()
-      if (usedTransactions.has(target.id)) throw new AppError("Одна операция выбрана для нескольких строк")
+      if (usedTransactions.has(target.id)) throw new AppError("import.reusedTransaction")
       usedTransactions.add(target.id)
       return target
     }
@@ -631,28 +631,28 @@ export async function commitImport(ctx: HouseholdCtx, raw: z.input<typeof commit
         counters.skipped++
         continue
       }
-      if (matchesLoanPayment(row, loanIndex, batch.config)) throw new AppError(`${row.rowLocator}: ${loanImportReason}`)
+      if (matchesLoanPayment(row, loanIndex, batch.config)) throw new AppError("import.loanPayment", { rowLocator: row.rowLocator })
       if (!canImportRow(n) || !row.accountId || !n.effectiveDate || !n.amountMinorSigned)
-        throw new AppError(`${row.rowLocator}: исправьте ошибки или пропустите строку`)
+        throw new AppError("import.invalidRow", { rowLocator: row.rowLocator })
       const account = accounts.find((a) => a.id === row.accountId && !a.archivedAt)
-      if (!account || account.currency !== n.currency) throw new AppError("Счёт изменён или недоступен. Создайте предпросмотр заново.")
+      if (!account || account.currency !== n.currency) throw new AppError("import.accountChanged")
       let transaction: Transaction,
         effect: NonNullable<ImportRow["effect"]> = "created",
         before: Transaction | undefined
       if (choice.decision === "link") {
-        if (!candidate || !["manual", "duplicate"].includes(candidate.kind)) throw new AppError("Выберите совпавшую операцию")
+        if (!candidate || !["manual", "duplicate"].includes(candidate.kind)) throw new AppError("import.matchRequired")
         transaction = await getTarget(candidate)
         if (transaction.status !== (n.exportStatus ?? "posted")) throw conflict()
         effect = "linked"
         counters.linked++
       } else if (choice.decision === "confirm") {
-        if (!candidate || candidate.kind !== "planned") throw new AppError("Выберите плановую операцию")
+        if (!candidate || candidate.kind !== "planned") throw new AppError("import.plannedRequired")
         before = await getTarget(candidate)
         if (before.status !== "planned") throw conflict()
         const group = plannedGroups.get(before.id) ?? [row]
         const counterpart = before.type === "transfer" ? group.find((r) => r.id !== row.id) : undefined
         if (before.type === "transfer" && (group.length > 2 || (counterpart && !isTransferPair(row, counterpart))))
-          throw new AppError("Неоднозначные стороны планового перевода. Выберите одну пару или пропустите лишние строки.")
+          throw new AppError("import.ambiguousTransfer")
         const debit =
           before.type === "transfer"
             ? group.find((r) => r.accountId === before!.accountId && (r.normalized.amountMinorSigned ?? 0) < 0)
@@ -672,14 +672,14 @@ export async function commitImport(ctx: HouseholdCtx, raw: z.input<typeof commit
         effect = "confirmed"
         counters.confirmed++
       } else if (choice.decision === "transfer") {
-        if (!candidate || candidate.kind !== "transfer") throw new AppError("Выберите вторую сторону перевода")
+        if (!candidate || candidate.kind !== "transfer") throw new AppError("import.transferSideRequired")
         if (candidate.rowIndex !== undefined) {
           const other = byRowIndex.get(candidate.rowIndex)
           if (!other || other.choice.decision !== "transfer" || consumed.has(other.id) || !isTransferPair(row, other))
-            throw new AppError("Для своего перевода выберите обе встречные строки как перевод")
+            throw new AppError("import.bothTransferSides")
           const otherCandidate =
             other.proposal.candidates[other.choice.candidateIndex ?? other.proposal.candidates.findIndex((c) => c.kind === "transfer")]
-          if (otherCandidate?.rowIndex !== row.rowIndex) throw new AppError("Стороны перевода должны ссылаться друг на друга")
+          if (otherCandidate?.rowIndex !== row.rowIndex) throw new AppError("import.transferReferences")
           const debit = n.amountMinorSigned < 0 ? row : other,
             credit = n.amountMinorSigned > 0 ? row : other
           transaction = await createTransaction(
@@ -709,7 +709,7 @@ export async function commitImport(ctx: HouseholdCtx, raw: z.input<typeof commit
             counters.linked++
           } else {
             const otherAccount = accounts.find((a) => a.id === before!.accountId)
-            if (!otherAccount || otherAccount.currency !== n.currency) throw new AppError("Валюты сторон перевода различаются")
+            if (!otherAccount || otherAccount.currency !== n.currency) throw new AppError("import.transferCurrencies")
             transaction = await updateTransaction(
               ctx,
               before.id,
@@ -733,7 +733,7 @@ export async function commitImport(ctx: HouseholdCtx, raw: z.input<typeof commit
       } else {
         const destination = n.typeHint === "Перевод" ? findAccount(n.toAccountHint) : undefined
         if (n.typeHint === "Перевод" && (!destination || destination.currency !== n.toCurrency))
-          throw new AppError("Счёт зачисления или его валюта изменены. Создайте предпросмотр заново.")
+          throw new AppError("import.destinationChanged")
         const values: TransactionInput = {
           type: destination ? "transfer" : n.amountMinorSigned < 0 ? "expense" : "income",
           accountId: row.accountId,
@@ -817,13 +817,13 @@ export async function undoImport(ctx: HouseholdCtx, id: string) {
     await lockHousehold(tx, ctx)
     const batch = await ownedBatch(tx, ctx, id, true)
     if (batch.status === "undone") return
-    if (batch.status !== "committed") throw new AppError("Отменить можно только завершённый импорт")
+    if (batch.status !== "committed") throw new AppError("import.completedRequired")
     const rows = await tx
       .select()
       .from(importRows)
       .where(and(eq(importRows.householdId, ctx.householdId), eq(importRows.batchId, id)))
     const affected = rows.filter((r) => r.effect && ["created", "confirmed", "converted"].includes(r.effect))
-    const blockers: string[] = []
+    const blockers: { row: string; reason: "removed" | "shared" | "changed" }[] = []
     for (const row of affected) {
       const [t] = row.transactionId
         ? await tx
@@ -848,12 +848,16 @@ export async function undoImport(ctx: HouseholdCtx, id: string) {
             .limit(1)
         : []
       if (!t || t.version !== row.transactionVersion || shared)
-        blockers.push(`${row.rowLocator}: ${!t ? "операция удалена" : shared ? "связана с другой партией" : "операция изменена"}`)
+        blockers.push({ row: row.rowLocator, reason: !t ? "removed" : shared ? "shared" : "changed" })
     }
-    if (blockers.length)
-      throw new AppError(
-        "Импорт не отменён. " + blockers.slice(0, 20).join("; ") + (blockers.length > 20 ? `; ещё ${blockers.length - 20}` : ""),
-      )
+    if (blockers.length) {
+      const visible = blockers.slice(0, 20)
+      const rowsFor = (reason: "removed" | "shared" | "changed") => visible.filter((b) => b.reason === reason).map((b) => b.row).join("; ") || "—"
+      throw new AppError("import.undoBlocked", {
+        rows: visible.map((b) => b.row).join("; "), count: blockers.length,
+        removed: rowsFor("removed"), shared: rowsFor("shared"), changed: rowsFor("changed"),
+      })
+    }
     // Detach both sides before removing a transfer. Other batches were checked above.
     await tx
       .update(importRows)
@@ -896,7 +900,7 @@ export const categoryRuleInput = z
     maxAmount: z.number().int().safe().nonnegative().nullable().optional(),
     priority: z.number().int().min(-1000).max(1000).default(0),
   })
-  .refine((r) => r.descriptionPattern || r.mcc || r.minAmount != null || r.maxAmount != null, "Укажите хотя бы одно условие")
+  .refine((r) => r.descriptionPattern || r.mcc || r.minAmount != null || r.maxAmount != null, "validation.condition")
 
 export async function saveCategoryRule(ctx: HouseholdCtx, raw: z.input<typeof categoryRuleInput>, db: DbOrTx = getDb()) {
   assertCan(ctx, "finance.write")
@@ -905,20 +909,20 @@ export async function saveCategoryRule(ctx: HouseholdCtx, raw: z.input<typeof ca
     .select()
     .from(categories)
     .where(and(eq(categories.householdId, ctx.householdId), eq(categories.id, input.categoryId)))
-  if (!cat || cat.archivedAt) throw notFound("Категория недоступна")
-  if (input.minAmount != null && input.maxAmount != null && input.minAmount > input.maxAmount) throw new AppError("Неверный диапазон суммы")
+  if (!cat || cat.archivedAt) throw notFound("category.unavailable")
+  if (input.minAmount != null && input.maxAmount != null && input.minAmount > input.maxAmount) throw new AppError("import.amountRange")
   if (input.descriptionMode === "regex") {
     try {
       compileRule(input.descriptionPattern ?? "")
     } catch {
-      throw new AppError("Некорректное регулярное выражение RE2 (без обратных ссылок и lookaround)")
+      throw new AppError("import.invalidRegex")
     }
   }
   const [count] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(categoryRules)
     .where(eq(categoryRules.householdId, ctx.householdId))
-  if ((count?.n ?? 0) >= 500) throw new AppError("Не более 500 правил на семью")
+  if ((count?.n ?? 0) >= 500) throw new AppError("import.ruleLimit")
   const [rule] = await db
     .insert(categoryRules)
     .values({ ...input, householdId: ctx.householdId, createdBy: ctx.userId })

@@ -51,7 +51,7 @@ export const requireHousehold = cache(async (): Promise<HouseholdCtx & { user: S
 /** For server actions: same checks, but errors instead of redirects. */
 export async function actionUser(): Promise<SessionUser> {
   const session = await getSession()
-  if (!session) throw new AppError("Сессия истекла, войдите снова", "unauthorized")
+  if (!session) throw new AppError("session.expired", {}, "unauthorized")
   return session.user
 }
 
@@ -62,12 +62,12 @@ export async function actionHousehold(): Promise<HouseholdCtx> {
   if (ctx) return ctx
   const [first] = await listMemberships(user.id)
   const fallback = first ? await resolveHouseholdCtx(user.id, first.id) : null
-  if (!fallback) throw new AppError("Нет доступа к семейному пространству", "forbidden")
+  if (!fallback) throw new AppError("session.householdForbidden", {}, "forbidden")
   return fallback
 }
 
 export async function actionSystemAdmin(): Promise<SessionUser> {
   const user = await actionUser()
-  if (user.role !== "admin") throw new AppError("Требуются права администратора приложения", "forbidden")
+  if (user.role !== "admin") throw new AppError("session.adminRequired", {}, "forbidden")
   return user
 }

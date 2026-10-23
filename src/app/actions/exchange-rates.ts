@@ -12,12 +12,12 @@ import { quoteConversion, refreshCbrHistory, refreshCbrRates, saveManualRate } f
 export async function refreshExchangeRatesAction(date: string, currency: Currency) {
   return runAction(async () => {
     const admin = await actionSystemAdmin()
-    if (date > todayIn("Europe/Moscow")) throw new AppError("Выберите сегодняшнюю или прошедшую дату")
+    if (date > todayIn("Europe/Moscow")) throw new AppError("exchangeRates.futureDate")
     z.enum(CURRENCY_CODES).parse(currency)
     const refreshed = date === todayIn("Europe/Moscow")
       ? await refreshCbrRates(date, true)
       : currency !== "RUB" && await refreshCbrHistory(currency, addDays(date, -14), date, true)
-    if (!refreshed) throw new AppError("ЦБ недоступен или FX_PROVIDER=none. Сохранённые курсы продолжают действовать.")
+    if (!refreshed) throw new AppError("exchangeRates.unavailable")
     await audit({ action: "exchange_rate.refresh", entityType: "exchange_rate", actorId: admin.id, meta: { date, currency } })
     revalidatePath("/", "layout")
   })

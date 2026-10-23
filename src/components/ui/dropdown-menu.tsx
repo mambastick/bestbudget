@@ -2,12 +2,22 @@
 "use client"
 
 import * as React from "react"
+import { Menu as BaseMenu } from "@base-ui/react/menu"
 import { Menu as MenuPrimitive } from "@animate-ui/react/primitives/base-ui/menu"
 import { cn } from "@/lib/utils"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 
-function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
-  return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
+// Native presence avoids delayed focus handoff when the user opens nested preference menus.
+const MenuAnimationContext = React.createContext(true)
+
+function DropdownMenu({ animated = true, ...props }: MenuPrimitive.Root.Props & { animated?: boolean }) {
+  const Primitive = animated ? MenuPrimitive.Root : BaseMenu.Root
+  return <MenuAnimationContext value={animated}><Primitive data-slot="dropdown-menu" {...props} /></MenuAnimationContext>
+}
+
+function MenuPopup({ transition, exitTransition, ...props }: MenuPrimitive.Popup.Props) {
+  const animated = React.useContext(MenuAnimationContext)
+  return animated ? <MenuPrimitive.Popup transition={transition} exitTransition={exitTransition} {...props} /> : <BaseMenu.Popup {...props} />
 }
 
 function DropdownMenuPortal({ ...props }: MenuPrimitive.Portal.Props) {
@@ -39,7 +49,7 @@ function DropdownMenuContent({
         side={side}
         sideOffset={sideOffset}
       >
-        <MenuPrimitive.Popup
+        <MenuPopup
           data-slot="dropdown-menu-content"
           className={cn("z-50 max-h-(--available-height) w-(--anchor-width) min-w-32 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-none data-closed:overflow-hidden", className )}
           {...props}
@@ -97,7 +107,9 @@ function DropdownMenuItem({
 }
 
 function DropdownMenuSub({ ...props }: MenuPrimitive.SubmenuRoot.Props) {
-  return <MenuPrimitive.SubmenuRoot data-slot="dropdown-menu-sub" {...props} />
+  const animated = React.useContext(MenuAnimationContext)
+  const Primitive = animated ? MenuPrimitive.SubmenuRoot : BaseMenu.SubmenuRoot
+  return <Primitive data-slot="dropdown-menu-sub" {...props} />
 }
 
 function DropdownMenuSubTrigger({

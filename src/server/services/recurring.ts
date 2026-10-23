@@ -22,7 +22,7 @@ const scheduleFields = z.object({
 })
 
 export const ruleInput = operationFields.extend(scheduleFields.shape).refine((r) => !r.endDate || r.endDate >= r.startDate, {
-  message: "Дата окончания раньше даты начала",
+  message: "validation.endDate",
   path: ["endDate"],
 })
 export type RuleInput = z.input<typeof ruleInput>
@@ -46,10 +46,10 @@ function normalizeDay(input: z.output<typeof ruleInput>): number | null {
 export async function createRules(ctx: HouseholdCtx, raw: z.input<typeof ruleSetInput>, db: DbOrTx = getDb()) {
   assertCan(ctx, "finance.write")
   const { rule: input, extra } = ruleSetInput.parse(raw)
-  if (extra.length > 0 && input.frequency !== "monthly") throw new AppError("Несколько начислений поддерживаются только для ежемесячных операций")
+  if (extra.length > 0 && input.frequency !== "monthly") throw new AppError("recurring.monthlyOnly")
   const today = todayIn(ctx.timezone)
   const base = await normalizeOperation(db, ctx, input)
-  if (extra.length > 0 && base.toAmount !== null) throw new AppError("Для каждого валютного перевода создайте отдельное расписание с суммой зачисления")
+  if (extra.length > 0 && base.toAmount !== null) throw new AppError("recurring.separateCurrencyRule")
 
   const variants = [{ dayOfMonth: normalizeDay(input), amount: input.amount }, ...extra]
   const created = await db.transaction(async (tx) => {
@@ -202,7 +202,7 @@ export async function materializeOccurrence(ctx: HouseholdCtx, ruleId: string, r
   assertCan(ctx, "finance.write")
   const date = isoDate.parse(rawDate)
   const rule = await getRule(ctx, ruleId)
-  if (!occurrencesBetween(rule, date, date).includes(date) || date < rule.generateFrom) throw notFound("Операция не найдена")
+  if (!occurrencesBetween(rule, date, date).includes(date) || date < rule.generateFrom) throw notFound("transaction.notFound")
   const db = getDb()
   await db
     .insert(transactions)
@@ -236,12 +236,12 @@ export async function materializeOccurrence(ctx: HouseholdCtx, ruleId: string, r
 // ---------------------------------------------------------------------------
 
 export async function getRule(ctx: HouseholdCtx, id: string, db: DbOrTx = getDb()) {
-  if (!z.uuid().safeParse(id).success) throw notFound("Расписание не найдено")
+  if (!z.uuid().safeParse(id).success) throw notFound("recurring.notFound")
   const [rule] = await db
     .select()
     .from(recurringRules)
     .where(and(eq(recurringRules.id, id), eq(recurringRules.householdId, ctx.householdId)))
-  if (!rule) throw notFound("Расписание не найдено")
+  if (!rule) throw notFound("recurring.notFound")
   return rule
 }
 
@@ -287,8 +287,8 @@ export async function updateRule(ctx: HouseholdCtx, id: string, raw: z.input<typ
   const from = effectiveFrom ?? today
   const db = getDb()
   const before = await getRule(ctx, id)
-  if (before.goalId && input.toAccountId !== before.toAccountId) throw new AppError("Счёт зачисления цели нельзя изменить")
-  if (input.type !== before.type) throw new AppError("Нельзя изменить тип регулярной операции")
+  if (before.goalId && input.toAccountId !== before.toAccountId) throw new AppError("recurring.goalDestinationLocked")
+  if (input.type !== before.type) throw new AppError("recurring.typeLocked")
   const values = await normalizeOperation(db, ctx, input, { allowArchived: true })
 
   await db.transaction(async (tx) => {

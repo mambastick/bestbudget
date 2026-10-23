@@ -2,7 +2,7 @@ import { z } from "zod"
 import { addDays, diffDays, formatDay, monthKey, todayIn } from "@/lib/dates"
 import { formatMoney } from "@/lib/money"
 
-const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Укажите время ЧЧ:ММ")
+const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "validation.time")
 export const preferencesInput = z.object({
   telegram: z.boolean().default(false),
   push: z.boolean().default(false),

@@ -15,9 +15,9 @@ import { acceptInvitation, findValidInvitation } from "@/server/services/househo
 import { adminExists } from "@/server/services/users"
 
 const credentials = z.object({
-  name: z.string().trim().min(1, "Укажите имя").max(80),
-  email: z.email("Некорректный e-mail").trim().toLowerCase(),
-  password: z.string().min(10, "Пароль должен быть не короче 10 символов").max(128),
+  name: z.string().trim().min(1, "validation.nameRequired").max(80),
+  email: z.email("validation.email").trim().toLowerCase(),
+  password: z.string().min(10, "validation.passwordLength").max(128),
 })
 
 const cookieOptions = () => ({
@@ -36,8 +36,8 @@ async function signUpLocal(input: z.output<typeof credentials>) {
     return res.user
   } catch (err) {
     const code = (err as { body?: { code?: string } }).body?.code
-    if (code?.startsWith("USER_ALREADY_EXISTS")) throw new AppError("Пользователь с таким e-mail уже существует. Войдите и примите приглашение.")
-    if (code === "EMAIL_PASSWORD_DISABLED" || code?.includes("NOT_ENABLED")) throw new AppError("Регистрация по паролю отключена. Используйте SSO.")
+    if (code?.startsWith("USER_ALREADY_EXISTS")) throw new AppError("auth.existingInviteUser")
+    if (code === "EMAIL_PASSWORD_DISABLED" || code?.includes("NOT_ENABLED")) throw new AppError("auth.signupDisabled")
     throw err
   }
 }
@@ -46,9 +46,9 @@ async function signUpLocal(input: z.output<typeof credentials>) {
 export async function setupAdminAction(input: { token: string; name: string; email: string; password: string }) {
   return runAction(async () => {
     const expected = env().SETUP_TOKEN
-    if (!expected) throw new AppError("SETUP_TOKEN не задан в переменных окружения")
-    if (await adminExists()) throw new AppError("Администратор уже создан")
-    if (!safeEqual(String(input.token ?? ""), expected)) throw new AppError("Неверный токен первоначальной настройки")
+    if (!expected) throw new AppError("setup.tokenMissing")
+    if (await adminExists()) throw new AppError("setup.alreadyComplete")
+    if (!safeEqual(String(input.token ?? ""), expected)) throw new AppError("setup.invalidToken")
     const data = credentials.parse(input)
     const user = await signUpLocal(data)
     await getDb().update(users).set({ role: "admin", emailVerified: true }).where(eq(users.id, user.id))
@@ -60,7 +60,7 @@ export async function setupAdminAction(input: { token: string; name: string; ema
 export async function inviteSignupAction(input: { token: string; name: string; email: string; password: string }) {
   return runAction(async () => {
     const invitation = await findValidInvitation(String(input.token ?? ""))
-    if (!invitation) throw new AppError("Приглашение недействительно или уже использовано")
+    if (!invitation) throw new AppError("invite.invalid")
     const user = await signUpLocal(credentials.parse(input))
     const { householdId } = await acceptInvitation(user.id, input.token)
     ;(await cookies()).set(HOUSEHOLD_COOKIE, householdId, { ...cookieOptions(), maxAge: 60 * 60 * 24 * 365 })
@@ -84,7 +84,7 @@ export async function acceptInviteAction(token: string) {
  */
 export async function prepareSsoInviteAction(token: string) {
   return runAction(async () => {
-    if (!(await findValidInvitation(token))) throw new AppError("Приглашение недействительно или уже использовано")
+    if (!(await findValidInvitation(token))) throw new AppError("invite.invalid")
     ;(await cookies()).set(INVITE_COOKIE, token, { ...cookieOptions(), maxAge: 15 * 60 })
   })
 }

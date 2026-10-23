@@ -1,5 +1,7 @@
 "use client"
 
+import { useLocale, useTranslations } from "next-intl"
+
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
@@ -9,6 +11,8 @@ import { authClient, authErrorMessage } from "@/lib/auth-client"
 import { CredentialsFields, emptyCredentials, validateCredentials } from "./credentials-fields"
 
 export function RegisterForm() {
+  const locale = useLocale()
+  const t = useTranslations("auth")
   const router = useRouter()
   const [creds, setCreds] = useState(emptyCredentials)
   const [error, setError] = useState<string | null>(null)
@@ -16,13 +20,13 @@ export function RegisterForm() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    const problem = validateCredentials(creds)
+    const problem = validateCredentials(creds, t)
     setError(problem)
     if (problem) return
     setPending(true)
     const { error } = await authClient.signUp.email({ name: creds.name.trim(), email: creds.email.trim(), password: creds.password })
     if (error) {
-      setError(authErrorMessage(error))
+      setError(authErrorMessage(error, locale))
       setPending(false)
       return
     }
@@ -33,20 +37,19 @@ export function RegisterForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-xl">Регистрация</CardTitle>
+        <CardTitle className="text-xl">{t("register.createAnAccount")}</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className="grid grid-cols-1 gap-4">
           <CredentialsFields value={creds} onChange={setCreds} />
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <Button type="submit" disabled={pending}>
-            {pending ? "Создание…" : "Создать аккаунт"}
+            {pending ? t("register.creating") : t("register.createAccount")}
           </Button>
           <p className="text-center text-sm text-muted-foreground">
-            Уже есть аккаунт?{" "}
+            {t("register.alreadyHaveAnAccount")}{" "}
             <Link href="/login" className="text-foreground underline underline-offset-4">
-              Войти
-            </Link>
+              {t("register.signIn")}{" "}</Link>
           </p>
         </form>
       </CardContent>

@@ -1,0 +1,21 @@
+{
+  "appShell": {
+    "overview": "Overview",
+    "transactions": "Transactions",
+    "calendar": "Calendar",
+    "budgets": "Budgets",
+    "savingsGoals": "Savings goals",
+    "loans": "Loans",
+    "analytics": "Analytics",
+    "accounts": "Accounts",
+    "settings": "Settings",
+    "households": "Households",
+    "newHousehold": "New household",
+    "administration": "Administration",
+    "beta": "beta",
+    "profileAndSecurity": "Profile and security",
+    "signOut": "Sign out",
+    "transaction": "Transaction",
+    "addTransaction": "Add transaction"
+  }
+}

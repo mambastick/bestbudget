@@ -103,40 +103,38 @@ export function parseMonthKey(key: string | undefined, fallback: IsoDate): IsoDa
   return startOfMonth(fallback)
 }
 
-const monthFmt = new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric", timeZone: "UTC" })
-const dayFmt = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", timeZone: "UTC" })
-const dayShortFmt = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", timeZone: "UTC" })
-const fullFmt = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })
-const weekdayFmt = new Intl.DateTimeFormat("ru-RU", { weekday: "short", timeZone: "UTC" })
+function dateFormatter(locale: string, options: Intl.DateTimeFormatOptions) {
+  return new Intl.DateTimeFormat(locale, { ...options, timeZone: "UTC" })
+}
 
 function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
-export function formatMonth(date: IsoDate): string {
-  return capitalize(monthFmt.format(parse(date)).replace(/\s*г\.$/, ""))
+export function formatMonth(date: IsoDate, locale = "ru"): string {
+  return capitalize(dateFormatter(locale, { month: "long", year: "numeric" }).format(parse(date)).replace(/\s*\u0433\.$/, ""))
 }
 
-export function formatDay(date: IsoDate): string {
-  return dayFmt.format(parse(date))
+export function formatDay(date: IsoDate, locale = "ru"): string {
+  return dateFormatter(locale, { day: "numeric", month: "long" }).format(parse(date))
 }
 
-export function formatDayShort(date: IsoDate): string {
-  return dayShortFmt.format(parse(date)).replace(".", "")
+export function formatDayShort(date: IsoDate, locale = "ru"): string {
+  return dateFormatter(locale, { day: "numeric", month: "short" }).format(parse(date))
 }
 
-export function formatDateFull(date: IsoDate): string {
-  return fullFmt.format(parse(date)).replace(/\s*г\.$/, "")
+export function formatDateFull(date: IsoDate, locale = "ru"): string {
+  return dateFormatter(locale, { day: "numeric", month: "long", year: "numeric" }).format(parse(date)).replace(/\s*\u0433\.$/, "")
 }
 
-export function formatWeekday(date: IsoDate): string {
-  return weekdayFmt.format(parse(date))
+export function formatWeekday(date: IsoDate, locale = "ru"): string {
+  return dateFormatter(locale, { weekday: "short" }).format(parse(date))
 }
 
-export function formatDateTime(value: Date | string, timeZone: string): string {
-  return new Intl.DateTimeFormat("ru-RU", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone,
-  }).format(typeof value === "string" ? new Date(value) : value)
+export function formatDateTime(value: Date | string, timeZone: string, locale = "ru"): string {
+  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short", timeZone }).format(typeof value === "string" ? new Date(value) : value)
+}
+
+export function formatRelativeDay(date: IsoDate, today: IsoDate, locale = "ru"): string {
+  return new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(diffDays(date, today), "day")
 }

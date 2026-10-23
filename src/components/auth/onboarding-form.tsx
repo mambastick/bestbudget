@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "next-intl"
+
 import { LinkButton } from "@/components/app/link-button"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
@@ -12,7 +14,8 @@ import { useAction } from "@/hooks/use-action"
 import { TimezoneSelect } from "./timezone-select"
 
 export function OnboardingForm({ userName, canCancel }: { userName: string; canCancel: boolean }) {
-  const [name, setName] = useState("Наша семья")
+  const t = useTranslations("onboarding")
+  const [name, setName] = useState(t("onboarding.ourHousehold"))
   const [timezone, setTimezone] = useState("Europe/Moscow")
   const { pending, run } = useAction()
   const router = useRouter()
@@ -20,11 +23,9 @@ export function OnboardingForm({ userName, canCancel }: { userName: string; canC
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-xl">{canCancel ? "Новое семейное пространство" : `Здравствуйте, ${userName}!`}</CardTitle>
+        <CardTitle className="text-xl">{canCancel ? t("onboarding.newHousehold") : t("onboarding.hello", { userName: userName })}</CardTitle>
         <CardDescription>
-          Семейное пространство — это общий бюджет: счета, категории, операции и участники. Мы создадим базовые категории и основной счёт, затем
-          вы сможете пригласить супруга или супругу.
-        </CardDescription>
+          {t("onboarding.aHouseholdIsASharedBudgetWithAccounts")}{" "}</CardDescription>
       </CardHeader>
       <CardContent>
         <form
@@ -35,21 +36,20 @@ export function OnboardingForm({ userName, canCancel }: { userName: string; canC
           }}
         >
           <Field>
-            <FieldLabel htmlFor="hh-name">Название</FieldLabel>
+            <FieldLabel htmlFor="hh-name">{t("onboarding.name")}</FieldLabel>
             <Input id="hh-name" required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field>
-            <FieldLabel htmlFor="hh-tz">Часовой пояс</FieldLabel>
+            <FieldLabel htmlFor="hh-tz">{t("onboarding.timeZone")}</FieldLabel>
             <TimezoneSelect id="hh-tz" value={timezone} onChange={setTimezone} />
-            <p className="text-xs text-muted-foreground">Определяет «сегодня» для плановых операций и прогноза.</p>
+            <p className="text-xs text-muted-foreground">{t("onboarding.determinesTodayForPlannedTransactionsAndForecasts")}</p>
           </Field>
           <Button type="submit" disabled={pending}>
-            {pending ? "Создание…" : "Создать"}
+            {pending ? t("onboarding.creating") : t("onboarding.create")}
           </Button>
           {canCancel ? (
             <LinkButton variant="ghost" href="/dashboard">
-              Отмена
-            </LinkButton>
+              {t("onboarding.cancel")}{" "}</LinkButton>
           ) : null}
         </form>
       </CardContent>

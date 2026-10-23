@@ -9,12 +9,12 @@ import { audit, diff } from "../audit"
 import { assertCan, type HouseholdCtx } from "../context"
 import { AppError, conflict, notFound } from "../errors"
 
-export const isoDate = z.string().refine(isIsoDate, "Некорректная дата")
+export const isoDate = z.string().refine(isIsoDate, "validation.date")
 export const amount = z
-  .number({ error: "Укажите сумму" })
+  .number({ error: "validation.amount" })
   .int()
-  .positive("Сумма должна быть больше нуля")
-  .max(1_000_000_000_000_00, "Слишком большая сумма")
+  .positive("validation.positiveAmount")
+  .max(1_000_000_000_000_00, "validation.largeAmount")
 
 /** Fields shared by one-off operations and recurring rules. */
 export const operationFields = z.object({
@@ -24,7 +24,7 @@ export const operationFields = z.object({
   title: z.string().trim().max(120).optional().default(""),
   description: z.string().trim().max(1000).optional().nullable(),
   categoryId: z.uuid().nullable().optional(),
-  accountId: z.uuid({ error: "Выберите счёт" }),
+  accountId: z.uuid({ error: "validation.account" }),
   toAccountId: z.uuid().nullable().optional(),
 })
 
@@ -45,25 +45,25 @@ export async function normalizeOperation(db: DbOrTx, ctx: HouseholdCtx, input: O
   const categoryId = isTransfer ? null : (input.categoryId ?? null)
   const toAccountId = isTransfer ? (input.toAccountId ?? null) : null
 
-  if (!isTransfer && !categoryId) throw new AppError("Выберите категорию")
-  if (isTransfer && !toAccountId) throw new AppError("Выберите счёт зачисления")
-  if (isTransfer && toAccountId === input.accountId) throw new AppError("Счета списания и зачисления должны различаться")
+  if (!isTransfer && !categoryId) throw new AppError("transaction.categoryRequired")
+  if (isTransfer && !toAccountId) throw new AppError("transaction.destinationRequired")
+  if (isTransfer && toAccountId === input.accountId) throw new AppError("transaction.differentAccounts")
 
   const accountIds = [input.accountId, ...(toAccountId ? [toAccountId] : [])]
   const accounts = await db
     .select({ id: financialAccounts.id, name: financialAccounts.name, archivedAt: financialAccounts.archivedAt, currency: financialAccounts.currency, kind: financialAccounts.kind })
     .from(financialAccounts)
     .where(and(eq(financialAccounts.householdId, ctx.householdId), inArray(financialAccounts.id, accountIds)))
-  if (accounts.some((a) => a.kind === "loan")) throw new AppError("Операции по кредиту доступны в разделе «Кредиты»")
-  if (accounts.length !== accountIds.length) throw notFound("Счёт не найден")
-  if (!opts.allowArchived && accounts.some((a) => a.archivedAt)) throw new AppError("Счёт находится в архиве")
+  if (accounts.some((a) => a.kind === "loan")) throw new AppError("transaction.useLoans")
+  if (accounts.length !== accountIds.length) throw notFound("account.notFound")
+  if (!opts.allowArchived && accounts.some((a) => a.archivedAt)) throw new AppError("account.archived")
 
   const fromAccount = accounts.find((a) => a.id === input.accountId)!
   const toAccount = accounts.find((a) => a.id === toAccountId)
   const crossCurrency = isTransfer && fromAccount.currency !== toAccount?.currency
-  if (crossCurrency && !input.toAmount) throw new AppError("Укажите сумму зачисления в валюте получателя")
+  if (crossCurrency && !input.toAmount) throw new AppError("transaction.destinationAmountRequired")
   if (isTransfer && !crossCurrency && input.toAmount != null && input.toAmount !== input.amount) {
-    throw new AppError("В одной валюте суммы списания и зачисления должны совпадать")
+    throw new AppError("transaction.sameCurrencyAmounts")
   }
 
   let title = input.title
@@ -72,8 +72,8 @@ export async function normalizeOperation(db: DbOrTx, ctx: HouseholdCtx, input: O
       .select({ kind: categories.kind, name: categories.name })
       .from(categories)
       .where(and(eq(categories.householdId, ctx.householdId), eq(categories.id, categoryId)))
-    if (!cat) throw notFound("Категория не найдена")
-    if (cat.kind !== input.type) throw new AppError("Категория не соответствует типу операции")
+    if (!cat) throw notFound("category.notFound")
+    if (cat.kind !== input.type) throw new AppError("transaction.categoryType")
     title ||= cat.name
   }
   title ||= "Перевод"
@@ -118,12 +118,12 @@ export async function createTransaction(ctx: HouseholdCtx, raw: TransactionInput
 }
 
 async function getOwned(db: DbOrTx, ctx: HouseholdCtx, id: string): Promise<Transaction> {
-  if (!z.uuid().safeParse(id).success) throw notFound("Операция не найдена")
+  if (!z.uuid().safeParse(id).success) throw notFound("transaction.notFound")
   const [row] = await db
     .select()
     .from(transactions)
     .where(and(eq(transactions.id, id), eq(transactions.householdId, ctx.householdId)))
-  if (!row) throw notFound("Операция не найдена")
+  if (!row) throw notFound("transaction.notFound")
   return row
 }
 
@@ -154,8 +154,8 @@ export async function updateTransaction(ctx: HouseholdCtx, id: string, raw: Tran
   const input = transactionInput.parse(raw)
   const version = z.number().int().parse(raw.version)
   const before = await getOwned(db, ctx, id)
-  if (before.loanId) throw new AppError("Изменяйте платёж целиком в разделе «Кредиты»")
-  if (before.recurringRuleId && input.type !== before.type) throw new AppError("Нельзя изменить тип операции из расписания")
+  if (before.loanId) throw new AppError("transaction.wholeLoanPayment")
+  if (before.recurringRuleId && input.type !== before.type) throw new AppError("transaction.recurringTypeLocked")
   const values = await normalizeOperation(db, ctx, input, { allowArchived: true })
   return updateVersioned(
     ctx,
@@ -183,8 +183,8 @@ export async function confirmTransaction(ctx: HouseholdCtx, id: string, raw: z.i
   assertCan(ctx, "finance.write")
   const input = confirmInput.parse(raw)
   const before = await getOwned(db, ctx, id)
-  if (before.loanId) throw new AppError("Изменяйте платёж целиком в разделе «Кредиты»")
-  if (before.status === "posted") throw new AppError("Операция уже подтверждена")
+  if (before.loanId) throw new AppError("transaction.wholeLoanPayment")
+  if (before.status === "posted") throw new AppError("transaction.alreadyPosted")
   const values = await normalizeOperation(db, ctx, operationFields.parse({
     ...before, amount: input.amount ?? before.amount, toAmount: input.toAmount ?? before.toAmount,
   }), { allowArchived: true })
@@ -201,16 +201,16 @@ export async function confirmTransaction(ctx: HouseholdCtx, id: string, raw: z.i
 export async function unconfirmTransaction(ctx: HouseholdCtx, id: string, version: number) {
   assertCan(ctx, "finance.write")
   const before = await getOwned(getDb(), ctx, id)
-  if (before.loanId) throw new AppError("Изменяйте платёж целиком в разделе «Кредиты»")
+  if (before.loanId) throw new AppError("transaction.wholeLoanPayment")
   return updateVersioned(ctx, before, version, { status: "planned", postedAt: null }, "transaction.unconfirm")
 }
 
 export async function skipTransaction(ctx: HouseholdCtx, id: string, version: number) {
   assertCan(ctx, "finance.write")
   const before = await getOwned(getDb(), ctx, id)
-  if (before.loanId) throw new AppError("Изменяйте платёж целиком в разделе «Кредиты»")
-  if (!before.recurringRuleId) throw new AppError("Пропустить можно только регулярную операцию")
-  if (before.status === "posted") throw new AppError("Подтверждённую операцию нельзя пропустить")
+  if (before.loanId) throw new AppError("transaction.wholeLoanPayment")
+  if (!before.recurringRuleId) throw new AppError("transaction.recurringOnly")
+  if (before.status === "posted") throw new AppError("transaction.postedCannotSkip")
   return updateVersioned(ctx, before, version, { status: "skipped", postedAt: null }, "transaction.skip")
 }
 
@@ -222,7 +222,7 @@ export async function deleteTransaction(ctx: HouseholdCtx, id: string) {
   assertCan(ctx, "finance.write")
   const db = getDb()
   const before = await getOwned(db, ctx, id)
-  if (before.loanId) throw new AppError("Изменяйте платёж целиком в разделе «Кредиты»")
+  if (before.loanId) throw new AppError("transaction.wholeLoanPayment")
   if (before.recurringRuleId && before.status !== "posted") {
     await updateVersioned(ctx, before, before.version, { status: "skipped", postedAt: null }, "transaction.skip")
     return { skipped: true }
@@ -382,9 +382,9 @@ export async function exportTransactions(ctx: HouseholdCtx, raw: TransactionFilt
 
 export async function getTransaction(ctx: HouseholdCtx, id: string) {
   assertCan(ctx, "finance.read")
-  if (!z.uuid().safeParse(id).success) throw notFound("Операция не найдена")
+  if (!z.uuid().safeParse(id).success) throw notFound("transaction.notFound")
   const [row] = await transactionListQuery(and(eq(transactions.id, id), eq(transactions.householdId, ctx.householdId)))
-  if (!row) throw notFound("Операция не найдена")
+  if (!row) throw notFound("transaction.notFound")
   return row
 }
 

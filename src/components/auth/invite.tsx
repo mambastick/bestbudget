@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "next-intl"
+
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
@@ -14,29 +16,31 @@ import { SsoButton } from "./sso-button"
 type Info = { householdName: string; role: string }
 
 function Intro({ info }: { info: Info }) {
+  const t = useTranslations("auth")
   return (
     <CardDescription>
-      Вас пригласили в семейное пространство «<span className="font-medium text-foreground">{info.householdName}</span>» с ролью «{info.role}».
+      {t.rich("invite.intro", { householdName: info.householdName, role: info.role, household: (chunks) => <span className="font-medium text-foreground">{chunks}</span> })}
     </CardDescription>
   )
 }
 
 export function InviteAccept({ token, info, userName }: { token: string; info: Info; userName: string }) {
+  const t = useTranslations("auth")
   const router = useRouter()
   const { pending, run } = useAction()
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-xl">Приглашение</CardTitle>
+        <CardTitle className="text-xl">{t("invite.invitation")}</CardTitle>
         <Intro info={info} />
       </CardHeader>
       <CardContent className="grid grid-cols-1 gap-3">
-        <p className="text-sm text-muted-foreground">Вы вошли как {userName}.</p>
+        <p className="text-sm text-muted-foreground">{t("invite.signedInAs", { userName })}</p>
         <Button
           disabled={pending}
           onClick={() =>
             run(() => acceptInviteAction(token), {
-              success: `Вы присоединились к «${info.householdName}»`,
+              success: t("invite.youJoined", { householdName: info.householdName }),
               onSuccess: () => {
                 router.replace("/dashboard")
                 router.refresh()
@@ -44,14 +48,14 @@ export function InviteAccept({ token, info, userName }: { token: string; info: I
             })
           }
         >
-          Присоединиться
-        </Button>
+          {t("invite.joinHousehold")}{" "}</Button>
       </CardContent>
     </Card>
   )
 }
 
 export function InviteSignup({ token, info, local, sso }: { token: string; info: Info; local: boolean; sso: { name: string } | null }) {
+  const t = useTranslations("auth")
   const router = useRouter()
   const [creds, setCreds] = useState(emptyCredentials)
   const [error, setError] = useState<string | null>(null)
@@ -59,11 +63,11 @@ export function InviteSignup({ token, info, local, sso }: { token: string; info:
 
   function submit(e: React.FormEvent) {
     e.preventDefault()
-    const problem = validateCredentials(creds)
+    const problem = validateCredentials(creds, t)
     setError(problem)
     if (problem) return
     run(() => inviteSignupAction({ token, name: creds.name, email: creds.email, password: creds.password }), {
-      success: "Добро пожаловать!",
+      success: t("invite.welcome"),
       onSuccess: () => {
         router.replace("/dashboard")
         router.refresh()
@@ -74,7 +78,7 @@ export function InviteSignup({ token, info, local, sso }: { token: string; info:
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-xl">Присоединиться к семье</CardTitle>
+        <CardTitle className="text-xl">{t("invite.joinAHousehold")}</CardTitle>
         <Intro info={info} />
       </CardHeader>
       <CardContent className="grid grid-cols-1 gap-4">
@@ -93,25 +97,23 @@ export function InviteSignup({ token, info, local, sso }: { token: string; info:
           <>
             {sso ? (
               <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                <div className="h-px flex-1 bg-border" /> или создайте аккаунт <div className="h-px flex-1 bg-border" />
+                <div className="h-px flex-1 bg-border" /> {t("invite.orCreateAnAccount")}{" "}<div className="h-px flex-1 bg-border" />
               </div>
             ) : null}
             <form onSubmit={submit} className="grid grid-cols-1 gap-4">
               <CredentialsFields value={creds} onChange={setCreds} />
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
               <Button type="submit" disabled={pending}>
-                {pending ? "Создание…" : "Создать аккаунт и присоединиться"}
+                {pending ? t("invite.creating") : t("invite.createAccountAndJoin")}
               </Button>
             </form>
           </>
         ) : null}
         <p className="text-center text-sm text-muted-foreground">
-          Уже есть аккаунт?{" "}
+          {t("invite.alreadyHaveAnAccount")}{" "}
           <Link href={`/login?next=${encodeURIComponent(`/invite/${token}`)}`} className="text-foreground underline underline-offset-4">
-            Войдите
-          </Link>
-          , затем снова откройте ссылку.
-        </p>
+            {t("invite.signIn")}{" "}</Link>
+          {t("invite.thenOpenThisLinkAgain")}{" "}</p>
       </CardContent>
     </Card>
   )

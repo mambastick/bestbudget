@@ -8,7 +8,7 @@ Self-hosted family finance: planned vs actual spending, recurring payments and c
 [![Release](https://img.shields.io/github/v/release/mambastick/bestbudget?include_prereleases)](https://github.com/mambastick/bestbudget/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**1.0.0-beta.2 (beta).** The interface is currently in Russian. Detailed docs are currently in Russian.
+**1.0.0-beta.2 (beta).** The shell, authentication and settings support English and Russian, with browser language detection and a manual override. Financial screens remain in Russian until translation phase 2. Detailed docs are currently in Russian.
 
 ## Screenshots
 
@@ -184,7 +184,7 @@ Next.js 16 App Router · React 19 · TypeScript strict · Tailwind 4 · shadcn/B
 
 [Architecture and data model](docs/architecture.md). Money uses integer minor units; dates belong to the household time zone; financial references enforce household isolation. Domain logic lives in services, server actions validate inputs and return structured results.
 
-Issues and pull requests are welcome. Describe the problem and reproduction steps; include checks and screenshots for UI changes. Keep migrations additive, use existing UI components and avoid new heavy dependencies. UI text is Russian; code and code comments are English. Never attach real statements, credentials or personal financial data to public issues.
+Issues and pull requests are welcome. Describe the problem and reproduction steps; include checks and screenshots for UI changes. Keep migrations additive, use existing UI components and avoid new heavy dependencies. UI messages live in per-area English/Russian dictionaries; follow the [i18n conventions](docs/i18n.md). Code and code comments are English. Never attach real statements, credentials or personal financial data to public issues.
 
 ## Roadmap
 

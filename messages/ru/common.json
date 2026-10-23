@@ -1,0 +1,76 @@
+{
+  "dateField": {
+    "chooseADate": "Выберите дату",
+    "yesterday": "Вчера",
+    "today": "Сегодня",
+    "tomorrow": "Завтра",
+    "clear": "Очистить"
+  },
+  "confirmDialog": {
+    "cancel": "Отмена",
+    "delete": "Удалить"
+  },
+  "useAction": {
+    "canTReachTheServerCheckYourConnection": "Нет связи с сервером. Проверьте подключение и повторите."
+  },
+  "error": {
+    "couldnTLoadThisPage": "Не удалось загрузить страницу",
+    "checkYourConnectionAndTryAgainIfThe": "Проверьте подключение и попробуйте ещё раз. Если ошибка повторяется, сообщите администратору",
+    "errorCode": "код ошибки",
+    "tryAgain": "Повторить"
+  },
+  "loading": {
+    "loading": "Загрузка"
+  },
+  "notFound": {
+    "thisPageDoesnTExistTheLinkMay": "Такой страницы нет. Возможно, ссылка устарела.",
+    "goToHome": "На главную"
+  },
+  "appName": "BestBudget — семейный бюджет",
+  "appDescription": "Семейный бюджет: доходы, расходы, регулярные платежи и прогноз остатка",
+  "roles": {
+    "owner": "Владелец",
+    "admin": "Администратор",
+    "member": "Участник"
+  },
+  "preferences": {
+    "language": "Язык",
+    "theme": "Тема",
+    "systemLanguage": "Как в системе",
+    "systemTheme": "Системная",
+    "light": "Светлая",
+    "dark": "Тёмная",
+    "appearance": "Язык и тема"
+  },
+  "timezones": {
+    "Europe_Kaliningrad": "Калининград (UTC+2)",
+    "Europe_Moscow": "Москва (UTC+3)",
+    "Europe_Samara": "Самара (UTC+4)",
+    "Asia_Yekaterinburg": "Екатеринбург (UTC+5)",
+    "Asia_Omsk": "Омск (UTC+6)",
+    "Asia_Novosibirsk": "Новосибирск (UTC+7)",
+    "Asia_Krasnoyarsk": "Красноярск (UTC+7)",
+    "Asia_Irkutsk": "Иркутск (UTC+8)",
+    "Asia_Yakutsk": "Якутск (UTC+9)",
+    "Asia_Vladivostok": "Владивосток (UTC+10)",
+    "Asia_Magadan": "Магадан (UTC+11)",
+    "Asia_Kamchatka": "Камчатка (UTC+12)",
+    "Europe_Minsk": "Минск (UTC+3)",
+    "Europe_Kyiv": "Киев",
+    "Asia_Almaty": "Алматы",
+    "Asia_Tbilisi": "Тбилиси (UTC+4)",
+    "Asia_Yerevan": "Ереван (UTC+4)",
+    "Europe_Istanbul": "Стамбул (UTC+3)",
+    "Europe_Berlin": "Берлин",
+    "Europe_London": "Лондон",
+    "Asia_Dubai": "Дубай (UTC+4)",
+    "UTC": "UTC"
+  },
+  "shortMoney": {
+    "thousand": "к",
+    "million": "М"
+  },
+  "toggleMenu": "Показать или скрыть меню",
+  "close": "Закрыть",
+  "toastRegion": "Уведомления"
+}

@@ -1,6 +1,8 @@
 // Adapted from shadcn/ui (MIT) and Animate UI (MIT + Commons Clause); see THIRD_PARTY_NOTICES.md.
 "use client"
 
+import { useTranslations } from "next-intl"
+
 import * as React from "react"
 import { mergeProps } from "@base-ui/react/merge-props"
 import { useRender } from "@base-ui/react/use-render"
@@ -157,6 +159,7 @@ function SidebarTrigger({
   onClick,
   ...props
 }: React.ComponentProps<typeof Button>) {
+  const t = useTranslations("common")
   const { toggleSidebar } = useSidebar()
 
   return (
@@ -173,7 +176,7 @@ function SidebarTrigger({
       {...props}
     >
       <SidebarPrimitive.TriggerIcon open={<PanelLeftCloseIcon />} closed={<PanelLeftOpenIcon />} />
-      <span className="sr-only">Показать или скрыть меню</span>
+      <span className="sr-only">{t("toggleMenu")}</span>
     </Button>
   )
 }

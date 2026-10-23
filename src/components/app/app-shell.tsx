@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "next-intl"
+
 import { AnimateIcon } from "@animate-ui/react/icons"
 import { Check, ChevronsUpDown, Landmark, PiggyBank, Plus, Target } from "lucide-react"
 import { CalendarDays } from "@/components/animate-ui/icons/calendar-days"
@@ -8,15 +10,13 @@ import { Gauge } from "@/components/animate-ui/icons/gauge"
 import { LayoutDashboard } from "@/components/animate-ui/icons/layout-dashboard"
 import { List } from "@/components/animate-ui/icons/list"
 import { LogOut } from "@/components/animate-ui/icons/log-out"
-import { Moon } from "@/components/animate-ui/icons/moon"
 import { Plus as AnimatedPlus } from "@/components/animate-ui/icons/plus"
 import { Settings } from "@/components/animate-ui/icons/settings"
 import { ShieldCheck } from "@/components/animate-ui/icons/shield-check"
-import { Sun } from "@/components/animate-ui/icons/sun"
 import { Wallet } from "@/components/animate-ui/icons/wallet"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { useTheme } from "next-themes"
+import { PreferenceMenuItems } from "@/components/app/preferences"
 import { useEffect } from "react"
 import { switchHouseholdAction } from "@/app/actions/household"
 import { useOperations } from "@/components/app/operations/operations-provider"
@@ -46,22 +46,10 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { ROLE_LABELS, type HouseholdRole } from "@/domain/permissions"
+import { type HouseholdRole } from "@/domain/permissions"
 import { useAction } from "@/hooks/use-action"
 import { authClient } from "@/lib/auth-client"
 import { APP_VERSION, IS_PRERELEASE } from "@/lib/version"
-
-const NAV = [
-  { href: "/dashboard", label: "Обзор", icon: LayoutDashboard },
-  { href: "/transactions", label: "Операции", icon: List },
-  { href: "/calendar", label: "Календарь", icon: CalendarDays },
-  { href: "/budgets", label: "Бюджеты", icon: Gauge },
-  { href: "/goals", label: "Цели", icon: Target },
-  { href: "/loans", label: "Кредиты", icon: Landmark },
-  { href: "/analytics", label: "Аналитика", icon: ChartLine },
-  { href: "/accounts", label: "Счета", icon: Wallet },
-  { href: "/settings", label: "Настройки", icon: Settings },
-]
 
 export interface ShellProps {
   user: { name: string; email: string; isAdmin: boolean }
@@ -92,6 +80,20 @@ export function AppShell({ user, households, activeHouseholdId, children }: Shel
 }
 
 function AppSidebar({ user, households, activeHouseholdId }: Omit<ShellProps, "children">) {
+  const t = useTranslations("nav")
+  const roles = useTranslations("common.roles")
+  const NAV = [
+    { href: "/dashboard", label: t("appShell.overview"), icon: LayoutDashboard },
+    { href: "/transactions", label: t("appShell.transactions"), icon: List },
+    { href: "/calendar", label: t("appShell.calendar"), icon: CalendarDays },
+    { href: "/budgets", label: t("appShell.budgets"), icon: Gauge },
+    { href: "/goals", label: t("appShell.savingsGoals"), icon: Target },
+    { href: "/loans", label: t("appShell.loans"), icon: Landmark },
+    { href: "/analytics", label: t("appShell.analytics"), icon: ChartLine },
+    { href: "/accounts", label: t("appShell.accounts"), icon: Wallet },
+    { href: "/settings", label: t("appShell.settings"), icon: Settings },
+  ]
+
   const pathname = usePathname()
   const { setOpenMobile } = useSidebar()
   const active = households.find((h) => h.id === activeHouseholdId)
@@ -110,13 +112,13 @@ function AppSidebar({ user, households, activeHouseholdId }: Omit<ShellProps, "c
                 </span>
                 <span className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-semibold">{active?.name ?? "BestBudget"}</span>
-                  <span className="truncate text-xs text-muted-foreground">{active ? ROLE_LABELS[active.role] : ""}</span>
+                  <span className="truncate text-xs text-muted-foreground">{active ? roles(active.role) : ""}</span>
                 </span>
                 <ChevronsUpDown className="ml-auto size-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-64" align="start">
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel>Семейные пространства</DropdownMenuLabel>
+                  <DropdownMenuLabel>{t("appShell.households")}</DropdownMenuLabel>
                   {households.map((h) => (
                     <DropdownMenuItem
                       key={h.id}
@@ -129,8 +131,7 @@ function AppSidebar({ user, households, activeHouseholdId }: Omit<ShellProps, "c
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem render={<Link href="/onboarding?new=1" />}>
-                  <Plus /> Новое пространство
-                </DropdownMenuItem>
+                  <Plus /> {t("appShell.newHousehold")}{" "}</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarMenuItem>
@@ -159,11 +160,11 @@ function AppSidebar({ user, households, activeHouseholdId }: Omit<ShellProps, "c
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     isActive={pathname.startsWith("/admin")}
-                    tooltip="Администрирование"
+                    tooltip={t("appShell.administration")}
                     render={<Link href="/admin" onClick={() => setOpenMobile(false)} />}
                   >
                     <ShieldCheck />
-                    <span>Администрирование</span>
+                    <span>{t("appShell.administration")}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 </AnimateIcon>
@@ -176,7 +177,7 @@ function AppSidebar({ user, households, activeHouseholdId }: Omit<ShellProps, "c
         <UserMenu user={user} />
         <div className="px-2 text-[11px] text-muted-foreground group-data-[collapsible=icon]:hidden">
           BestBudget v{APP_VERSION}
-          {IS_PRERELEASE ? <span className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">бета</span> : null}
+          {IS_PRERELEASE ? <span className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">{t("appShell.beta")}</span> : null}
         </div>
       </SidebarFooter>
     </Sidebar>
@@ -184,12 +185,12 @@ function AppSidebar({ user, households, activeHouseholdId }: Omit<ShellProps, "c
 }
 
 function UserMenu({ user }: { user: ShellProps["user"] }) {
+  const t = useTranslations("nav")
   const router = useRouter()
-  const { resolvedTheme, setTheme } = useTheme()
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <DropdownMenu>
+        <DropdownMenu animated={false}>
           <DropdownMenuTrigger render={<SidebarMenuButton size="lg" className="data-popup-open:bg-sidebar-accent" />}>
             <Avatar className="size-8 rounded-lg">
               <AvatarFallback className="rounded-lg">{initials(user.name)}</AvatarFallback>
@@ -203,15 +204,9 @@ function UserMenu({ user }: { user: ShellProps["user"] }) {
           <DropdownMenuContent className="w-60" side="top" align="start">
             <AnimateIcon animateOnHover asChild>
               <DropdownMenuItem render={<Link href="/settings?tab=profile" />}>
-                <Settings /> Профиль и безопасность
-              </DropdownMenuItem>
+                <Settings /> {t("appShell.profileAndSecurity")}{" "}</DropdownMenuItem>
             </AnimateIcon>
-            <AnimateIcon animateOnHover asChild>
-              <DropdownMenuItem onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
-                {resolvedTheme === "dark" ? <Sun /> : <Moon />}
-                {resolvedTheme === "dark" ? "Светлая тема" : "Тёмная тема"}
-              </DropdownMenuItem>
-            </AnimateIcon>
+            <PreferenceMenuItems />
             <DropdownMenuSeparator />
             <AnimateIcon animateOnHover asChild>
             <DropdownMenuItem
@@ -222,8 +217,7 @@ function UserMenu({ user }: { user: ShellProps["user"] }) {
                 router.refresh()
               }}
             >
-              <LogOut /> Выйти
-            </DropdownMenuItem>
+              <LogOut /> {t("appShell.signOut")}{" "}</DropdownMenuItem>
             </AnimateIcon>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -233,6 +227,7 @@ function UserMenu({ user }: { user: ShellProps["user"] }) {
 }
 
 function Header({ title }: { title: string }) {
+  const t = useTranslations("nav")
   const pathname = usePathname()
   const ops = useOperations()
 
@@ -259,8 +254,7 @@ function Header({ title }: { title: string }) {
         <div className="flex-1" />
         <AnimateIcon animateOnHover asChild>
           <Button onClick={() => ops.openCreate()} className="hidden sm:inline-flex" aria-keyshortcuts="N">
-            <AnimatedPlus /> Операция
-            <kbd aria-hidden className="ml-1 hidden rounded border border-primary-foreground/30 px-1 text-[10px] font-normal opacity-80 lg:inline">N</kbd>
+            <AnimatedPlus /> {t("appShell.transaction")}{" "}<kbd aria-hidden className="ml-1 hidden rounded border border-primary-foreground/30 px-1 text-[10px] font-normal opacity-80 lg:inline">N</kbd>
           </Button>
         </AnimateIcon>
       </header>
@@ -268,7 +262,7 @@ function Header({ title }: { title: string }) {
       {!pathname.startsWith("/transactions/import") ? <Button
         size="icon-lg"
         onClick={() => ops.openCreate()}
-        aria-label="Добавить операцию"
+        aria-label={t("appShell.addTransaction")}
         className="fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-30 size-14 rounded-full shadow-lg sm:hidden [&_svg]:size-6!"
       >
         <Plus />

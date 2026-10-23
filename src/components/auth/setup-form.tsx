@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "next-intl"
+
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { setupAdminAction } from "@/app/actions/auth"
@@ -11,6 +13,7 @@ import { CredentialsFields, emptyCredentials, validateCredentials } from "./cred
 import { PasswordInput } from "./password-input"
 
 export function SetupForm({ tokenConfigured }: { tokenConfigured: boolean }) {
+  const t = useTranslations("auth")
   const router = useRouter()
   const [token, setToken] = useState("")
   const [creds, setCreds] = useState(emptyCredentials)
@@ -21,15 +24,12 @@ export function SetupForm({ tokenConfigured }: { tokenConfigured: boolean }) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">Первоначальная настройка</CardTitle>
+          <CardTitle className="text-xl">{t("setup.initialSetup")}</CardTitle>
           <CardDescription>
-            Администратор ещё не создан. Задайте переменную окружения <code className="rounded bg-muted px-1">SETUP_TOKEN</code> (случайная строка) и
-            перезапустите приложение — затем откройте эту страницу снова.
-          </CardDescription>
+            {t("setup.noAdministratorHasBeenCreatedSetTheEnvironment")}{" "}<code className="rounded bg-muted px-1">SETUP_TOKEN</code> {t("setup.aRandomStringRestartTheAppThenOpen")}{" "}</CardDescription>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          Либо создайте администратора из консоли:
-          <pre className="mt-2 overflow-x-auto rounded-lg bg-muted p-3 text-xs">docker compose exec app node dist-scripts/admin.mjs create-admin</pre>
+          {t("setup.orCreateAnAdministratorFromTheCommandLine")}{" "}<pre className="mt-2 overflow-x-auto rounded-lg bg-muted p-3 text-xs">docker compose exec app node dist-scripts/admin.mjs create-admin</pre>
         </CardContent>
       </Card>
     )
@@ -37,11 +37,11 @@ export function SetupForm({ tokenConfigured }: { tokenConfigured: boolean }) {
 
   function submit(e: React.FormEvent) {
     e.preventDefault()
-    const problem = validateCredentials(creds)
+    const problem = validateCredentials(creds, t)
     setError(problem)
     if (problem) return
     run(() => setupAdminAction({ token, name: creds.name, email: creds.email, password: creds.password }), {
-      success: "Администратор создан",
+      success: t("setup.administratorCreated"),
       onSuccess: () => {
         router.replace("/onboarding")
         router.refresh()
@@ -52,19 +52,19 @@ export function SetupForm({ tokenConfigured }: { tokenConfigured: boolean }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-xl">Первоначальная настройка</CardTitle>
-        <CardDescription>Создайте учётную запись администратора приложения. Понадобится токен из переменной SETUP_TOKEN.</CardDescription>
+        <CardTitle className="text-xl">{t("setup.initialSetup")}</CardTitle>
+        <CardDescription>{t("setup.createTheApplicationSAdministratorAccountYouLl")}</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className="grid grid-cols-1 gap-4">
           <Field>
-            <FieldLabel htmlFor="token">Токен настройки</FieldLabel>
+            <FieldLabel htmlFor="token">{t("setup.setupToken")}</FieldLabel>
             <PasswordInput id="token" autoComplete="off" required value={token} onChange={(e) => setToken(e.target.value)} />
           </Field>
           <CredentialsFields value={creds} onChange={setCreds} />
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <Button type="submit" disabled={pending}>
-            {pending ? "Создание…" : "Создать администратора"}
+            {pending ? t("setup.creating") : t("setup.createAdministrator")}
           </Button>
         </form>
       </CardContent>

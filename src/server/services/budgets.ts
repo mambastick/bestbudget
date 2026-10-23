@@ -65,7 +65,7 @@ export async function getBudgets(ctx: HouseholdCtx, monthStart: IsoDate) {
 export const budgetInput = z.object({
   categoryId: z.uuid(),
   /** Monthly limit in minor units; null removes the limit. */
-  amount: z.number().int().positive("Лимит должен быть больше нуля").safe().nullable(),
+  amount: z.number().int().positive("validation.positiveLimit").safe().nullable(),
 })
 
 export async function setBudget(ctx: HouseholdCtx, raw: z.input<typeof budgetInput>) {
@@ -76,7 +76,7 @@ export async function setBudget(ctx: HouseholdCtx, raw: z.input<typeof budgetInp
     .select({ id: categories.id, kind: categories.kind })
     .from(categories)
     .where(and(eq(categories.id, input.categoryId), eq(categories.householdId, ctx.householdId)))
-  if (!cat || cat.kind !== "expense") throw notFound("Категория не найдена")
+  if (!cat || cat.kind !== "expense") throw notFound("category.notFound")
   if (input.amount === null) {
     await db.delete(categoryBudgets).where(and(eq(categoryBudgets.householdId, ctx.householdId), eq(categoryBudgets.categoryId, input.categoryId)))
   } else {

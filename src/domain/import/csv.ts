@@ -1,4 +1,7 @@
+import { LocalizedError } from "@/i18n/errors"
 import { MAX_COLUMNS, MAX_ROWS } from "./types"
+
+export class CsvError extends LocalizedError {}
 
 export function decodeCsv(bytes: Uint8Array, encoding = "auto"): string {
   let selected = encoding
@@ -13,7 +16,7 @@ export function decodeCsv(bytes: Uint8Array, encoding = "auto"): string {
     }
     return value.replace(/^\ufeff/, "")
   } catch {
-    throw new Error("Не удалось прочитать текст. Выберите Windows-1251 или правильную кодировку и проверьте заголовки.")
+    throw new CsvError("csv.encoding")
   }
 }
 
@@ -26,7 +29,7 @@ export function parseCsv(text: string, delimiter: string): string[][] {
     closed = false
   const endField = () => {
     row.push(field)
-    if (row.length > MAX_COLUMNS) throw new Error(`В файле больше ${MAX_COLUMNS} колонок`)
+    if (row.length > MAX_COLUMNS) throw new CsvError("csv.columns", { MAX_COLUMNS })
     field = ""
     closed = false
   }
@@ -34,7 +37,7 @@ export function parseCsv(text: string, delimiter: string): string[][] {
     endField()
     rows.push(row)
     row = []
-    if (rows.length > MAX_ROWS + 1000) throw new Error(`В файле больше ${MAX_ROWS} строк данных`)
+    if (rows.length > MAX_ROWS + 1000) throw new CsvError("csv.rows", { MAX_ROWS })
   }
   for (let i = 0; i < text.length; i++) {
     const c = text[i]!
@@ -54,12 +57,12 @@ export function parseCsv(text: string, delimiter: string): string[][] {
       endRow()
     } else if (c === '"' && !field && !closed) quoted = true
     else {
-      if (closed || c === '"') throw new Error("Неверные кавычки CSV. Проверьте разделитель и формат файла.")
+      if (closed || c === '"') throw new CsvError("csv.quotes")
       field += c
     }
-    if (field.length > 10_000) throw new Error("Слишком длинная ячейка (максимум 10 000 символов)")
+    if (field.length > 10_000) throw new CsvError("csv.cellLength")
   }
-  if (quoted) throw new Error("Незакрытые кавычки CSV")
+  if (quoted) throw new CsvError("csv.unclosedQuote")
   if (field || row.length || closed) endRow()
   return rows
 }

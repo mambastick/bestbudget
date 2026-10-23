@@ -1,20 +1,26 @@
 import { ZodError } from "zod"
+import { cookies, headers } from "next/headers"
+import { LOCALE_COOKIE, resolveLocale } from "@/i18n/locale"
+import { getLocale } from "next-intl/server"
+import { errorMessage, zodIssueMessage, type ErrorKey, type ErrorParams } from "@/i18n/errors"
 
 /** An error whose message is safe to show to the user. */
 export class AppError extends Error {
   constructor(
-    message: string,
+    readonly messageKey: ErrorKey,
+    readonly params: ErrorParams = {},
     readonly code: "bad_request" | "forbidden" | "not_found" | "conflict" | "unauthorized" = "bad_request",
   ) {
-    super(message)
+    // Preserve the diagnostic message used by service callers; responses use the request locale.
+    super(errorMessage(messageKey, params))
     this.name = "AppError"
   }
 }
 
-export const forbidden = () => new AppError("Недостаточно прав для этого действия", "forbidden")
-export const notFound = (message = "Запись не найдена") => new AppError(message, "not_found")
+export const forbidden = () => new AppError("forbidden", {}, "forbidden")
+export const notFound = (key: ErrorKey = "notFound", params: ErrorParams = {}) => new AppError(key, params, "not_found")
 export const conflict = () =>
-  new AppError("Данные были изменены другим участником. Обновите страницу и повторите.", "conflict")
+  new AppError("conflict", {}, "conflict")
 
 export type ActionResult<T = void> = { ok: true; data: T } | { ok: false; error: string; fieldErrors?: Record<string, string> }
 
@@ -30,6 +36,15 @@ function pgCode(err: unknown): string | undefined {
   return typeof code === "string" ? code : undefined
 }
 
+/** Error rendering must still work if loading the session/preference failed with the action. */
+async function errorLocale() {
+  try { return await getLocale() } catch {
+    try {
+      return resolveLocale({ cookie: (await cookies()).get(LOCALE_COOKIE)?.value, acceptLanguage: (await headers()).get("accept-language") })
+    } catch { return "en" }
+  }
+}
+
 /**
  * Runs a server action body and converts known errors into an ActionResult.
  * Unknown errors are logged without payloads (which may contain financial data) and hidden from the client.
@@ -39,21 +54,22 @@ export async function runAction<T>(fn: () => Promise<T>): Promise<ActionResult<T
     return { ok: true, data: await fn() }
   } catch (err) {
     if (isRedirectOrNotFound(err)) throw err
-    if (err instanceof AppError) return { ok: false, error: err.message }
+    const locale = await errorLocale()
+    if (err instanceof AppError) return { ok: false, error: errorMessage(err.messageKey, err.params, locale) }
     if (err instanceof ZodError) {
       const fieldErrors: Record<string, string> = {}
       for (const issue of err.issues) {
         const key = issue.path.join(".")
-        if (key && !fieldErrors[key]) fieldErrors[key] = issue.message
+        if (key && !fieldErrors[key]) fieldErrors[key] = zodIssueMessage(issue, locale)
       }
-      return { ok: false, error: err.issues[0]?.message ?? "Проверьте введённые данные", fieldErrors }
+      return { ok: false, error: err.issues[0] ? zodIssueMessage(err.issues[0], locale) : errorMessage("validation.invalid", {}, locale), fieldErrors }
     }
     const code = pgCode(err)
-    if (code === "23505") return { ok: false, error: "Такая запись уже существует" }
-    if (code === "23503") return { ok: false, error: "Запись используется или ссылается на несуществующие данные" }
-    if (code === "40001") return { ok: false, error: "Конфликт параллельного изменения, повторите попытку" }
+    if (code === "23505") return { ok: false, error: errorMessage("duplicate", {}, locale) }
+    if (code === "23503") return { ok: false, error: errorMessage("reference", {}, locale) }
+    if (code === "40001") return { ok: false, error: errorMessage("concurrent", {}, locale) }
     // Only the error type and SQLSTATE: messages of query errors contain parameters (amounts, e-mails).
     console.error(`[action] unexpected error: ${err instanceof Error ? err.name : "unknown"}${code ? ` (SQLSTATE ${code})` : ""}`)
-    return { ok: false, error: "Что-то пошло не так. Попробуйте ещё раз." }
+    return { ok: false, error: errorMessage("unexpected", {}, locale) }
   }
 }

@@ -124,7 +124,7 @@ test.describe.serial("acceptance scenario", () => {
   })
 
   test("spouse joins and adds an expense that both see", async ({ browser }) => {
-    const spouseContext = await browser.newContext()
+    const spouseContext = await browser.newContext({ locale: "ru-RU" })
     const spouse = await spouseContext.newPage()
     await spouse.goto(inviteUrl)
     await expect(spouse.getByText("Семья E2E")).toBeVisible()
@@ -144,11 +144,11 @@ test.describe.serial("acceptance scenario", () => {
     await expect(spouse.getByText("Рынок")).toBeVisible()
 
     // The invitation link is single-use.
-    const third = await (await browser.newContext()).newPage()
+    const third = await (await browser.newContext({ locale: "ru-RU" })).newPage()
     await third.goto(inviteUrl)
     await expect(third.getByText("Приглашение недействительно")).toBeVisible()
 
-    const ownerContext = await browser.newContext()
+    const ownerContext = await browser.newContext({ locale: "ru-RU" })
     const owner = await ownerContext.newPage()
     await login(owner, ADMIN)
     await owner.goto("/transactions")
@@ -334,14 +334,14 @@ test.describe.serial("single sign-on (OIDC)", () => {
 
   test("linked user signs in with SSO; unknown SSO users need an invitation", async ({ browser }) => {
     identity = { sub: "owner-sub", email: ADMIN.email, email_verified: true, name: ADMIN.name }
-    const page = await (await browser.newContext()).newPage()
+    const page = await (await browser.newContext({ locale: "ru-RU" })).newPage()
     await page.goto("/login")
     await page.getByRole("button", { name: "Войти через Keycloak" }).click()
     await expect(page).toHaveURL(/\/dashboard/)
     await expect(page.getByText(ADMIN.email)).toBeVisible()
 
     identity = { sub: "stranger-sub", email: "stranger@e2e.test", email_verified: true, name: "Stranger" }
-    const stranger = await (await browser.newContext()).newPage()
+    const stranger = await (await browser.newContext({ locale: "ru-RU" })).newPage()
     await stranger.goto("/login")
     await stranger.getByRole("button", { name: "Войти через Keycloak" }).click()
     await expect(stranger).toHaveURL(/\/login\?error=/)
@@ -350,7 +350,7 @@ test.describe.serial("single sign-on (OIDC)", () => {
 
   test("an SSO identity with the same e-mail as a local account is not merged silently", async ({ browser }) => {
     identity = { sub: "impostor-sub", email: SPOUSE.email, email_verified: true, name: "Impostor" }
-    const page = await (await browser.newContext()).newPage()
+    const page = await (await browser.newContext({ locale: "ru-RU" })).newPage()
     await page.goto("/login")
     await page.getByRole("button", { name: "Войти через Keycloak" }).click()
     await expect(page).toHaveURL(/\/login\?error=/)

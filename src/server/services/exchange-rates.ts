@@ -92,7 +92,7 @@ export async function refreshCbrHistory(currency: Exclude<Currency, "RUB">, from
   z.enum(CURRENCY_CODES).parse(currency)
   isoDate.parse(from)
   isoDate.parse(to)
-  if (from > to || !CBR_CURRENCY_IDS[currency]) throw new AppError("Некорректный диапазон курсов")
+  if (from > to || !CBR_CURRENCY_IDS[currency]) throw new AppError("exchangeRates.invalidRange")
   const url = `https://www.cbr.ru/scripts/XML_dynamic.asp?date_req1=${cbrDate(from)}&date_req2=${cbrDate(to)}&VAL_NM_RQ=${CBR_CURRENCY_IDS[currency]}`
   return requestCbr(`history:${currency}:${from}:${to}`, url, async (bytes) => {
     await storeResponse(parseCbrHistoryXml(bytes, currency, from, to), [currency], from, to)
@@ -201,16 +201,16 @@ export function createConverter(rates: ExchangeRate[], base: string) {
 
 /** Rates are global public data, so only a system administrator may change them. */
 export const manualRateInput = z.object({
-  currency: z.enum(CURRENCY_CODES).refine((c) => c !== "RUB", "Курс RUB всегда равен 1"),
+  currency: z.enum(CURRENCY_CODES).refine((c) => c !== "RUB", "validation.rateRUB"),
   date: isoDate,
   rateToRub: z.string().trim().transform((v) => v.replace(",", ".")).refine((v) => {
     try { rateUnits(v); return true } catch { return false }
-  }, "Укажите положительный курс: до 10 знаков до и после запятой"),
+  }, "validation.rate"),
 })
 
 export async function saveManualRate(actorId: string, raw: z.input<typeof manualRateInput>) {
   const input = manualRateInput.parse(raw)
-  if (input.date > todayIn("Europe/Moscow")) throw new AppError("Курс не может быть из будущего")
+  if (input.date > todayIn("Europe/Moscow")) throw new AppError("exchangeRates.futureRate")
   await getDb().insert(exchangeRates).values({ ...input, source: "manual" }).onConflictDoUpdate({
     target: [exchangeRates.currency, exchangeRates.date, exchangeRates.source], set: { rateToRub: input.rateToRub },
   })

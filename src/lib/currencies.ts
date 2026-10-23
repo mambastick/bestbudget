@@ -13,6 +13,6 @@ export function currencyExponent(currency: string): number {
   return CURRENCIES[currency as Currency]
 }
 
-export function currencySymbol(currency: string): string {
-  return new Intl.NumberFormat("ru-RU", { style: "currency", currency }).formatToParts(0).find((p) => p.type === "currency")!.value
+export function currencySymbol(currency: string, locale = "ru"): string {
+  return new Intl.NumberFormat(locale, { style: "currency", currency }).formatToParts(0).find((p) => p.type === "currency")!.value
 }

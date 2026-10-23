@@ -3,7 +3,7 @@ import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm"
 import { z } from "zod"
 import { getDb } from "@/db"
 import { categories, financialAccounts, householdMembers, households, invitations, users } from "@/db/schema"
-import { DEFAULT_ACCOUNT_NAME, DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES } from "@/domain/defaults"
+import { householdDefaults } from "@/domain/defaults"
 import type { HouseholdRole } from "@/domain/permissions"
 import { hashToken, randomToken } from "@/lib/crypto"
 import { CURRENCY_CODES } from "@/lib/currencies"
@@ -12,16 +12,17 @@ import { audit } from "../audit"
 import { assertCan, type HouseholdCtx } from "../context"
 import { AppError, conflict, notFound } from "../errors"
 
-const timezone = z.string().refine(isValidTimeZone, "Неизвестный часовой пояс")
-const memberIdSchema = z.uuid("Некорректный идентификатор")
+const timezone = z.string().refine(isValidTimeZone, "validation.timezone")
+const memberIdSchema = z.uuid("validation.id")
 
 export const householdInput = z.object({
-  name: z.string().trim().min(1, "Укажите название").max(80),
+  name: z.string().trim().min(1, "validation.titleRequired").max(80),
   currency: z.enum(CURRENCY_CODES).optional(),
   timezone: timezone.default("Europe/Moscow"),
 })
 
-export async function createHousehold(userId: string, raw: z.input<typeof householdInput>) {
+export async function createHousehold(userId: string, raw: z.input<typeof householdInput>, locale = "ru") {
+  const defaults = householdDefaults(locale)
   const input = householdInput.parse(raw)
   return getDb().transaction(async (tx) => {
     const [household] = await tx
@@ -31,10 +32,10 @@ export async function createHousehold(userId: string, raw: z.input<typeof househ
     const id = household!.id
     await tx.insert(householdMembers).values({ householdId: id, userId, role: "owner" })
     await tx.insert(categories).values([
-      ...DEFAULT_INCOME_CATEGORIES.map((c, i) => ({ ...c, householdId: id, kind: "income" as const, sortOrder: i })),
-      ...DEFAULT_EXPENSE_CATEGORIES.map((c, i) => ({ ...c, householdId: id, kind: "expense" as const, sortOrder: i })),
+      ...defaults.income.map((c, i) => ({ ...c, householdId: id, kind: "income" as const, sortOrder: i })),
+      ...defaults.expense.map((c, i) => ({ ...c, householdId: id, kind: "expense" as const, sortOrder: i })),
     ])
-    await tx.insert(financialAccounts).values({ householdId: id, name: DEFAULT_ACCOUNT_NAME, kind: "debit_card", currency: input.currency ?? "RUB" })
+    await tx.insert(financialAccounts).values({ householdId: id, name: defaults.accountName, kind: "debit_card", currency: input.currency ?? "RUB" })
     await audit({ action: "household.create", entityType: "household", entityId: id, householdId: id, actorId: userId }, tx)
     return household!
   })
@@ -69,7 +70,7 @@ export async function resolveHouseholdCtx(userId: string, householdId: string): 
 
 export async function getHousehold(ctx: HouseholdCtx) {
   const [row] = await getDb().select().from(households).where(eq(households.id, ctx.householdId))
-  if (!row) throw notFound("Семейное пространство не найдено")
+  if (!row) throw notFound("household.notFound")
   return row
 }
 
@@ -86,7 +87,7 @@ export async function updateHousehold(ctx: HouseholdCtx, raw: z.input<typeof hou
 export async function deleteHousehold(ctx: HouseholdCtx, confirmName: string) {
   assertCan(ctx, "household.manage")
   const household = await getHousehold(ctx)
-  if (household.name.trim() !== confirmName.trim()) throw new AppError("Название не совпадает")
+  if (household.name.trim() !== confirmName.trim()) throw new AppError("household.nameMismatch")
   await getDb().delete(households).where(eq(households.id, ctx.householdId))
   await audit({ action: "household.delete", entityType: "household", entityId: ctx.householdId, actorId: ctx.userId, meta: { name: household.name } })
 }
@@ -114,14 +115,14 @@ export async function changeMemberRole(ctx: HouseholdCtx, rawUserId: string, raw
   assertCan(ctx, "members.manage")
   const targetId = memberIdSchema.parse(rawUserId)
   const role = z.enum(["owner", "admin", "member"]).parse(rawRole)
-  if (role === "owner") throw new AppError("Для смены владельца используйте передачу владения")
-  if (targetId === ctx.userId) throw new AppError("Нельзя изменить собственную роль")
+  if (role === "owner") throw new AppError("household.useTransferOwnership")
+  if (targetId === ctx.userId) throw new AppError("household.selfRoleChange")
   const res = await getDb()
     .update(householdMembers)
     .set({ role })
     .where(and(eq(householdMembers.householdId, ctx.householdId), eq(householdMembers.userId, targetId)))
     .returning()
-  if (res.length === 0) throw notFound("Участник не найден")
+  if (res.length === 0) throw notFound("household.memberNotFound")
   await audit({ action: "member.role", entityType: "user", entityId: targetId, householdId: ctx.householdId, actorId: ctx.userId, meta: { role } })
 }
 
@@ -135,7 +136,7 @@ export async function transferOwnership(ctx: HouseholdCtx, rawUserId: string) {
       .set({ role: "owner" })
       .where(and(eq(householdMembers.householdId, ctx.householdId), eq(householdMembers.userId, targetId)))
       .returning()
-    if (res.length === 0) throw notFound("Участник не найден")
+    if (res.length === 0) throw notFound("household.memberNotFound")
     await tx
       .update(householdMembers)
       .set({ role: "admin" })
@@ -148,7 +149,7 @@ export async function removeMember(ctx: HouseholdCtx, rawUserId: string) {
   const targetId = memberIdSchema.parse(rawUserId)
   const self = targetId === ctx.userId
   if (!self) assertCan(ctx, "members.manage")
-  if (self && ctx.role === "owner") throw new AppError("Владелец не может покинуть пространство. Сначала передайте владение.")
+  if (self && ctx.role === "owner") throw new AppError("household.ownerCannotLeave")
   const res = await getDb()
     .delete(householdMembers)
     .where(
@@ -160,7 +161,7 @@ export async function removeMember(ctx: HouseholdCtx, rawUserId: string) {
       ),
     )
     .returning()
-  if (res.length === 0) throw notFound("Участник не найден")
+  if (res.length === 0) throw notFound("household.memberNotFound")
   await audit({ action: self ? "member.leave" : "member.remove", entityType: "user", entityId: targetId, householdId: ctx.householdId, actorId: ctx.userId })
 }
 
@@ -218,7 +219,7 @@ export async function revokeInvitation(ctx: HouseholdCtx, rawId: string) {
     .set({ revokedAt: new Date() })
     .where(and(eq(invitations.id, id), eq(invitations.householdId, ctx.householdId), isNull(invitations.acceptedAt)))
     .returning()
-  if (res.length === 0) throw notFound("Приглашение не найдено")
+  if (res.length === 0) throw notFound("invite.notFound")
   await audit({ action: "invitation.revoke", entityType: "invitation", entityId: id, householdId: ctx.householdId, actorId: ctx.userId })
 }
 
@@ -252,7 +253,7 @@ export async function acceptInvitation(userId: string, token: string) {
       .where(eq(invitations.tokenHash, hashToken(token)))
       .for("update")
     if (!inv || inv.revokedAt || inv.acceptedAt || inv.expiresAt <= new Date()) {
-      throw new AppError("Приглашение недействительно или уже использовано", "not_found")
+      throw new AppError("invite.invalid", {}, "not_found")
     }
     const [existing] = await tx
       .select({ role: householdMembers.role })

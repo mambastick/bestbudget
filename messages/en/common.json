@@ -1,0 +1,76 @@
+{
+  "dateField": {
+    "chooseADate": "Choose a date",
+    "yesterday": "Yesterday",
+    "today": "Today",
+    "tomorrow": "Tomorrow",
+    "clear": "Clear"
+  },
+  "confirmDialog": {
+    "cancel": "Cancel",
+    "delete": "Delete"
+  },
+  "useAction": {
+    "canTReachTheServerCheckYourConnection": "Can't reach the server. Check your connection and try again."
+  },
+  "error": {
+    "couldnTLoadThisPage": "Couldn't load this page",
+    "checkYourConnectionAndTryAgainIfThe": "Check your connection and try again. If the problem persists, contact your administrator",
+    "errorCode": "error code",
+    "tryAgain": "Try again"
+  },
+  "loading": {
+    "loading": "Loading"
+  },
+  "notFound": {
+    "thisPageDoesnTExistTheLinkMay": "This page doesn't exist. The link may be out of date.",
+    "goToHome": "Go to home"
+  },
+  "appName": "BestBudget — family finances",
+  "appDescription": "Family finances: income, expenses, recurring payments and balance forecasts",
+  "roles": {
+    "owner": "Owner",
+    "admin": "Administrator",
+    "member": "Member"
+  },
+  "preferences": {
+    "language": "Language",
+    "theme": "Theme",
+    "systemLanguage": "System language",
+    "systemTheme": "System",
+    "light": "Light",
+    "dark": "Dark",
+    "appearance": "Language and theme"
+  },
+  "timezones": {
+    "Europe_Kaliningrad": "Kaliningrad (UTC+2)",
+    "Europe_Moscow": "Moscow (UTC+3)",
+    "Europe_Samara": "Samara (UTC+4)",
+    "Asia_Yekaterinburg": "Yekaterinburg (UTC+5)",
+    "Asia_Omsk": "Omsk (UTC+6)",
+    "Asia_Novosibirsk": "Novosibirsk (UTC+7)",
+    "Asia_Krasnoyarsk": "Krasnoyarsk (UTC+7)",
+    "Asia_Irkutsk": "Irkutsk (UTC+8)",
+    "Asia_Yakutsk": "Yakutsk (UTC+9)",
+    "Asia_Vladivostok": "Vladivostok (UTC+10)",
+    "Asia_Magadan": "Magadan (UTC+11)",
+    "Asia_Kamchatka": "Kamchatka (UTC+12)",
+    "Europe_Minsk": "Minsk (UTC+3)",
+    "Europe_Kyiv": "Kyiv",
+    "Asia_Almaty": "Almaty",
+    "Asia_Tbilisi": "Tbilisi (UTC+4)",
+    "Asia_Yerevan": "Yerevan (UTC+4)",
+    "Europe_Istanbul": "Istanbul (UTC+3)",
+    "Europe_Berlin": "Berlin",
+    "Europe_London": "London",
+    "Asia_Dubai": "Dubai (UTC+4)",
+    "UTC": "UTC"
+  },
+  "shortMoney": {
+    "thousand": "K",
+    "million": "M"
+  },
+  "toggleMenu": "Toggle menu",
+  "close": "Close",
+  "toastRegion": "Notifications"
+}

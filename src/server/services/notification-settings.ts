@@ -42,7 +42,7 @@ export async function vapidConfig() {
   const subject =
     e.VAPID_SUBJECT ?? (appUrl().startsWith("https://") ? new URL(appUrl()).origin : "mailto:admin@localhost")
   if (e.VAPID_PUBLIC_KEY || e.VAPID_PRIVATE_KEY) {
-    if (!e.VAPID_PUBLIC_KEY || !e.VAPID_PRIVATE_KEY) throw new AppError("Задайте оба VAPID-ключа")
+    if (!e.VAPID_PUBLIC_KEY || !e.VAPID_PRIVATE_KEY) throw new AppError("notifications.vapidKeys")
     return { publicKey: e.VAPID_PUBLIC_KEY, privateKey: e.VAPID_PRIVATE_KEY, subject }
   }
   await settingsRow()
@@ -64,7 +64,7 @@ export const telegramSettingsInput = z.object({
   token: z
     .string()
     .max(200)
-    .regex(/^(\d+:[A-Za-z0-9_-]{20,}|)$/, "Некорректный токен бота")
+    .regex(/^(\d+:[A-Za-z0-9_-]{20,}|)$/, "validation.botToken")
     .default(""),
   mode: z.enum(["polling", "webhook"]),
   disabled: z.boolean().default(false),
@@ -73,14 +73,14 @@ export const telegramSettingsInput = z.object({
 
 export async function updateTelegramSettings(actorId: string, raw: z.input<typeof telegramSettingsInput>) {
   const input = telegramSettingsInput.parse(raw)
-  if (env().TELEGRAM_BOT_TOKEN) throw new AppError("Бот настроен через переменные окружения")
-  if (env().TELEGRAM_MODE && env().TELEGRAM_MODE !== input.mode) throw new AppError("Режим задан через TELEGRAM_MODE")
+  if (env().TELEGRAM_BOT_TOKEN) throw new AppError("notifications.botFromEnv")
+  if (env().TELEGRAM_MODE && env().TELEGRAM_MODE !== input.mode) throw new AppError("notifications.modeFromEnv")
   if (!input.disabled && input.mode === "webhook" && !appUrl().startsWith("https://"))
-    throw new AppError("Webhook требует публичный HTTPS APP_URL")
+    throw new AppError("notifications.publicHttpsRequired")
   const old = await telegramConfig()
   if (old.row.version !== input.version) throw conflict()
   const token = input.disabled ? null : input.token || old.token
-  if (!input.disabled && !token) throw new AppError("Укажите токен бота")
+  if (!input.disabled && !token) throw new AppError("notifications.botTokenRequired")
   const bot = token ? await telegramApi<{ id: number; username: string }>(token, "getMe") : null
   // Remove the old webhook before a token is removed or replaced.
   if (old.token && old.token !== token) {
@@ -133,7 +133,7 @@ export async function configureTelegramTransport(signal?: AbortSignal) {
   if (c.row.transportFingerprint !== fingerprint || !c.row.botId) {
     const bot = await telegramApi<{ id: number; username: string }>(c.token, "getMe", {}, signal)
     if (c.mode === "webhook") {
-      if (!appUrl().startsWith("https://")) throw new AppError("Webhook требует HTTPS APP_URL")
+      if (!appUrl().startsWith("https://")) throw new AppError("notifications.httpsRequired")
       await telegramApi(
         c.token,
         "setWebhook",

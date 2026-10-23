@@ -144,7 +144,7 @@ export async function getAuthMethods(): Promise<AuthMethods> {
 // ---------------------------------------------------------------------------
 
 export const authSettingsInput = z.object({
-  appName: z.string().trim().min(1, "Укажите название").max(40),
+  appName: z.string().trim().min(1, "validation.titleRequired").max(40),
   localAuthEnabled: z.boolean(),
   publicRegistration: z.boolean(),
 })
@@ -153,13 +153,13 @@ export async function updateAuthSettings(actorId: string, raw: z.input<typeof au
   const input = authSettingsInput.parse(raw)
   if (!input.localAuthEnabled) {
     const oidc = await getOidcConfig().catch(() => null)
-    if (!oidc?.enabled) throw new AppError("Нельзя отключить вход по паролю, пока SSO не настроен и не включён")
+    if (!oidc?.enabled) throw new AppError("settings.ssoRequired")
     const [linked] = await getDb()
       .select({ n: sql<number>`count(*)::int` })
       .from(authAccounts)
       .where(sql`${authAccounts.userId} = ${actorId} and ${authAccounts.providerId} = ${OIDC_PROVIDER_ID}`)
     if ((linked?.n ?? 0) === 0) {
-      throw new AppError("Сначала привяжите SSO к своему аккаунту (Настройки → Безопасность), иначе вы потеряете доступ")
+      throw new AppError("settings.linkSsoFirst")
     }
   }
   await writeSettings(input, actorId)
@@ -169,8 +169,8 @@ export async function updateAuthSettings(actorId: string, raw: z.input<typeof au
 export const oidcInput = z.object({
   enabled: z.boolean(),
   displayName: z.string().trim().min(1).max(40),
-  issuerUrl: z.url("Укажите корректный Issuer URL").refine((u) => /^https?:\/\//.test(u), "Только http(s)"),
-  clientId: z.string().trim().min(1, "Укажите Client ID").max(200),
+  issuerUrl: z.url("validation.issuer").refine((u) => /^https?:\/\//.test(u), "validation.http"),
+  clientId: z.string().trim().min(1, "validation.clientId").max(200),
   /** Empty keeps the stored secret. */
   clientSecret: z.string().max(500).optional(),
   scopes: z.string().trim().max(200).default("openid profile email"),
@@ -179,11 +179,11 @@ export const oidcInput = z.object({
 })
 
 export async function updateOidcSettings(actorId: string, raw: z.input<typeof oidcInput>) {
-  if (env().OIDC_ISSUER) throw new AppError("SSO настроен через переменные окружения и не может быть изменён в интерфейсе")
+  if (env().OIDC_ISSUER) throw new AppError("settings.ssoFromEnv")
   const input = oidcInput.parse(raw)
   const methods = await getAuthMethods()
   if (!input.enabled && !methods.local) {
-    throw new AppError("Нельзя отключить SSO, пока отключён вход по паролю")
+    throw new AppError("settings.passwordDisabled")
   }
   const values = {
     enabled: input.enabled,
@@ -210,10 +210,10 @@ export async function updateOidcSettings(actorId: string, raw: z.input<typeof oi
 export async function testOidcDiscovery(issuerUrl: string) {
   const url = `${issuerUrl.replace(/\/+$/, "")}/.well-known/openid-configuration`
   const res = await fetch(url, { signal: AbortSignal.timeout(8000), redirect: "error" })
-  if (!res.ok) throw new AppError(`Discovery вернул HTTP ${res.status}`)
+  if (!res.ok) throw new AppError("settings.discoveryHttp", { status: res.status })
   const doc = (await res.json()) as Record<string, unknown>
   for (const key of ["issuer", "authorization_endpoint", "token_endpoint", "jwks_uri"]) {
-    if (typeof doc[key] !== "string") throw new AppError(`В discovery нет поля ${key}`)
+    if (typeof doc[key] !== "string") throw new AppError("settings.discoveryField", { key: key })
   }
   return { issuer: doc.issuer as string, authorizationEndpoint: doc.authorization_endpoint as string }
 }
