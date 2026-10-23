@@ -1,4 +1,5 @@
 import { relations, sql } from "drizzle-orm"
+import type { IncomingRow, PreviewInput, RowProposal } from "@/domain/import/types"
 import {
   bigint,
   boolean,
@@ -461,6 +462,7 @@ export const transactions = pgTable(
     unique("transactions_loan_part_uq").on(t.loanId, t.loanDueDate, t.loanPart),
     foreignKey({ name: "transactions_loan_fk", columns: [t.householdId, t.loanId], foreignColumns: [loans.householdId, loans.id] }),
     check("transactions_loan_ck", sql`(${t.loanId} is null and ${t.loanDueDate} is null and ${t.loanPart} is null and ${t.loanPaymentKey} is null) or (${t.loanId} is not null and ${t.loanDueDate} is not null and ${t.loanPaymentKey} is not null and ${t.loanPart} is not null and ${t.recurringRuleId} is null and ((${t.loanPart} = 'interest' and ${t.type} = 'expense') or (${t.loanPart} in ('principal', 'prepayment') and ${t.type} = 'transfer')))`),
+    unique("transactions_household_id_uq").on(t.householdId, t.id),
     unique("transactions_occurrence_uq").on(t.recurringRuleId, t.occurrenceDate),
     index("transactions_household_date_idx").on(t.householdId, t.date),
     index("transactions_household_status_date_idx").on(t.householdId, t.status, t.date),
@@ -497,6 +499,91 @@ export const transactions = pgTable(
     check("transactions_occurrence_ck", sql`(${t.recurringRuleId} is null) or (${t.occurrenceDate} is not null)`),
   ],
 )
+
+export const importProfiles = pgTable("import_profiles", {
+  id: id(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  version: integer("version").notNull().default(1),
+  config: jsonb("config").$type<Pick<PreviewInput, "file" | "mapping">>().notNull(),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+}, (t) => [unique("import_profiles_name_uq").on(t.householdId, t.name)])
+
+export const importBatches = pgTable("import_batches", {
+  id: id(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  accountId: uuid("account_id"),
+  source: text("source").notNull(),
+  profileVersion: integer("profile_version").notNull(),
+  fileHash: text("file_hash").notNull(),
+  periodFrom: date("period_from", { mode: "string" }),
+  periodTo: date("period_to", { mode: "string" }),
+  status: text("status", { enum: ["draft", "committed", "undone"] }).notNull().default("draft"),
+  version: integer("version").notNull().default(1),
+  config: jsonb("config").$type<PreviewInput>().notNull(),
+  counters: jsonb("counters").$type<{ rows: number; created: number; confirmed: number; linked: number; skipped: number }>().notNull(),
+  warnings: jsonb("warnings").$type<string[]>().notNull().default([]),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+  committedAt: timestamp("committed_at", { withTimezone: true }),
+}, (t) => [
+  unique("import_batches_household_id_uq").on(t.householdId, t.id),
+  index("import_batches_household_idx").on(t.householdId, t.createdAt),
+  index("import_batches_hash_idx").on(t.householdId, t.fileHash),
+  foreignKey({ name: "import_batches_account_fk", columns: [t.householdId, t.accountId], foreignColumns: [financialAccounts.householdId, financialAccounts.id] }),
+  check("import_batches_status_ck", sql`${t.status} in ('draft', 'committed', 'undone')`),
+])
+
+export const importRows = pgTable("import_rows", {
+  id: id(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  batchId: uuid("batch_id").notNull(),
+  rowIndex: integer("row_index").notNull(),
+  rowLocator: text("row_locator").notNull(),
+  accountId: uuid("account_id"),
+  categoryId: uuid("category_id"),
+  normalized: jsonb("normalized").$type<IncomingRow>().notNull(),
+  proposal: jsonb("proposal").$type<RowProposal>().notNull(),
+  fingerprint: text("fingerprint"),
+  externalKey: text("external_key"),
+  decision: text("decision", { enum: ["create", "skip", "confirm", "transfer", "link"] }).notNull().default("skip"),
+  transactionId: uuid("transaction_id"),
+  transactionVersion: integer("transaction_version"),
+  effect: text("effect", { enum: ["created", "confirmed", "converted", "linked", "skipped"] }),
+  beforeTransaction: jsonb("before_transaction").$type<Record<string, unknown>>(),
+}, (t) => [
+  unique("import_rows_batch_index_uq").on(t.batchId, t.rowIndex),
+  index("import_rows_fingerprint_idx").on(t.householdId, t.fingerprint),
+  index("import_rows_transaction_idx").on(t.householdId, t.transactionId),
+  uniqueIndex("import_rows_external_key_uq").on(t.householdId, t.externalKey).where(sql`${t.externalKey} is not null`),
+  foreignKey({ name: "import_rows_batch_fk", columns: [t.householdId, t.batchId], foreignColumns: [importBatches.householdId, importBatches.id] }).onDelete("cascade"),
+  foreignKey({ name: "import_rows_account_fk", columns: [t.householdId, t.accountId], foreignColumns: [financialAccounts.householdId, financialAccounts.id] }),
+  foreignKey({ name: "import_rows_category_fk", columns: [t.householdId, t.categoryId], foreignColumns: [categories.householdId, categories.id] }),
+  foreignKey({ name: "import_rows_transaction_fk", columns: [t.householdId, t.transactionId], foreignColumns: [transactions.householdId, transactions.id] }),
+])
+
+export const categoryRules = pgTable("category_rules", {
+  id: id(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  categoryId: uuid("category_id").notNull(),
+  descriptionMode: text("description_mode", { enum: ["substring", "regex"] }).notNull().default("substring"),
+  descriptionPattern: text("description_pattern"),
+  mcc: text("mcc"),
+  currency: text("currency"),
+  minAmount: money("min_amount"),
+  maxAmount: money("max_amount"),
+  priority: integer("priority").notNull().default(0),
+  version: integer("version").notNull().default(1),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+}, (t) => [
+  index("category_rules_household_idx").on(t.householdId, t.priority),
+  foreignKey({ name: "category_rules_category_fk", columns: [t.householdId, t.categoryId], foreignColumns: [categories.householdId, categories.id] }),
+  check("category_rules_mode_ck", sql`${t.descriptionMode} in ('substring', 'regex')`),
+  check("category_rules_mcc_ck", sql`${t.mcc} is null or ${t.mcc} ~ '^[0-9]{4}$'`),
+  check("category_rules_range_ck", sql`${t.minAmount} is null or ${t.maxAmount} is null or ${t.minAmount} <= ${t.maxAmount}`),
+])
 
 /** Global public exchange rates: RUB per one major currency unit. */
 export const exchangeRateSource = pgEnum("exchange_rate_source", ["cbr", "manual"])

@@ -3,7 +3,7 @@ import { and, desc, eq, gte, ilike, inArray, lte, or, sql, type SQL } from "driz
 import { alias } from "drizzle-orm/pg-core"
 import { z } from "zod"
 import { getDb, type DbOrTx } from "@/db"
-import { categories, financialAccounts, transactions, users, type Transaction } from "@/db/schema"
+import { categories, financialAccounts, importRows, transactions, users, type Transaction } from "@/db/schema"
 import { isIsoDate, type IsoDate } from "@/lib/dates"
 import { audit, diff } from "../audit"
 import { assertCan, type HouseholdCtx } from "../context"
@@ -131,8 +131,7 @@ async function getOwned(db: DbOrTx, ctx: HouseholdCtx, id: string): Promise<Tran
  * Updates a row with optimistic concurrency control: the write succeeds only if
  * nobody changed the row since the client loaded `version`.
  */
-async function updateVersioned(ctx: HouseholdCtx, before: Transaction, version: number, patch: Partial<Transaction>, action: string) {
-  const db = getDb()
+async function updateVersioned(ctx: HouseholdCtx, before: Transaction, version: number, patch: Partial<Transaction>, action: string, db: DbOrTx = getDb()) {
   const res = await db
     .update(transactions)
     .set({ ...patch, version: sql`${transactions.version} + 1`, updatedBy: ctx.userId })
@@ -146,15 +145,14 @@ async function updateVersioned(ctx: HouseholdCtx, before: Transaction, version: 
     householdId: ctx.householdId,
     actorId: ctx.userId,
     meta: diff(before as unknown as Record<string, unknown>, patch as Record<string, unknown>),
-  })
+  }, db)
   return res[0]!
 }
 
-export async function updateTransaction(ctx: HouseholdCtx, id: string, raw: TransactionInput & { version: number }) {
+export async function updateTransaction(ctx: HouseholdCtx, id: string, raw: TransactionInput & { version: number }, db: DbOrTx = getDb()) {
   assertCan(ctx, "finance.write")
   const input = transactionInput.parse(raw)
   const version = z.number().int().parse(raw.version)
-  const db = getDb()
   const before = await getOwned(db, ctx, id)
   if (before.loanId) throw new AppError("Изменяйте платёж целиком в разделе «Кредиты»")
   if (before.recurringRuleId && input.type !== before.type) throw new AppError("Нельзя изменить тип операции из расписания")
@@ -169,7 +167,7 @@ export async function updateTransaction(ctx: HouseholdCtx, id: string, raw: Tran
       status: input.status,
       postedAt: input.status === "posted" ? (before.postedAt ?? new Date()) : null,
     },
-    "transaction.update",
+    "transaction.update", db,
   )
 }
 
@@ -181,13 +179,13 @@ export const confirmInput = z.object({
 })
 
 /** Marks a planned operation as actually done, optionally with the real amount and date. */
-export async function confirmTransaction(ctx: HouseholdCtx, id: string, raw: z.input<typeof confirmInput>) {
+export async function confirmTransaction(ctx: HouseholdCtx, id: string, raw: z.input<typeof confirmInput>, db: DbOrTx = getDb()) {
   assertCan(ctx, "finance.write")
   const input = confirmInput.parse(raw)
-  const before = await getOwned(getDb(), ctx, id)
+  const before = await getOwned(db, ctx, id)
   if (before.loanId) throw new AppError("Изменяйте платёж целиком в разделе «Кредиты»")
   if (before.status === "posted") throw new AppError("Операция уже подтверждена")
-  const values = await normalizeOperation(getDb(), ctx, operationFields.parse({
+  const values = await normalizeOperation(db, ctx, operationFields.parse({
     ...before, amount: input.amount ?? before.amount, toAmount: input.toAmount ?? before.toAmount,
   }), { allowArchived: true })
   return updateVersioned(
@@ -195,7 +193,7 @@ export async function confirmTransaction(ctx: HouseholdCtx, id: string, raw: z.i
     before,
     input.version,
     { ...values, status: "posted", postedAt: new Date(), date: input.date ?? before.date },
-    "transaction.confirm",
+    "transaction.confirm", db,
   )
 }
 
@@ -234,16 +232,43 @@ export async function deleteTransaction(ctx: HouseholdCtx, id: string) {
     await updateVersioned(ctx, before, before.version, { status: "skipped", postedAt: null }, "transaction.delete")
     return { skipped: true }
   }
-  await db.delete(transactions).where(and(eq(transactions.id, id), eq(transactions.householdId, ctx.householdId)))
-  await audit({
-    action: "transaction.delete",
-    entityType: "transaction",
-    entityId: id,
-    householdId: ctx.householdId,
-    actorId: ctx.userId,
-    meta: { type: before.type, amount: before.amount, date: before.date, title: before.title },
+  await db.transaction(async (tx) => {
+    await tx.update(importRows).set({ transactionId: null }).where(and(eq(importRows.householdId, ctx.householdId), eq(importRows.transactionId, id)))
+    await tx.delete(transactions).where(and(eq(transactions.id, id), eq(transactions.householdId, ctx.householdId)))
+    await audit({
+      action: "transaction.delete",
+      entityType: "transaction",
+      entityId: id,
+      householdId: ctx.householdId,
+      actorId: ctx.userId,
+      meta: { type: before.type, amount: before.amount, date: before.date, title: before.title },
+    }, tx)
   })
   return { skipped: false }
+}
+
+/** Restores the exact pre-import financial fields while keeping optimistic versions monotonic. */
+export async function restoreImportedTransaction(ctx: HouseholdCtx, snapshot: Transaction, version: number, db: DbOrTx) {
+  assertCan(ctx, "finance.write")
+  const before = await getOwned(db, ctx, snapshot.id)
+  const values = await normalizeOperation(db, ctx, operationFields.parse(snapshot), { allowArchived: true })
+  const rows = await db.update(transactions).set({ ...values, date: snapshot.date, status: snapshot.status, postedAt: snapshot.postedAt ? new Date(snapshot.postedAt) : null, version: sql`${transactions.version} + 1`, updatedBy: ctx.userId })
+    .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.id, before.id), eq(transactions.version, version))).returning()
+  if (!rows.length) throw conflict()
+  await audit({ action: "transaction.import_restore", entityType: "transaction", entityId: before.id, householdId: ctx.householdId, actorId: ctx.userId }, db)
+}
+
+export async function removeImportedTransaction(ctx: HouseholdCtx, id: string, version: number, db: DbOrTx) {
+  assertCan(ctx, "finance.write")
+  const rows = await db.delete(transactions).where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.id, id), eq(transactions.version, version))).returning({ id: transactions.id })
+  if (!rows.length) throw conflict()
+  await audit({ action: "transaction.import_delete", entityType: "transaction", entityId: id, householdId: ctx.householdId, actorId: ctx.userId }, db)
+}
+
+/** Own exports can preserve skipped rows without treating a bank rejection as a transaction. */
+export async function createExportedTransaction(ctx: HouseholdCtx, raw: TransactionInput, status: "planned" | "skipped", db: DbOrTx) {
+  const row = await createTransaction(ctx, { ...raw, status: "planned" }, db)
+  return status === "skipped" ? updateVersioned(ctx, row, row.version, { status: "skipped" }, "transaction.import_skipped", db) : row
 }
 
 // ---------------------------------------------------------------------------
@@ -374,4 +399,3 @@ export async function listInRange(ctx: HouseholdCtx, from: IsoDate, to: IsoDate,
     and(eq(transactions.householdId, ctx.householdId), loanDisplayCondition, sql`${transactions.status} <> 'skipped'`, overdue ? or(range, overdue) : range),
   ).orderBy(transactions.date, transactions.createdAt)
 }
-

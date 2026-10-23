@@ -8,7 +8,7 @@ export function toCsv(rows: (string | number | null | undefined)[][]): string {
   const cell = (value: string | number | null | undefined) => {
     let s = value === null || value === undefined ? "" : String(value)
     const plainNumber = /^-?\d+(,\d+)?$/.test(s)
-    if (/^[=+\-@\t\r]/.test(s) && !plainNumber) s = "'" + s
+    if (/^'*[=+\-@\t\r]/.test(s) && !plainNumber) s = "'" + s
     return /[";\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }
   return "\ufeff" + rows.map((r) => r.map(cell).join(";")).join("\r\n") + "\r\n"
