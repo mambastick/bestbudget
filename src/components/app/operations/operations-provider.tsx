@@ -1,5 +1,6 @@
 "use client"
 
+import { useTranslations, useLocale } from "next-intl"
 import { createContext, useCallback, useContext, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { LoanConfirmForm } from "@/components/app/loans/loan-confirm-form"
@@ -123,54 +124,54 @@ function ConfirmOperationDialog({ row, onClose }: { row: OperationRow | null; on
 }
 
 function ConfirmForm({ row, onClose }: { row: OperationRow; onClose: () => void }) {
+  const t = useTranslations("transactions")
+  const locale = useLocale()
   const { today, accounts } = useCatalog()
   const currency = accounts.find((a) => a.id === row.accountId)!.currency
   const toCurrency = accounts.find((a) => a.id === row.toAccountId)?.currency
-  const [amount, setAmount] = useState(minorToInput(row.amount, currency))
-  const [toAmount, setToAmount] = useState(row.toAmount && toCurrency ? minorToInput(row.toAmount, toCurrency) : "")
+  const [amount, setAmount] = useState(minorToInput(row.amount, currency, locale))
+  const [toAmount, setToAmount] = useState(row.toAmount && toCurrency ? minorToInput(row.toAmount, toCurrency, locale) : "")
   const [date, setDate] = useState<IsoDate>(row.date > today ? today : row.date)
   const { pending, run } = useAction()
 
   function submit(e: React.FormEvent) {
     e.preventDefault()
     const value = parseMoney(amount, currency)
-    if (!value) return void toast.error("Укажите сумму")
+    if (!value) return void toast.error(t("enterAmount"))
     const credited = toCurrency && toCurrency !== currency ? parseMoney(toAmount, toCurrency) : undefined
-    if (credited === null || credited === 0) return void toast.error("Укажите сумму зачисления")
+    if (credited === null || credited === 0) return void toast.error(t("enterCredited"))
     run(() => confirmTransactionAction(row.id, { version: row.version, amount: value, toAmount: credited, date }), {
-      success: "Операция подтверждена",
+      success: t("confirmed"),
       onSuccess: onClose,
     })
   }
 
-  const verb = row.type === "income" ? "получение" : row.type === "expense" ? "оплату" : "перевод"
   return (
     <form onSubmit={submit} className="grid grid-cols-1 gap-4">
       <DialogHeader>
-        <DialogTitle>Подтвердить {verb}</DialogTitle>
+        <DialogTitle>{t(`confirmTitle.${row.type}`)}</DialogTitle>
         <DialogDescription>
-          «{row.title}», план: {formatMoney(row.amount, currency)}. Укажите фактическую сумму и дату — после подтверждения она войдёт в
-          фактический баланс.
+          {t("confirmHint", { title: row.title, amount: formatMoney(row.amount, currency, { locale }) })}
         </DialogDescription>
       </DialogHeader>
       <Field>
-        <FieldLabel htmlFor="confirm-amount">Фактическая сумма</FieldLabel>
+        <FieldLabel htmlFor="confirm-amount">{t("actualAmount")}</FieldLabel>
         <MoneyInput currency={currency} id="confirm-amount" value={amount} onChange={setAmount} />
       </Field>
       {toCurrency && toCurrency !== currency ? <Field>
-        <FieldLabel htmlFor="confirm-to-amount">Зачислено</FieldLabel>
+        <FieldLabel htmlFor="confirm-to-amount">{t("credited")}</FieldLabel>
         <MoneyInput id="confirm-to-amount" currency={toCurrency} value={toAmount} onChange={setToAmount} />
       </Field> : null}
       <Field>
-        <FieldLabel>Фактическая дата</FieldLabel>
+        <FieldLabel>{t("actualDate")}</FieldLabel>
         <DateField value={date} onChange={(d) => d && setDate(d)} today={today} />
       </Field>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
-          Отмена
+          {t("cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? "Сохранение…" : "Подтвердить"}
+          {pending ? t("saving") : t("confirm")}
         </Button>
       </DialogFooter>
     </form>

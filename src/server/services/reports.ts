@@ -27,7 +27,7 @@ async function project(ctx: HouseholdCtx, data: FinanceData, from: IsoDate, to: 
   const movements = [
     ...data.rows.filter((r) => r.status === "posted" && r.date <= to),
     ...planned.map((r) => ({ ...r, date: effectiveDate({ date: r.date, status: "planned" }, today) })),
-  ].sort((a, b) => a.date.localeCompare(b.date))
+  ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
   const balances = new Map(data.accounts.map((a) => [a.id, a.openingBalance]))
   let index = 0
   const days = []
@@ -47,9 +47,9 @@ async function project(ctx: HouseholdCtx, data: FinanceData, from: IsoDate, to: 
   return { days, plannedItems, virtual }
 }
 
-export async function projection(ctx: HouseholdCtx, from: IsoDate, to: IsoDate, today: IsoDate) {
+export async function projection(ctx: HouseholdCtx, from: IsoDate, to: IsoDate, today: IsoDate, locale = "ru") {
   assertCan(ctx, "finance.read")
-  return project(ctx, await loadFinance(ctx, pastValuationDates(from, to, today)), from, to, today)
+  return project(ctx, await loadFinance(ctx, pastValuationDates(from, to, today), locale), from, to, today)
 }
 
 export interface UpcomingItem {
@@ -101,14 +101,14 @@ async function categoryTotals(ctx: HouseholdCtx, data: FinanceData, from: string
   return cats.filter((c) => sums.has(c.id)).map((c) => ({ categoryId: c.id, name: c.name, color: c.color, icon: c.icon, total: sums.get(c.id)! })).sort((a, b) => b.total - a.total)
 }
 
-export async function getDashboard(ctx: HouseholdCtx, month: IsoDate) {
+export async function getDashboard(ctx: HouseholdCtx, month: IsoDate, locale = "ru") {
   assertCan(ctx, "finance.read")
   const today = todayIn(ctx.timezone)
   await ensureMaterialized(ctx.householdId, today)
   await ensureLoansMaterialized(ctx, today)
   const monthStart = startOfMonth(month)
   const monthEnd = endOfMonth(month)
-  const data = await loadFinance(ctx, pastValuationDates(monthStart, monthEnd, today))
+  const data = await loadFinance(ctx, pastValuationDates(monthStart, monthEnd, today), locale)
   const obligationsUntil = maxDate(monthEnd, endOfMonth(today))
   const [monthProjection, forecast, byCategory, upcomingRows, upcomingVirtual, cats, obligations] = await Promise.all([
     project(ctx, data, monthStart, monthEnd, today),
@@ -139,10 +139,10 @@ export async function getDashboard(ctx: HouseholdCtx, month: IsoDate) {
       currency: data.accountMap.get(v.accountId)!.currency, title: v.title,
       categoryIcon: catMap.get(v.categoryId ?? "")?.icon ?? null, categoryColor: catMap.get(v.categoryId ?? "")?.color ?? null, overdue: false,
     })),
-  ].sort((a, b) => a.date.localeCompare(b.date)).slice(0, 10)
+  ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)).slice(0, 10)
   const [nextLoanPayment] = await transactionListQuery(and(eq(transactions.householdId, ctx.householdId), eq(transactions.status, "planned"), isNotNull(transactions.loanId), loanDisplayCondition)).orderBy(transactions.date).limit(1)
   const foreign = data.accounts.filter((a) => a.currency !== ctx.currency)
-  const valuation = balanceValuation(data.rates, foreign.map((a) => a.currency), ctx.currency, today)
+  const valuation = balanceValuation(data.rates, foreign.map((a) => a.currency), ctx.currency, today, locale)
   return {
     nextLoanPayment,
     netAssets: data.netAssets, debt: data.debt,
@@ -189,14 +189,14 @@ function displayVirtualPayments(rows: ProjectedOccurrence[]) {
   return out
 }
 
-export async function getCalendarMonth(ctx: HouseholdCtx, month: IsoDate) {
+export async function getCalendarMonth(ctx: HouseholdCtx, month: IsoDate, locale = "ru") {
   assertCan(ctx, "finance.read")
   const today = todayIn(ctx.timezone)
   await ensureMaterialized(ctx.householdId, today)
   await ensureLoansMaterialized(ctx, today)
   const from = startOfMonth(month)
   const to = endOfMonth(month)
-  const data = await loadFinance(ctx, pastValuationDates(from, to, today))
+  const data = await loadFinance(ctx, pastValuationDates(from, to, today), locale)
   const [proj, rows, cats] = await Promise.all([
     project(ctx, data, from, to, today), listInRange(ctx, from, to, today >= from && today <= to ? { overdueBefore: from } : {}),
     getDb().select().from(categories).where(eq(categories.householdId, ctx.householdId)),
@@ -218,10 +218,10 @@ export async function getCalendarMonth(ctx: HouseholdCtx, month: IsoDate) {
   return { today, from, to, days: proj.days, items, warnings: [...data.fx.warnings] }
 }
 
-export async function getAnalytics(ctx: HouseholdCtx, from: IsoDate, to: IsoDate) {
+export async function getAnalytics(ctx: HouseholdCtx, from: IsoDate, to: IsoDate, locale = "ru") {
   assertCan(ctx, "finance.read")
   const today = todayIn(ctx.timezone)
-  const data = await loadFinance(ctx, pastValuationDates(from, to, today))
+  const data = await loadFinance(ctx, pastValuationDates(from, to, today), locale)
   const length = diffDays(to, from) + 1
   const prevTo = addDays(from, -1)
   const prevFrom = addDays(prevTo, -(length - 1))

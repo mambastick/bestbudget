@@ -84,3 +84,17 @@ export function formatMoneyShort(minor: number, currency = "RUB", locale = "ru")
   const number = new Intl.NumberFormat(locale, { useGrouping: false, maximumFractionDigits: digits }).format(amount / scale)
   return `${minor < 0 ? "−" : ""}${number}${scale === 1 ? "" : scale === 1000 ? labels.thousand : labels.million}`
 }
+
+/** Compact currency labels use localized symbols and round to whole major units. */
+export function formatMoneyShortWithCurrency(minor: number, currency = "RUB", locale = "ru"): string {
+  const amount = Math.round(Math.abs(minor) / 10 ** currencyExponent(currency))
+  const text = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency,
+    currencyDisplay: "narrowSymbol",
+    notation: "compact",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: amount < 1000 || (amount >= 100_000 && amount < 1_000_000) ? 0 : 1,
+  }).format(amount)
+  return `${minor < 0 ? "−" : ""}${text}`
+}

@@ -1,4 +1,7 @@
 import "server-only"
+import { createTranslator } from "use-intl/core"
+import ru from "../../../messages/ru/transactions.json"
+import en from "../../../messages/en/transactions.json"
 import { and, desc, eq, gte, ilike, inArray, lte, or, sql, type SQL } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { z } from "zod"
@@ -40,7 +43,7 @@ type OperationFields = z.output<typeof operationFields>
  * Validates references (same household, matching category kind, active accounts)
  * and fills a default title. Returns normalized column values.
  */
-export async function normalizeOperation(db: DbOrTx, ctx: HouseholdCtx, input: OperationFields, opts: { allowArchived?: boolean } = {}) {
+export async function normalizeOperation(db: DbOrTx, ctx: HouseholdCtx, input: OperationFields, opts: { allowArchived?: boolean; locale?: string } = {}) {
   const isTransfer = input.type === "transfer"
   const categoryId = isTransfer ? null : (input.categoryId ?? null)
   const toAccountId = isTransfer ? (input.toAccountId ?? null) : null
@@ -76,7 +79,8 @@ export async function normalizeOperation(db: DbOrTx, ctx: HouseholdCtx, input: O
     if (cat.kind !== input.type) throw new AppError("transaction.categoryType")
     title ||= cat.name
   }
-  title ||= "Перевод"
+  const locale = opts.locale ?? "ru"
+  title ||= createTranslator({ locale, messages: locale.startsWith("ru") ? ru : en })("transfer")
 
   return {
     type: input.type,
@@ -90,10 +94,10 @@ export async function normalizeOperation(db: DbOrTx, ctx: HouseholdCtx, input: O
   }
 }
 
-export async function createTransaction(ctx: HouseholdCtx, raw: TransactionInput, db: DbOrTx = getDb()) {
+export async function createTransaction(ctx: HouseholdCtx, raw: TransactionInput, db: DbOrTx = getDb(), locale = "ru") {
   assertCan(ctx, "finance.write")
   const input = transactionInput.parse(raw)
-  const values = await normalizeOperation(db, ctx, input)
+  const values = await normalizeOperation(db, ctx, input, { locale })
   const [row] = await db
     .insert(transactions)
     .values({
@@ -149,14 +153,14 @@ async function updateVersioned(ctx: HouseholdCtx, before: Transaction, version: 
   return res[0]!
 }
 
-export async function updateTransaction(ctx: HouseholdCtx, id: string, raw: TransactionInput & { version: number }, db: DbOrTx = getDb()) {
+export async function updateTransaction(ctx: HouseholdCtx, id: string, raw: TransactionInput & { version: number }, db: DbOrTx = getDb(), locale = "ru") {
   assertCan(ctx, "finance.write")
   const input = transactionInput.parse(raw)
   const version = z.number().int().parse(raw.version)
   const before = await getOwned(db, ctx, id)
   if (before.loanId) throw new AppError("transaction.wholeLoanPayment")
   if (before.recurringRuleId && input.type !== before.type) throw new AppError("transaction.recurringTypeLocked")
-  const values = await normalizeOperation(db, ctx, input, { allowArchived: true })
+  const values = await normalizeOperation(db, ctx, input, { allowArchived: true, locale })
   return updateVersioned(
     ctx,
     before,

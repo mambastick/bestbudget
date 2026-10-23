@@ -1,4 +1,7 @@
 import "server-only"
+import { createTranslator } from "use-intl/core"
+import ru from "../../../messages/ru/dashboard.json"
+import en from "../../../messages/en/dashboard.json"
 import { and, desc, gte, inArray, isNull, lte, or, sql } from "drizzle-orm"
 import { z } from "zod"
 import { getDb } from "@/db"
@@ -156,7 +159,8 @@ export async function loadRates(rawNeeds: RateNeed[]) {
   return changed ? read() : rates
 }
 
-export function createConverter(rates: ExchangeRate[], base: string) {
+export function createConverter(rates: ExchangeRate[], base: string, locale = "ru") {
+  const t = createTranslator({ locale, messages: locale.startsWith("ru") ? ru : en })
   const warnings = new Set<string>()
   const indexed = new Map<string, ExchangeRate[]>()
   for (const r of rates) {
@@ -164,7 +168,7 @@ export function createConverter(rates: ExchangeRate[], base: string) {
     bucket.push(r)
     indexed.set(r.currency, bucket)
   }
-  for (const bucket of indexed.values()) bucket.sort((a, b) => a.date.localeCompare(b.date) || (a.source === b.source ? 0 : a.source === "manual" ? 1 : -1))
+  for (const bucket of indexed.values()) bucket.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) || (a.source === b.source ? 0 : a.source === "manual" ? 1 : -1))
   const selected = new Map<string, ExchangeRate | null>()
   const rate = (currency: string, date: string) => {
     const key = `${currency}:${date}`
@@ -190,7 +194,7 @@ export function createConverter(rates: ExchangeRate[], base: string) {
     const to = rate(base, date)
     if (!from || !to) {
       for (const missing of [!from ? currency : null, !to ? base : null]) {
-        if (missing) warnings.add(`Нет курса ${missing}.`)
+        if (missing) warnings.add(t("missingRate", { currency: missing }))
       }
       return 0
     }
@@ -221,7 +225,7 @@ export async function listExchangeRates() {
   return getDb().select().from(exchangeRates).orderBy(desc(exchangeRates.date), exchangeRates.currency, desc(exchangeRates.source)).limit(100)
 }
 
-export async function quoteConversion(amount: number, from: string, to: string, date: string, today = todayIn("Europe/Moscow")) {
+export async function quoteConversion(amount: number, from: string, to: string, date: string, today = todayIn("Europe/Moscow"), locale = "ru") {
   z.number().int().nonnegative().safe().parse(amount)
   z.enum(CURRENCY_CODES).parse(from)
   z.enum(CURRENCY_CODES).parse(to)
@@ -229,7 +233,7 @@ export async function quoteConversion(amount: number, from: string, to: string, 
   const at = date > today ? today : date
   const rates = await loadRates([{ currency: from, date: at }, { currency: to, date: at }])
   const selectedRates = [...new Set([from, to])].flatMap((c) => selectRate(rates, c, at) ?? [])
-  if (from !== to && (!selectRate(rates, from, at) || !selectRate(rates, to, at))) return { amount: null, rates: selectedRates, warnings: ["Нет курса. Укажите сумму зачисления вручную; для отчётов добавьте курс в администрировании."] }
-  const fx = createConverter(rates, to)
+  if (from !== to && (!selectRate(rates, from, at) || !selectRate(rates, to, at))) return { amount: null, rates: selectedRates, warnings: [createTranslator({ locale, messages: locale.startsWith("ru") ? ru : en })("quoteMissingRate")] }
+  const fx = createConverter(rates, to, locale)
   return { amount: fx.convert(amount, from, at), rates: selectedRates, warnings: [...fx.warnings] }
 }

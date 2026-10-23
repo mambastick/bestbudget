@@ -42,21 +42,4 @@ export interface RuleRow {
   version: number
 }
 
-export const TYPE_LABELS: Record<OperationType, string> = {
-  expense: "Расход",
-  income: "Доход",
-  transfer: "Перевод",
-}
-
-export const STATUS_LABELS = {
-  planned: "Запланирована",
-  posted: "Выполнена",
-  skipped: "Пропущена",
-} as const
-
-export const FREQUENCY_LABELS = {
-  daily: "Ежедневно",
-  weekly: "Еженедельно",
-  monthly: "Ежемесячно",
-  yearly: "Ежегодно",
-} as const
+export const FREQUENCIES = ["daily", "weekly", "monthly", "yearly"] as const

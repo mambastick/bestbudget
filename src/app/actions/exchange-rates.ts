@@ -1,5 +1,6 @@
 "use server"
 
+import { getLocale } from "next-intl/server"
 import { revalidatePath } from "next/cache"
 import { addDays, todayIn } from "@/lib/dates"
 import { CURRENCY_CODES, type Currency } from "@/lib/currencies"
@@ -34,6 +35,6 @@ export async function quoteConversionAction(amount: number, from: string, to: st
   return runAction(async () => {
     const ctx = await actionHousehold()
     const today = todayIn(ctx.timezone)
-    return quoteConversion(amount, from, to, date > today ? today : date, today)
+    return quoteConversion(amount, from, to, date > today ? today : date, today, await getLocale())
   })
 }

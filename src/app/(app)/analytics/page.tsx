@@ -1,3 +1,5 @@
+import { useTranslations, useLocale } from "next-intl"
+import { getTranslations, getLocale } from "next-intl/server"
 import { DebtSummary } from "@/components/app/loans/debt-summary"
 import { FxWarnings } from "@/components/app/fx-warnings"
 import { TrendingDown, TrendingUp } from "lucide-react"
@@ -14,7 +16,10 @@ import { cn } from "@/lib/utils"
 import { requireHousehold } from "@/server/session"
 import { getAnalytics } from "@/server/services/reports"
 
-export const metadata: Metadata = { title: "Аналитика" }
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("analytics")
+  return { title: t("title") }
+}
 
 const PERIODS = ["month", "prev", "3m", "6m", "12m", "custom"] as const
 type Period = (typeof PERIODS)[number]
@@ -39,56 +44,57 @@ function resolvePeriod(period: Period, today: IsoDate, from?: string, to?: strin
   }
 }
 
-const monthLabel = (key: string) =>
-  new Intl.DateTimeFormat("ru-RU", { month: "short", year: "2-digit", timeZone: "UTC" }).format(new Date(key + "-01T00:00:00Z")).replace(".", "")
+const monthLabel = (key: string, locale: string) =>
+  new Intl.DateTimeFormat(locale, { month: "short", year: "2-digit", timeZone: "UTC" }).format(new Date(key + "-01T00:00:00Z")).replace(".", "")
 
 export default async function AnalyticsPage({ searchParams }: { searchParams: Promise<{ period?: string; from?: string; to?: string }> }) {
+  const t = await getTranslations("analytics")
+  const locale = await getLocale()
   const ctx = await requireHousehold()
   const sp = await searchParams
   const today = todayIn(ctx.timezone)
   const period: Period = PERIODS.includes(sp.period as Period) ? (sp.period as Period) : "month"
   const range = resolvePeriod(period, today, sp.from, sp.to)
-  const a = await getAnalytics(ctx, range.from, range.to)
+  const a = await getAnalytics(ctx, range.from, range.to, locale)
   const cur = ctx.currency
   const topTotal = a.categories.reduce((s, c) => s + c.total, 0)
 
   return (
     <div className="grid grid-cols-1 gap-6">
       <FxWarnings warnings={a.warnings} canManageRates={ctx.user.role === "admin"} />
-      <PageHeader title="Аналитика" description={`Фактические операции · ${formatDateFull(a.from)} — ${formatDateFull(a.to)}`} />
+      <PageHeader title={t("title")} description={t("description", { from: formatDateFull(a.from, locale), to: formatDateFull(a.to, locale) })} />
       <DebtSummary debt={a.debt} netAssets={a.netAssets} currency={cur} />
       <AnalyticsPeriod period={period} from={range.from} to={range.to} today={today} />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Kpi label="Доходы" value={<Money value={a.current.income} currency={cur} tone="income" />} change={a.incomeChange} goodWhenUp />
-        <Kpi label="Расходы" value={<Money value={a.current.expense} currency={cur} tone="expense" />} change={a.expenseChange} goodWhenUp={false} />
-        <Kpi label="Чистый денежный поток" value={<Money value={a.current.net} currency={cur} tone="auto" />} />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Kpi label={t("income")} value={<Money value={a.current.income} currency={cur} tone="income" />} change={a.incomeChange} goodWhenUp />
+        <Kpi label={t("expenses")} value={<Money value={a.current.expense} currency={cur} tone="expense" />} change={a.expenseChange} goodWhenUp={false} />
+        <Kpi label={t("netCashFlow")} value={<Money value={a.current.net} currency={cur} tone="auto" />} />
         <Kpi
-          label="Норма сбережений"
-          value={<span className="tabular">{a.current.income > 0 ? `${Math.round((a.current.net / a.current.income) * 100)}%` : "—"}</span>}
+          label={t("savingsRate")}
+          value={<span className="tabular">{a.current.income > 0 ? new Intl.NumberFormat(locale, { style: "percent" }).format(a.current.net / a.current.income) : "—"}</span>}
         />
       </div>
       <p className="-mt-3 text-xs text-muted-foreground">
-        Изменение — относительно предыдущего периода такой же длины ({formatDateFull(a.previous.from)} — {formatDateFull(a.previous.to)}). Переводы между своими счетами не
-        учитываются.
+        {t("comparisonHint", { from: formatDateFull(a.previous.from, locale), to: formatDateFull(a.previous.to, locale) })}
       </p>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Доходы и расходы по месяцам</CardTitle>
+            <CardTitle>{t("monthlyIncomeExpense")}</CardTitle>
           </CardHeader>
           <CardContent>
-            <IncomeExpenseChart data={a.series.map((s) => ({ label: monthLabel(s.month), income: s.income, expense: s.expense }))} />
+            <IncomeExpenseChart data={a.series.map((s) => ({ label: monthLabel(s.month, locale), income: s.income, expense: s.expense }))} />
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Крупнейшие категории расходов</CardTitle>
+            <CardTitle>{t("topCategories")}</CardTitle>
           </CardHeader>
           <CardContent>
             {a.categories.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">Расходов за период нет</p>
+              <p className="py-8 text-center text-sm text-muted-foreground">{t("noExpenses")}</p>
             ) : (
               <ul className="grid grid-cols-1 gap-3">
                 {a.categories.slice(0, 8).map((c) => (
@@ -96,7 +102,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
                     <div className="flex items-center gap-2 text-sm">
                       <CategoryIcon icon={c.icon} color={c.color} className="size-6 rounded-md [&_svg]:size-3.5" />
                       <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                      <span className="tabular text-muted-foreground">{Math.round((c.total / topTotal) * 100)}%</span>
+                      <span className="tabular text-muted-foreground">{new Intl.NumberFormat(locale, { style: "percent" }).format(c.total / topTotal)}</span>
                       <Money value={c.total} currency={cur} className="w-28 text-right font-medium" />
                     </div>
                     <div className="ml-8 h-1.5 overflow-hidden rounded-full bg-muted">
@@ -113,23 +119,23 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Динамика накоплений</CardTitle>
-            <CardDescription>Фактический баланс на конец каждого месяца</CardDescription>
+            <CardTitle>{t("savingsTrend")}</CardTitle>
+            <CardDescription>{t("savingsTrendHint")}</CardDescription>
           </CardHeader>
           <CardContent>
-            <BalanceChart data={a.series.map((s) => ({ label: monthLabel(s.month), actual: s.balance, forecast: null }))} />
+            <BalanceChart data={a.series.map((s) => ({ label: monthLabel(s.month, locale), actual: s.balance, forecast: null }))} />
           </CardContent>
         </Card>
         <Card className="border-dashed">
           <CardHeader>
-            <CardTitle>Прогноз</CardTitle>
-            <CardDescription>Ожидаемый баланс на конец месяца по плановым и регулярным операциям</CardDescription>
+            <CardTitle>{t("forecast")}</CardTitle>
+            <CardDescription>{t("forecastHint")}</CardDescription>
           </CardHeader>
           <CardContent>
             <ul className="grid grid-cols-1 gap-2">
               {a.forecast.map((f) => (
                 <li key={f.month} className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground capitalize">{monthLabel(f.month)}</span>
+                  <span className="text-muted-foreground capitalize">{monthLabel(f.month, locale)}</span>
                   <Money value={f.balance} currency={cur} tone={f.balance < 0 ? "expense" : "neutral"} className="font-medium" />
                 </li>
               ))}
@@ -140,39 +146,66 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
 
       <Card>
         <CardHeader>
-          <CardTitle>По месяцам</CardTitle>
+          <CardTitle>{t("byMonth")}</CardTitle>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Месяц</TableHead>
-                <TableHead className="text-right">Доходы</TableHead>
-                <TableHead className="text-right">Расходы</TableHead>
-                <TableHead className="text-right">Поток</TableHead>
-                <TableHead className="text-right">Баланс на конец</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {a.series.map((s) => (
-                <TableRow key={s.month}>
-                  <TableCell className="capitalize">{monthLabel(s.month)}</TableCell>
-                  <TableCell className="text-right">
-                    <Money value={s.income} currency={cur} />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Money value={s.expense} currency={cur} />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Money value={s.net} currency={cur} tone="auto" />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Money value={s.balance} currency={cur} />
-                  </TableCell>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-4 sm:hidden">
+            {a.series.map((s) => (
+              <section key={s.month} className="border-b pb-4 last:border-0 last:pb-0">
+                <h3 className="mb-2 text-sm font-medium capitalize">{monthLabel(s.month, locale)}</h3>
+                <dl className="grid grid-cols-1 gap-2 text-sm">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-muted-foreground">{t("income")}</dt>
+                    <dd><Money value={s.income} currency={cur} /></dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-muted-foreground">{t("expenses")}</dt>
+                    <dd><Money value={s.expense} currency={cur} /></dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-muted-foreground">{t("flow")}</dt>
+                    <dd><Money value={s.net} currency={cur} tone="auto" /></dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-muted-foreground">{t("closingBalance")}</dt>
+                    <dd><Money value={s.balance} currency={cur} /></dd>
+                  </div>
+                </dl>
+              </section>
+            ))}
+          </div>
+          <div className="hidden sm:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("month")}</TableHead>
+                  <TableHead className="text-right">{t("income")}</TableHead>
+                  <TableHead className="text-right">{t("expenses")}</TableHead>
+                  <TableHead className="text-right">{t("flow")}</TableHead>
+                  <TableHead className="text-right">{t("closingBalance")}</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {a.series.map((s) => (
+                  <TableRow key={s.month}>
+                    <TableCell className="capitalize">{monthLabel(s.month, locale)}</TableCell>
+                    <TableCell className="text-right">
+                      <Money value={s.income} currency={cur} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Money value={s.expense} currency={cur} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Money value={s.net} currency={cur} tone="auto" />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Money value={s.balance} currency={cur} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -180,6 +213,8 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
 }
 
 function Kpi({ label, value, change, goodWhenUp }: { label: string; value: React.ReactNode; change?: number | null; goodWhenUp?: boolean }) {
+  const t = useTranslations("analytics")
+  const locale = useLocale()
   const up = (change ?? 0) > 0
   const good = change == null || change === 0 ? null : up === goodWhenUp
   return (
@@ -190,12 +225,11 @@ function Kpi({ label, value, change, goodWhenUp }: { label: string; value: React
         {change !== undefined ? (
           <span className={cn("flex items-center gap-1 text-xs", good === null ? "text-muted-foreground" : good ? "text-income" : "text-expense")}>
             {change === null ? (
-              "нет данных для сравнения"
+              t("noComparison")
             ) : (
               <>
                 {up ? <TrendingUp className="size-3.5" /> : <TrendingDown className="size-3.5" />}
-                {up ? "+" : ""}
-                {change}% к прошлому периоду
+                {t("change", { value: new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1, signDisplay: "exceptZero" }).format(change / 100) })}
               </>
             )}
           </span>

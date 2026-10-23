@@ -8,7 +8,7 @@ Self-hosted family finance: planned vs actual spending, recurring payments and c
 [![Release](https://img.shields.io/github/v/release/mambastick/bestbudget?include_prereleases)](https://github.com/mambastick/bestbudget/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**1.0.0-beta.2 (beta).** The shell, authentication and settings support English and Russian, with browser language detection and a manual override. Financial screens remain in Russian until translation phase 2. Detailed docs are currently in Russian.
+**1.0.0-beta.2 (beta).** The shell, authentication and settings support English and Russian, with browser language detection and a manual override. Overview, calendar, budgets, analytics, transactions and recurring payments also support both languages. The remaining financial areas are being translated in phase 2. Detailed docs are currently in Russian.
 
 ## Screenshots
 

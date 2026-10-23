@@ -43,12 +43,12 @@ function normalizeDay(input: z.output<typeof ruleInput>): number | null {
   return null
 }
 
-export async function createRules(ctx: HouseholdCtx, raw: z.input<typeof ruleSetInput>, db: DbOrTx = getDb()) {
+export async function createRules(ctx: HouseholdCtx, raw: z.input<typeof ruleSetInput>, db: DbOrTx = getDb(), locale = "ru") {
   assertCan(ctx, "finance.write")
   const { rule: input, extra } = ruleSetInput.parse(raw)
   if (extra.length > 0 && input.frequency !== "monthly") throw new AppError("recurring.monthlyOnly")
   const today = todayIn(ctx.timezone)
-  const base = await normalizeOperation(db, ctx, input)
+  const base = await normalizeOperation(db, ctx, input, { locale })
   if (extra.length > 0 && base.toAmount !== null) throw new AppError("recurring.separateCurrencyRule")
 
   const variants = [{ dayOfMonth: normalizeDay(input), amount: input.amount }, ...extra]
@@ -280,7 +280,7 @@ export const ruleUpdateInput = z.object({
  * Changes the rule for all occurrences from `effectiveFrom` on. Confirmed operations keep their own data;
  * not-yet-confirmed occurrences from that date are regenerated with the new parameters.
  */
-export async function updateRule(ctx: HouseholdCtx, id: string, raw: z.input<typeof ruleUpdateInput>) {
+export async function updateRule(ctx: HouseholdCtx, id: string, raw: z.input<typeof ruleUpdateInput>, locale = "ru") {
   assertCan(ctx, "finance.write")
   const { rule: input, version, effectiveFrom } = ruleUpdateInput.parse(raw)
   const today = todayIn(ctx.timezone)
@@ -289,7 +289,7 @@ export async function updateRule(ctx: HouseholdCtx, id: string, raw: z.input<typ
   const before = await getRule(ctx, id)
   if (before.goalId && input.toAccountId !== before.toAccountId) throw new AppError("recurring.goalDestinationLocked")
   if (input.type !== before.type) throw new AppError("recurring.typeLocked")
-  const values = await normalizeOperation(db, ctx, input, { allowArchived: true })
+  const values = await normalizeOperation(db, ctx, input, { allowArchived: true, locale })
 
   await db.transaction(async (tx) => {
     const res = await tx

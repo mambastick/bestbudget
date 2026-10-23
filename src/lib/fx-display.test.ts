@@ -47,3 +47,16 @@ describe("current balance valuation", () => {
     expect(balanceValuation([], [], "RUB", "2026-10-29")).toEqual({ note: null, stale: [] })
   })
 })
+
+
+describe("English FX labels", () => {
+  it("uses decimal dots and English rate provenance", () => {
+    expect(formatExchangeRate(9500_00, 100_00, "RUB", "USD", "en")).toBe("1 USD = 95.00 ₽")
+    expect(formatQuotedRate(rates, "EUR", "USD", "en")).toBe("1 EUR = 1.08 USD")
+    expect(formatRateSource(rates.slice(0, 2), "en")).toBe("CBR rate on October 20")
+    expect(balanceValuation(rates, ["USD"], "RUB", "2026-10-28", "en")).toEqual({
+      note: "Includes 1 foreign-currency account · valued as of October 20, 2026",
+      stale: ["USD: rate from October 20 (CBR)"],
+    })
+  })
+})

@@ -1,5 +1,6 @@
 "use client"
 
+import { useTranslations, useLocale } from "next-intl"
 import { AlertTriangle, CircleCheck, Pencil, Target } from "lucide-react"
 import { useState } from "react"
 import { setBudgetAction } from "@/app/actions/catalog"
@@ -28,6 +29,7 @@ export interface BudgetRow {
 }
 
 export function BudgetList({ rows, canManage }: { rows: BudgetRow[]; canManage: boolean }) {
+  const t = useTranslations("budgets")
   const [editing, setEditing] = useState<BudgetRow | null>(null)
   const { currency } = useCatalog()
   const limited = rows.filter((r) => r.limit !== null).sort((a, b) => (b.percent ?? 0) - (a.percent ?? 0))
@@ -38,11 +40,11 @@ export function BudgetList({ rows, canManage }: { rows: BudgetRow[]; canManage: 
       {limited.length === 0 ? (
         <EmptyState
           icon={Target}
-          title="Лимиты не заданы"
+          title={t("noLimits")}
           description={
             canManage
-              ? "Задайте месячный лимит для категорий, где важно контролировать траты, — например, «Продукты» или «Развлечения». Лимиты не блокируют операции."
-              : "Лимиты задают владелец или администратор пространства."
+              ? t("noLimitsHint")
+              : t("noPermissionHint")
           }
         />
       ) : (
@@ -55,7 +57,7 @@ export function BudgetList({ rows, canManage }: { rows: BudgetRow[]; canManage: 
 
       {unlimited.length > 0 ? (
         <section>
-          <h2 className="mb-2 px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">Без лимита</h2>
+          <h2 className="mb-2 px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">{t("unlimited")}</h2>
           <ul className="divide-y overflow-hidden rounded-xl border bg-card">
             {unlimited.map((r) => (
               <li key={r.id} className="flex items-center gap-3 px-4 py-2.5">
@@ -66,7 +68,7 @@ export function BudgetList({ rows, canManage }: { rows: BudgetRow[]; canManage: 
                 </span>
                 {canManage ? (
                   <Button variant="ghost" size="sm" onClick={() => setEditing(r)}>
-                    Задать лимит
+                    {t("setLimit")}
                   </Button>
                 ) : null}
               </li>
@@ -81,6 +83,8 @@ export function BudgetList({ rows, canManage }: { rows: BudgetRow[]; canManage: 
 }
 
 function BudgetCard({ row, canManage, onEdit }: { row: BudgetRow; canManage: boolean; onEdit: () => void }) {
+  const locale = useLocale()
+  const t = useTranslations("budgets")
   const { currency } = useCatalog()
   const percent = row.percent ?? 0
   const over = percent > 100
@@ -93,11 +97,11 @@ function BudgetCard({ row, canManage, onEdit }: { row: BudgetRow; canManage: boo
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{row.name}</div>
           <div className="text-xs text-muted-foreground">
-            лимит <Money value={row.limit!} currency={currency} />
+            {t.rich("limitAmount", { amount: () => <Money value={row.limit!} currency={currency} /> })}
           </div>
         </div>
         {canManage ? (
-          <Button variant="ghost" size="icon-sm" onClick={onEdit} aria-label="Изменить лимит">
+          <Button variant="ghost" size="icon-sm" onClick={onEdit} aria-label={t("editLimit")}>
             <Pencil />
           </Button>
         ) : null}
@@ -114,24 +118,24 @@ function BudgetCard({ row, canManage, onEdit }: { row: BudgetRow; canManage: boo
       </div>
       <div className="mt-2 flex items-center justify-between gap-2 text-xs">
         <span className="text-muted-foreground">
-          потрачено <Money value={row.spent} currency={currency} className="font-medium text-foreground" /> · {percent}%
+          {t.rich("spentAmount", { amount: () => <Money value={row.spent} currency={currency} className="font-medium text-foreground" />, percent: new Intl.NumberFormat(locale, { style: "percent" }).format(percent / 100) })}
         </span>
         <span className={cn("flex items-center gap-1 font-medium", over ? "text-destructive" : warn ? "text-warning" : "text-muted-foreground")}>
           {over ? <AlertTriangle className="size-3.5" /> : warn ? <AlertTriangle className="size-3.5" /> : <CircleCheck className="size-3.5" />}
           {over ? (
             <>
-              превышен на <Money value={-row.remaining!} currency={currency} />
+              {t.rich("overAmount", { amount: () => <Money value={-row.remaining!} currency={currency} /> })}
             </>
           ) : (
             <>
-              осталось <Money value={row.remaining!} currency={currency} />
+              {t.rich("leftAmount", { amount: () => <Money value={row.remaining!} currency={currency} /> })}
             </>
           )}
         </span>
       </div>
       {row.planned > 0 ? (
         <p className="mt-1 text-xs text-muted-foreground">
-          ещё запланировано <Money value={row.planned} currency={currency} />
+          {t.rich("plannedAmount", { amount: () => <Money value={row.planned} currency={currency} /> })}
         </p>
       ) : null}
     </li>
@@ -147,8 +151,10 @@ function LimitDialog({ row, onClose }: { row: BudgetRow | null; onClose: () => v
 }
 
 function LimitForm({ row, onClose }: { row: BudgetRow; onClose: () => void }) {
+  const t = useTranslations("budgets")
+  const locale = useLocale()
   const { currency } = useCatalog()
-  const [value, setValue] = useState(row.limit ? minorToInput(row.limit, currency) : "")
+  const [value, setValue] = useState(row.limit ? minorToInput(row.limit, currency, locale) : "")
   const { pending, run } = useAction()
   return (
     <form
@@ -157,15 +163,15 @@ function LimitForm({ row, onClose }: { row: BudgetRow; onClose: () => void }) {
         e.preventDefault()
         const amount = parseMoney(value, currency)
         if (!amount) return
-        run(() => setBudgetAction({ categoryId: row.id, amount }), { success: "Лимит сохранён", onSuccess: onClose })
+        run(() => setBudgetAction({ categoryId: row.id, amount }), { success: t("saved"), onSuccess: onClose })
       }}
     >
       <DialogHeader>
-        <DialogTitle>Лимит: {row.name}</DialogTitle>
-        <DialogDescription>Сумма на месяц. При превышении появится предупреждение, операции не блокируются.</DialogDescription>
+        <DialogTitle>{t("limitTitle", { name: row.name })}</DialogTitle>
+        <DialogDescription>{t("limitHint")}</DialogDescription>
       </DialogHeader>
       <Field>
-        <FieldLabel htmlFor="limit">Лимит в месяц</FieldLabel>
+        <FieldLabel htmlFor="limit">{t("limitPerMonth")}</FieldLabel>
         <MoneyInput currency={currency} id="limit" autoFocus value={value} onChange={setValue} />
       </Field>
       <DialogFooter>
@@ -175,16 +181,16 @@ function LimitForm({ row, onClose }: { row: BudgetRow; onClose: () => void }) {
             variant="destructive"
             className="sm:mr-auto"
             disabled={pending}
-            onClick={() => run(() => setBudgetAction({ categoryId: row.id, amount: null }), { success: "Лимит удалён", onSuccess: onClose })}
+            onClick={() => run(() => setBudgetAction({ categoryId: row.id, amount: null }), { success: t("removed"), onSuccess: onClose })}
           >
-            Убрать лимит
+            {t("removeLimit")}
           </Button>
         ) : null}
         <Button type="button" variant="outline" onClick={onClose}>
-          Отмена
+          {t("cancel")}
         </Button>
         <Button type="submit" disabled={pending || !parseMoney(value, currency)}>
-          Сохранить
+          {t("save")}
         </Button>
       </DialogFooter>
     </form>
