@@ -53,6 +53,8 @@ it.each([
         ('00000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000003', 'RUB', 9007199254740000);
       insert into categories(id, household_id, kind, name) values
         ('00000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000003', 'expense', 'Food');
+      insert into category_budgets(household_id, category_id, amount, updated_by) values
+        ('00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000005', 15000, '00000000-0000-4000-8000-000000000001');
       insert into transactions(household_id, type, status, title, date, account_id, category_id, amount) values
         ('00000000-0000-4000-8000-000000000003', 'expense', 'posted', 'Preserved expense', '2026-10-22', '00000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000005', 12345);
       insert into oidc_provider_settings(id, enabled, issuer_url, client_id, client_secret_encrypted, scopes) values
@@ -68,6 +70,8 @@ it.each([
       households: (await db.query("select * from households order by id")).rows,
       memberships: (await db.query("select * from household_members order by user_id")).rows,
       balances: (await db.query("select id, opening_balance::text, version from financial_accounts order by id")).rows,
+      categories: (await db.query("select id, household_id, kind, name from categories order by id")).rows,
+      budgets: (await db.query("select household_id, category_id, amount::text from category_budgets order by id")).rows,
       transactions: (await db.query("select id, household_id, title, date::text, amount::text, version from transactions order by id")).rows,
       oidc: (await db.query("select * from oidc_provider_settings")).rows,
     })
@@ -83,7 +87,15 @@ it.each([
     expect((await db.query("select locale, last_seen_locale from users order by id")).rows).toEqual(locales)
     const journalAfter = (await db.query("select * from drizzle.__drizzle_migrations order by id")).rows
     expect(journalAfter.slice(0, count)).toEqual(journalBefore)
-    expect(journalAfter).toMatchObject(history.entries.map((entry) => ({ hash: entry.hash, created_at: entry.when })))
+    expect(journalAfter.slice(0, history.entries.length)).toMatchObject(history.entries.map((entry) => ({ hash: entry.hash, created_at: entry.when })))
+    const current = JSON.parse(await readFile(path.join(migrations, "meta/_journal.json"), "utf8")) as { entries: { tag: string; when: number }[] }
+    const applied = await Promise.all(current.entries.map(async (entry) => ({
+      hash: createHash("sha256").update(await readFile(path.join(migrations, `${entry.tag}.sql`))).digest("hex"),
+      created_at: entry.when,
+    })))
+    expect(journalAfter).toMatchObject(applied)
+    expect((await db.query("select version from categories")).rows).toEqual([{ version: 1 }])
+    expect((await db.query("select version from category_budgets")).rows).toEqual([{ version: 1 }])
 
     await runMigrations(url, migrations)
     expect(await snapshot()).toEqual(before)
