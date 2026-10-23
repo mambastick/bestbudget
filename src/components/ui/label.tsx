@@ -1,3 +1,4 @@
+// shadcn/ui - MIT License; see THIRD_PARTY_NOTICES.md.
 "use client"
 
 import * as React from "react"

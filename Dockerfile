@@ -20,7 +20,7 @@ ARG REVISION=unknown
 LABEL org.opencontainers.image.title="BestBudget" \
       org.opencontainers.image.description="Self-hosted family budget: income, expenses, recurring payments and cash-flow forecast" \
       org.opencontainers.image.source="https://github.com/mambastick/bestbudget" \
-      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.licenses="MIT AND ISC AND LicenseRef-React-Bits AND LicenseRef-Animate-UI" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}"
 WORKDIR /app
@@ -31,6 +31,8 @@ COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/public ./public
 COPY --from=build --chown=node:node /app/drizzle ./drizzle
 COPY --from=build --chown=node:node /app/dist-scripts/admin.mjs /app/dist-scripts/migrate.mjs ./dist-scripts/
+COPY --chown=node:node LICENSE THIRD_PARTY_NOTICES.md ./
+COPY --chown=node:node LICENSES ./LICENSES
 COPY --chown=node:node docker-entrypoint.sh ./
 USER node
 EXPOSE 3000

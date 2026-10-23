@@ -1,3 +1,4 @@
+// Animate UI - MIT + Commons Clause License Condition; see THIRD_PARTY_NOTICES.md.
 'use client';
 
 import * as React from 'react';

@@ -1,3 +1,4 @@
+// shadcn/ui - MIT License; see THIRD_PARTY_NOTICES.md.
 import { cn } from "@/lib/utils"
 
 function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
