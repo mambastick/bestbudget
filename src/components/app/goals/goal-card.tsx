@@ -69,7 +69,7 @@ export function GoalCard({ goal: g }: { goal: GoalSummary }) {
                 ? "Нет расходов для расчёта"
                 : GOAL_STATUS_LABELS[g.status]}
         </span>
-        <span>{g.targetDate ? `К ${formatDateFull(g.targetDate)}` : "Без срока"}</span>
+        {g.targetDate ? <span>К {formatDateFull(g.targetDate)}</span> : null}
       </div>
       {known && g.status !== "archived" && g.remaining > 0 && g.monthlyRequired !== null ? (
         <p className="mt-4 text-sm">

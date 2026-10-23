@@ -16,7 +16,7 @@ import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { calculateLoanSchedule, type LoanEventInput, type PrepaymentMode } from "@/domain/loan"
 import { useAction } from "@/hooks/use-action"
-import { addDays, formatDateFull, formatDayShort } from "@/lib/dates"
+import { addDays, formatDateFull, formatMonth } from "@/lib/dates"
 import { formatMoney, formatMoneyCompact, parseMoney } from "@/lib/money"
 import type { getLoan } from "@/server/services/loans"
 import { LoanSchedule } from "./loan-schedule"
@@ -102,7 +102,7 @@ export function LoanDetail({ data: d, today, canManage }: { data: Detail; today:
                 margin={{ left: 0, right: 10, top: 10, bottom: 0 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="date" tickFormatter={formatDayShort} minTickGap={60} fontSize={11} />
+                <XAxis dataKey="date" tickFormatter={formatMonth} minTickGap={60} fontSize={11} />
                 <YAxis width={65} tickFormatter={(v: number) => formatMoneyCompact(v, d.currency)} fontSize={11} />
                 <Tooltip
                   contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8 }}
@@ -129,7 +129,7 @@ export function LoanDetail({ data: d, today, canManage }: { data: Detail; today:
                 <li key={e.id} className="break-words">
                   {formatDateFull(e.date)} ·{" "}
                   {e.type === "rate_change"
-                    ? `Ставка ${e.annualRate}%`
+                    ? `Ставка ${Number(e.annualRate).toLocaleString("ru-RU", { maximumFractionDigits: 6 })}%`
                     : e.type === "reconciliation"
                       ? `Сверен долг ${formatMoney(e.balance!, d.currency)}`
                       : `Досрочно ${formatMoney(e.amount!, d.currency)} · ${e.mode === "reduce_term" ? "уменьшить срок" : "уменьшить платёж"}`}

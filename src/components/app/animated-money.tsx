@@ -35,6 +35,7 @@ export function AnimatedMoney({
           to={Math.abs(value) / scale}
           decimals={value % scale === 0 ? 0 : exponent}
           separator={"\u2009"}
+          decimalSeparator=","
           prefix={value < 0 ? "\u2212" : ""}
           suffix={`\u00a0${symbol}`}
           duration={0.9}

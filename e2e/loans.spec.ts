@@ -152,7 +152,7 @@ test("existing mortgage and savings goal: shared dashboard, calendar and atomic 
     await page.evaluate(() => window.scrollTo(0, 0))
     await page.mouse.move(0, 0)
     await noOverflow()
-    await expect(main.getByLabel("66 115,12 ₽", { exact: true }).first()).toHaveText(/66\s115[,.]12\s₽/)
+    await expect(main.getByLabel("66 115,12 ₽", { exact: true }).first()).toHaveText(/66\s115,12\s₽/)
     // Motion counters and Recharts use JS animations; screenshot's CSS animation option does not finish them.
     let previous = ""
     let stable = 0
