@@ -31,6 +31,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
       tabs={[
         { key: "list", label: "Операции", href: "/transactions" },
         { key: "rules", label: "Регулярные", href: "/transactions?tab=rules" },
+        { key: "import", label: "Импорт выписки", href: "/transactions/import" },
       ]}
     />
   )
