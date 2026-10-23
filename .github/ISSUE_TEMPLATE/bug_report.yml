@@ -12,7 +12,7 @@ body:
     attributes:
       label: BestBudget version
       description: Release version, image tag or commit SHA.
-      placeholder: 1.0.0-beta.3
+      placeholder: 1.0.0-beta.4
     validations:
       required: true
   - type: dropdown
