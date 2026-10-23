@@ -363,6 +363,8 @@ test.describe.serial("single sign-on (OIDC)", () => {
   test("group promotion and demotion take effect on all sessions without changing family roles", async ({ browser }) => {
     const sql = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
     const existing = await browser.newContext({ locale: "ru-RU" })
+    // Keep another admin while demoting the owner: otherwise anonymous login goes to first-run setup.
+    const [recovery] = await sql`insert into users (name, email, role) values ('Recovery admin', 'recovery-oidc@e2e.test', 'admin') returning id`
     try {
       const memberships = await sql`select * from household_members order by household_id, user_id`
       const [owner] = await sql`select id from users where email = ${ADMIN.email}`
@@ -395,6 +397,7 @@ test.describe.serial("single sign-on (OIDC)", () => {
       }
     } finally {
       await sql`update users set role = 'admin', locale = null where email = ${ADMIN.email}`
+      await sql`delete from users where id = ${recovery!.id}`
       await sql.end()
       await existing.close()
     }
