@@ -115,6 +115,7 @@ export interface Candidate {
   kind: "duplicate" | "manual" | "planned" | "transfer"
   transactionId?: string
   transactionType?: "income" | "expense" | "transfer"
+  categoryId?: string | null
   version?: number
   rowIndex?: number
   label: string

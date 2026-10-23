@@ -195,6 +195,7 @@ describe("statement import integration", () => {
     })
     const batch = await preview(h, [line()], { plannedTolerance: 100, plannedDays: 2 })
     expect(batch.rows[0]!.decision).toBe("confirm")
+    expect(batch.rows[0]!.proposal.candidates.find((c) => c.kind === "planned")?.categoryId).toBe(h.cat("Продукты"))
     expect(await commit(h, batch)).toMatchObject({ created: 0, confirmed: 1 })
     expect(await actual(h.ctx.householdId)).toMatchObject([{ id: plan.id, amount: 45000, date: "2026-10-20" }])
     await undoImport(h.ctx, batch.batch.id)

@@ -27,7 +27,7 @@ import type { importBatches, importRows } from "@/db/schema"
 import { canImportRow, type RowDecision } from "@/domain/import/types"
 import type { ActionResult } from "@/server/errors"
 import { formatMoney } from "@/lib/money"
-import { formatDateFull, formatDayShort } from "@/lib/dates"
+import { formatDateFull, formatDayShort, isIsoDate } from "@/lib/dates"
 import { plural } from "@/lib/plural"
 import { cn } from "@/lib/utils"
 import { ImportSelect } from "./import-select"
@@ -61,22 +61,16 @@ function defaultChoice(row: Row): RowDecision {
     candidateIndex: row.decision === "confirm" ? row.proposal.candidates.findIndex((c) => c.kind === "planned") : undefined,
   }
 }
-const localizeDates = (text: string) => text.replace(/\d{4}-\d{2}-\d{2}/g, formatDayShort)
+const localizeDates = (text: string) => text.replace(/\d{4}-\d{2}-\d{2}/g, (date) => (isIsoDate(date) ? formatDayShort(date) : date))
 function decisionOptions(row: Row) {
   const options = [{ value: "skip:", label: "Пропустить" }]
   if (!canImportRow(row.normalized)) return options
-  options.push({
-    value: "create:",
-    label: row.normalized.typeHint === "Перевод" ? "Создать перевод из экспорта" : "Создать операцию",
-  })
+  options.push({ value: "create:", label: row.normalized.typeHint === "Перевод" ? "Создать перевод из экспорта" : "Создать операцию" })
   row.proposal.candidates.forEach((c, i) => {
     if (c.kind === "planned") options.push({ value: `confirm:${i}`, label: localizeDates(c.label) })
     if (c.kind === "transfer") options.push({ value: `transfer:${i}`, label: localizeDates(c.label) })
     if ((c.kind === "manual" || c.kind === "duplicate") && c.transactionId)
-      options.push({
-        value: `link:${i}`,
-        label: `Связать: ${localizeDates(c.label)}`,
-      })
+      options.push({ value: `link:${i}`, label: `Связать: ${localizeDates(c.label)}` })
   })
   return options
 }
@@ -95,6 +89,7 @@ function Amount({ row }: { row: Row }) {
       className={cn(
         "whitespace-nowrap text-sm font-medium tabular-nums",
         (n.amountMinorSigned ?? 0) > 0 && "text-emerald-700 dark:text-emerald-400",
+        (n.amountMinorSigned ?? 0) < 0 && "text-rose-700 dark:text-rose-400",
       )}
     >
       {amount}
@@ -113,13 +108,7 @@ export function ImportPreview({
   rows: Row[]
   categories: Category[]
   accounts: { id: string; name: string }[]
-  reconciliation: {
-    accountId: string
-    currency: string
-    matches: boolean
-    expected: number
-    actual: number
-  }[]
+  reconciliation: { accountId: string; currency: string; matches: boolean; expected: number; actual: number }[]
 }) {
   const router = useRouter()
   const [changes, setChanges] = useState<Record<string, RowDecision>>({})
@@ -127,20 +116,14 @@ export function ImportPreview({
   const [limit, setLimit] = useState(100)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<Row | null>(null)
-  const [similar, setSimilar] = useState<{
-    row: Row
-    categoryId: string
-  } | null>(null)
+  const [similar, setSimilar] = useState<{ row: Row; categoryId: string } | null>(null)
   const [bulkCategory, setBulkCategory] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [acknowledged, setAcknowledged] = useState(false)
   const choiceFor = (row: Row) => changes[row.id] ?? defaultChoice(row)
   const update = (row: Row, patch: Partial<RowDecision>) =>
-    setChanges((old) => ({
-      ...old,
-      [row.id]: { ...(old[row.id] ?? defaultChoice(row)), ...patch },
-    }))
+    setChanges((old) => ({ ...old, [row.id]: { ...(old[row.id] ?? defaultChoice(row)), ...patch } }))
   const filtered = useMemo(() => rows.filter((r) => filter === "all" || rowKind(r) === filter), [rows, filter])
   const visible = filtered.slice(0, limit)
   const toggle = (id: string, checked: boolean) =>
@@ -153,11 +136,7 @@ export function ImportPreview({
   const setDecision = (row: Row, value: string) => {
     const [decision, index] = value.split(":")
     const candidateIndex = index ? Number(index) : undefined
-    update(row, {
-      decision: decision as RowDecision["decision"],
-      candidateIndex,
-      allowDuplicate: false,
-    })
+    update(row, { decision: decision as RowDecision["decision"], candidateIndex, allowDuplicate: false })
     const candidate = candidateIndex === undefined ? undefined : row.proposal.candidates[candidateIndex]
     if (decision === "transfer" && candidate?.rowIndex !== undefined) {
       const other = rows.find((r) => r.rowIndex === candidate.rowIndex)
@@ -176,22 +155,14 @@ export function ImportPreview({
     )
   const canRemember = (row: Row) => !!row.normalized.descriptionNormalized && row.normalized.descriptionNormalized.length <= 200
   const changeCategory = (row: Row, categoryId: string) => {
-    update(row, {
-      categoryId: categoryId === "none" ? null : categoryId,
-      remember: false,
-    })
+    if ((choiceFor(row).categoryId ?? "none") === categoryId) return
+    update(row, { categoryId: categoryId === "none" ? null : categoryId, remember: false })
     if (categoryId !== "none" && canRemember(row)) {
       const count = similarRows(row).length
       const category = categories.find((c) => c.id === categoryId)
       toast(
         `Применить «${category?.name}» к ${count} ${plural(count, "строке", "строкам", "строкам")} «${row.normalized.descriptionNormalized}» и запомнить?`,
-        {
-          duration: 10000,
-          action: {
-            label: "Применить",
-            onClick: () => setSimilar({ row, categoryId }),
-          },
-        },
+        { duration: 10000, action: { label: "Применить", onClick: () => setSimilar({ row, categoryId }) } },
       )
     }
   }
@@ -201,14 +172,7 @@ export function ImportPreview({
     setChanges((old) => ({
       ...old,
       ...Object.fromEntries(
-        targets.map((r) => [
-          r.id,
-          {
-            ...choiceFor(r),
-            categoryId: similar.categoryId,
-            remember: r.id === similar.row.id,
-          },
-        ]),
+        targets.map((r) => [r.id, { ...choiceFor(r), categoryId: similar.categoryId, remember: r.id === similar.row.id }]),
       ),
     }))
     setSimilar(null)
@@ -219,21 +183,8 @@ export function ImportPreview({
       ...old,
       ...Object.fromEntries(
         rows
-          .filter(
-            (r) =>
-              selected.has(r.id) &&
-              (decision === "skip" ||
-                (canImportRow(r.normalized) && !r.proposal.candidates.some((c) => c.kind === "duplicate" || c.kind === "manual"))),
-          )
-          .map((r) => [
-            r.id,
-            {
-              ...choiceFor(r),
-              decision,
-              candidateIndex: undefined,
-              remember: false,
-            },
-          ]),
+          .filter((r) => selected.has(r.id) && (decision === "skip" || (canImportRow(r.normalized) && !r.proposal.candidates.length)))
+          .map((r) => [r.id, { ...choiceFor(r), decision, candidateIndex: undefined, remember: false }]),
       ),
     }))
     setSelected(new Set())
@@ -254,7 +205,13 @@ export function ImportPreview({
             ? `transfer:${candidate.transactionId}`
             : row.id,
     )
-    if (choice.decision === "transfer" || n.typeHint === "Перевод" || n.amountMinorSigned === null) continue
+    if (
+      choice.decision === "transfer" ||
+      candidate?.transactionType === "transfer" ||
+      n.typeHint === "Перевод" ||
+      n.amountMinorSigned === null
+    )
+      continue
     const t = totals.get(n.currency) ?? { income: 0n, expense: 0n }
     if (n.amountMinorSigned > 0) t.income += BigInt(n.amountMinorSigned)
     else t.expense -= BigInt(n.amountMinorSigned)
@@ -274,12 +231,7 @@ export function ImportPreview({
       form.set("mode", "commit")
       form.set(
         "config",
-        JSON.stringify({
-          batchId: batch.id,
-          version: batch.version,
-          decisions: Object.values(changes),
-          acknowledgeBalance: acknowledged,
-        }),
+        JSON.stringify({ batchId: batch.id, version: batch.version, decisions: Object.values(changes), acknowledgeBalance: acknowledged }),
       )
       const result = (await (await fetch("/api/import", { method: "POST", body: form })).json()) as ActionResult<unknown>
       if (!result.ok) {
@@ -309,17 +261,24 @@ export function ImportPreview({
     const kind = rowKind(row),
       choice = choiceFor(row)
     const candidate = row.proposal.candidates[choice.candidateIndex ?? -1] ?? row.proposal.candidates.find((c) => c.kind === kind)
-    if (kind === "error") return "Ошибка"
+    if (kind === "error") return row.normalized.errors.some((e) => e.includes("кредит")) ? "Кредит · исключён" : "Ошибка"
     if (choice.decision === "link") return "Уже есть · связать"
-    if (kind === "duplicate") return choice.decision === "create" ? "Дубль · создать" : "Дубль · пропуск"
-    if (choice.decision === "skip") return "Пропущена"
-    if (kind === "planned")
+    if (choice.decision === "skip") return kind === "duplicate" ? "Дубль · пропуск" : "Пропущена"
+    if (choice.decision === "confirm")
       return `Плановая · ${localizeDates(candidate?.label ?? "выберите платёж").replace(/^Подтвердить плановую: .*? · /, "")}`
-    if (kind === "transfer") {
+    if (choice.decision === "transfer" || row.normalized.typeHint === "Перевод") {
       const other = rows.find((r) => r.rowIndex === candidate?.rowIndex)
       return other ? `Перевод → ${accountName(other)}` : "Перевод"
     }
+    if (kind === "duplicate") return "Дубль · создать"
+    if (kind === "transfer") return "Новая · возможен перевод"
+    if (kind === "planned") return "Новая · есть плановая"
     return "Новая"
+  }
+  const displayedCategory = (row: Row) => {
+    const choice = choiceFor(row)
+    const candidate = row.proposal.candidates[choice.candidateIndex ?? -1]
+    return choice.decision === "confirm" && candidate && "categoryId" in candidate ? candidate.categoryId : choice.categoryId
   }
   const categoryOptions = (row: Row) => [
     { value: "none", label: "Без категории" },
@@ -331,7 +290,7 @@ export function ImportPreview({
     <ImportSelect
       compact={compact}
       label={`Категория: ${row.normalized.descriptionRaw || row.rowLocator}`}
-      value={choiceFor(row).categoryId ?? "none"}
+      value={displayedCategory(row) ?? "none"}
       onChange={(id) => changeCategory(row, id)}
       options={categoryOptions(row)}
       disabled={choiceFor(row).decision !== "create" || row.normalized.typeHint === "Перевод"}
@@ -386,17 +345,25 @@ export function ImportPreview({
       </DropdownMenuContent>
     </DropdownMenu>
   )
-  const issues = (row: Row) => [...row.normalized.errors, ...row.normalized.warnings]
+  const issues = (row: Row) => [...row.normalized.errors, ...row.normalized.warnings].map(localizeDates)
   const warnings = batch.warnings.filter((w) => !w.startsWith("Дата учёта"))
   const transferCount = new Set(
-    rows.filter((r) => r.transactionId && (r.decision === "transfer" || r.normalized.typeHint === "Перевод")).map((r) => r.transactionId),
+    rows
+      .filter(
+        (r) =>
+          r.transactionId &&
+          (r.decision === "transfer" ||
+            r.normalized.typeHint === "Перевод" ||
+            r.proposal.candidates.some((c) => c.transactionId === r.transactionId && c.transactionType === "transfer")),
+      )
+      .map((r) => r.transactionId),
   ).size
   if (batch.status !== "draft")
     return (
       <>
         <ImportStepper step={4} />
         <Section title={batch.status === "committed" ? "Готово" : "Импорт отменён"} description="Результат импорта сохранён в истории.">
-          <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mb-5 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:grid-cols-4">
             {[
               ["Создано", batch.counters.created],
               ["Плановых подтверждено", batch.counters.confirmed],
@@ -560,7 +527,7 @@ export function ImportPreview({
               </Button>
             </div>
           ) : null}
-          <div className="flex items-center gap-2 text-xs text-muted-foreground lg:hidden">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground xl:hidden">
             <Checkbox
               aria-label="Выбрать показанные строки"
               checked={!!visible.length && visible.every((r) => selected.has(r.id))}
@@ -578,7 +545,7 @@ export function ImportPreview({
             Выбрать показанные
           </div>
           <div className="min-w-0">
-            <div className="hidden grid-cols-[1.5rem_4rem_minmax(0,1fr)_8.5rem_9rem_10rem] items-center gap-2 border-b pb-2 text-xs text-muted-foreground lg:grid">
+            <div className="hidden grid-cols-[1.5rem_4rem_minmax(0,1fr)_8.5rem_9rem_10rem] items-center gap-2 border-b pb-2 text-xs text-muted-foreground xl:grid">
               <Checkbox
                 aria-label="Выбрать показанные строки"
                 checked={!!visible.length && visible.every((r) => selected.has(r.id))}
@@ -605,23 +572,23 @@ export function ImportPreview({
                   key={row.id}
                   data-testid="import-row"
                   className={cn(
-                    "grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-2 py-3 lg:grid-cols-[1.5rem_4rem_minmax(0,1fr)_8.5rem_9rem_10rem] lg:items-center lg:py-2",
+                    "grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-2 py-3 xl:grid-cols-[1.5rem_4rem_minmax(0,1fr)_8.5rem_9rem_10rem] xl:items-center xl:py-2",
                     selected.has(row.id) && "bg-primary/5",
                   )}
                 >
                   <Checkbox
-                    className="mt-1 lg:mt-0"
+                    className="mt-1 xl:mt-0"
                     aria-label={`Выбрать: ${row.normalized.descriptionRaw || row.rowLocator}`}
                     checked={selected.has(row.id)}
                     onCheckedChange={(v) => toggle(row.id, v === true)}
                   />
                   <span
-                    className="hidden text-xs text-muted-foreground lg:block"
+                    className="hidden text-xs text-muted-foreground xl:block"
                     title={row.normalized.effectiveDate ? formatDateFull(row.normalized.effectiveDate) : undefined}
                   >
                     {row.normalized.effectiveDate ? formatDayShort(row.normalized.effectiveDate) : "—"}
                   </span>
-                  <div className="hidden min-w-0 lg:block">
+                  <div className="hidden min-w-0 xl:block">
                     <p className="truncate text-sm" title={row.normalized.descriptionRaw}>
                       {row.normalized.descriptionRaw || "Без описания"}
                     </p>
@@ -630,11 +597,11 @@ export function ImportPreview({
                       {accountName(row)}
                     </p>
                   </div>
-                  <div className="hidden text-right lg:block">
+                  <div className="hidden text-right xl:block">
                     <Amount row={row} />
                   </div>
-                  <div className="hidden min-w-0 lg:block">{categorySelect(row, true)}</div>
-                  <div className="hidden min-w-0 items-center gap-1 lg:flex">
+                  <div className="hidden min-w-0 xl:block">{categorySelect(row, true)}</div>
+                  <div className="hidden min-w-0 items-center gap-1 xl:flex">
                     {rowMenu(row)}
                     {issues(row).length ? (
                       <Tooltip>
@@ -658,7 +625,7 @@ export function ImportPreview({
                   <button
                     type="button"
                     onClick={() => setEditing(row)}
-                    className="grid min-w-0 gap-1 text-left lg:hidden"
+                    className="grid min-w-0 gap-1 text-left xl:hidden"
                     aria-label={`Изменить: ${row.normalized.descriptionRaw || row.rowLocator}`}
                   >
                     <span className="flex min-w-0 items-start justify-between gap-2">
@@ -668,7 +635,7 @@ export function ImportPreview({
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                       <span>{row.normalized.effectiveDate ? formatDayShort(row.normalized.effectiveDate) : "Ошибка даты"}</span>
                       <span className="max-w-32 truncate rounded bg-muted px-1.5 py-0.5">
-                        {categories.find((c) => c.id === choiceFor(row).categoryId)?.name ?? "Без категории"}
+                        {categories.find((c) => c.id === displayedCategory(row))?.name ?? "Без категории"}
                       </span>
                       <span
                         className={cn(
@@ -823,10 +790,7 @@ export function ImportPreview({
             value="none"
             options={[
               { value: "none", label: "Выберите категорию" },
-              ...categories.map((c) => ({
-                value: c.id,
-                label: `${c.kind === "income" ? "Доход" : "Расход"} · ${c.name}`,
-              })),
+              ...categories.map((c) => ({ value: c.id, label: `${c.kind === "income" ? "Доход" : "Расход"} · ${c.name}` })),
             ]}
             onChange={(id) => {
               const category = categories.find((c) => c.id === id)

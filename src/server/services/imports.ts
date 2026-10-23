@@ -453,7 +453,7 @@ async function addCandidates(db: DbOrTx, ctx: HouseholdCtx, rows: PreviewRow[], 
       }
       for (let i = lo; i < bucket.length && bucket[i]!.amount <= amount + input.plannedTolerance && planCount < 20; i++, planCount++) {
         const t = bucket[i]!
-        candidates.push({ kind: "planned", transactionId: t.id, version: t.version, transactionType: t.type, label: `Подтвердить плановую: ${t.date} · ${t.title}` })
+        candidates.push({ kind: "planned", transactionId: t.id, version: t.version, transactionType: t.type, categoryId: t.categoryId, label: `Подтвердить плановую: ${t.date} · ${t.title}` })
       }
     }
     let transferCount = 0
