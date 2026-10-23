@@ -334,10 +334,13 @@ test.describe.serial("single sign-on (OIDC)", () => {
 
   test("linked user signs in with SSO; unknown SSO users need an invitation", async ({ browser }) => {
     identity = { sub: "owner-sub", email: ADMIN.email, email_verified: true, name: ADMIN.name }
-    const page = await (await browser.newContext({ locale: "ru-RU" })).newPage()
+    const context = await browser.newContext({ locale: "ru-RU" })
+    await context.addInitScript(() => Object.defineProperty(navigator, "standalone", { get: () => true }))
+    const page = await context.newPage()
     await page.goto("/login")
     await page.getByRole("button", { name: "Войти через Keycloak" }).click()
     await expect(page).toHaveURL(/\/dashboard/)
+    await expect(page.locator("html")).toHaveClass(/standalone/)
     await expect(page.getByText(ADMIN.email)).toBeVisible()
 
     identity = { sub: "stranger-sub", email: "stranger@e2e.test", email_verified: true, name: "Stranger" }
