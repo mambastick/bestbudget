@@ -24,6 +24,8 @@ import { chatResponse } from "@/server/ai/chat"
 import { applyProposal, createProposal, listProposals } from "@/server/ai/proposals"
 import { buildTools, toolRegistry } from "@/server/ai/tools"
 import { setBudget } from "@/server/services/budgets"
+import { createAccount } from "@/server/services/catalog"
+import { todayIn } from "@/lib/dates"
 import { createTransaction } from "@/server/services/transactions"
 import { AI_TURN_RESERVATION } from "@/domain/ai/types"
 
@@ -324,4 +326,12 @@ describe("AI foundation", () => {
     await expect(applyProposal(f.ctx, proposal.id, [proposal.items[0]!.id])).rejects.toMatchObject({ code: "conflict" })
     expect(await db.select().from(categoryBudgets).where(eq(categoryBudgets.householdId, f.ctx.householdId))).toHaveLength(0)
   })
+  it("warns the model when a planned foreign-currency payment has no exchange rate", async () => {
+    const f = await enabled()
+    const account = await createAccount(f.ctx, { name: "USD", kind: "cash", currency: "USD", openingBalance: 0 })
+    await createTransaction(f.ctx, { type: "expense", status: "planned", accountId: account.id, categoryId: f.cat("Продукты"), date: todayIn(f.ctx.timezone), amount: 100 })
+    const result = await toolRegistry.get("get_forecast")!.execute({ days: 7 }, { ctx: f.ctx, conversationId: f.conversation.id, messageId: randomUUID() }) as { warnings: string[] }
+    expect(result.warnings.some((warning) => warning.includes("USD"))).toBe(true)
+  })
+
 })

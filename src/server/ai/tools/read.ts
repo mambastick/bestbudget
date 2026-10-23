@@ -67,7 +67,7 @@ registerTool({
       month,
       budgets,
       cashGaps: forecast.days.filter((d) => d.balance < 0),
-      warnings: [...finance.fx.warnings],
+      warnings: [...new Set([...finance.fx.warnings, ...forecast.warnings])],
     }
   },
 })
@@ -184,11 +184,10 @@ registerTool({
   kind: "read",
   description: "Daily balance forecast for 1–366 days; no descriptions or notes.",
   inputSchema: forecastInput,
-  execute: async (input, { ctx }) => ({
-    currency: ctx.currency,
-    days: (await projection(ctx, todayIn(ctx.timezone), addDays(todayIn(ctx.timezone), input.days - 1), todayIn(ctx.timezone), ctx.locale))
-      .days,
-  }),
+  execute: async (input, { ctx }) => {
+    const forecast = await projection(ctx, todayIn(ctx.timezone), addDays(todayIn(ctx.timezone), input.days - 1), todayIn(ctx.timezone), ctx.locale)
+    return { currency: ctx.currency, days: forecast.days, warnings: forecast.warnings }
+  },
 })
 registerTool({
   name: "search_transactions",
