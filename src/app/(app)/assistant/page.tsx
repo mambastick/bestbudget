@@ -18,7 +18,7 @@ export default async function AssistantPage({ searchParams }: { searchParams: Pr
     t = await getTranslations("ai")
   if (!view.enabled) notFound()
   const id = (await searchParams).id
-  if (id) await getConversation(ctx, id)
+  const conversation = id ? await getConversation(ctx, id) : null
   const [conversations, messages, proposals, accounts, categories] = await Promise.all([
     listConversations(ctx),
     id ? conversationMessages(ctx, id) : [],
@@ -35,6 +35,7 @@ export default async function AssistantPage({ searchParams }: { searchParams: Pr
       <AiChat
         key={id ?? "new"}
         id={id}
+        kind={conversation?.kind}
         initialMessages={messages}
         conversations={conversations}
         proposals={proposals.map(({ id, messageId, title, status, items, expiresAt }) => ({

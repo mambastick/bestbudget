@@ -26,6 +26,7 @@ export interface ProposalItem {
   beforeFieldCurrencies?: Record<string, string>
   householdCurrency: string
   householdTimezone: string
+  dependsOn?: string[]
   result?: { href: string; entityId?: string }
 }
 export const AI_MAX_STEPS = 8

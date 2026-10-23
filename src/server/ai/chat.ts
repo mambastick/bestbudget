@@ -2,6 +2,7 @@ import "server-only"
 import { convertToModelMessages, streamText, stepCountIs, consumeStream } from "ai"
 import { z } from "zod"
 import { AI_MAX_CONTEXT_BYTES, AI_MAX_OUTPUT_TOKENS, AI_MAX_STEPS } from "@/domain/ai/types"
+import { assetTranslator } from "@/i18n/assets"
 import { errorMessage } from "@/i18n/errors"
 import { todayIn } from "@/lib/dates"
 import type { HouseholdCtx } from "@/server/context"
@@ -29,7 +30,7 @@ export async function chatResponse(
   const started = Date.now()
   try {
     const tools = await buildTools({ ctx, conversationId: turn.conversationId, messageId: turn.messageId, kind: turn.kind })
-    const system = systemPrompt(ctx) + (options.instructions ?? "")
+    const system = systemPrompt(ctx) + (turn.kind === "onboarding" ? "\n" + assetTranslator("ai", ctx.locale)("interview.system") : "") + (options.instructions ?? "")
     const toolBytes = Buffer.byteLength(
       JSON.stringify(
         Object.fromEntries(

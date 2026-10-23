@@ -1,5 +1,5 @@
 import "server-only"
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, sql, notInArray, isNull, or, lt, ne } from "drizzle-orm"
 import { getDb } from "@/db"
 import { financialAccounts, transactions, loanEvents, loans } from "@/db/schema"
 import { addDays, todayIn } from "@/lib/dates"
@@ -12,7 +12,7 @@ import { createConverter, loadRates } from "./exchange-rates"
  * Grouping bounds the data transferred; query count is independent of operation count. The existing
  * transactions_household_status_date_idx (household_id, status, date), created in 0000, scopes this scan.
  */
-export async function loadFinance(ctx: HouseholdCtx, valuationDates: string[] = [], locale = "ru") {
+export async function loadFinance(ctx: HouseholdCtx, valuationDates: string[] = [], locale = "ru", excludeRules: string[] = []) {
   const db = getDb()
   const today = todayIn(ctx.timezone)
   const [accounts, grouped, adjustments] = await Promise.all([
@@ -27,7 +27,7 @@ export async function loadFinance(ctx: HouseholdCtx, valuationDates: string[] = 
       amount: sql<string>`sum(${transactions.amount})`,
       toAmount: sql<string>`sum(coalesce(${transactions.toAmount}, ${transactions.amount}))`,
       count: sql<number>`count(*)::int`,
-    }).from(transactions).where(and(eq(transactions.householdId, ctx.householdId), sql`${transactions.status} <> 'skipped'`))
+    }).from(transactions).where(and(eq(transactions.householdId, ctx.householdId), sql`${transactions.status} <> 'skipped'`, excludeRules.length ? or(ne(transactions.status, "planned"), lt(transactions.occurrenceDate, today), isNull(transactions.recurringRuleId), notInArray(transactions.recurringRuleId, excludeRules)) : undefined))
       .groupBy(transactions.accountId, transactions.toAccountId, transactions.categoryId, transactions.date, transactions.type, transactions.status),
     db.select({ accountId: loans.accountId, date: loanEvents.date, delta: loanEvents.balanceDelta }).from(loanEvents)
       .innerJoin(loans, and(eq(loans.householdId, loanEvents.householdId), eq(loans.id, loanEvents.loanId)))

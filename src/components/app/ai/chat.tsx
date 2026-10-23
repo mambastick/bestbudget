@@ -2,7 +2,7 @@
 
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, isToolUIPart, getToolName, type UIMessage } from "ai"
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useSyncExternalStore, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useTranslations } from "next-intl"
 import Markdown from "react-markdown"
@@ -18,10 +18,14 @@ import { SidebarTrigger } from "@/components/ui/sidebar"
 import { LinkButton } from "@/components/app/link-button"
 import { useAction } from "@/hooks/use-action"
 import type { HouseholdRole } from "@/domain/permissions"
+import { can } from "@/domain/permissions"
+import { INTERVIEW_STEPS, interviewProgress } from "@/domain/ai/interview"
+import { InterviewStart } from "./interview-start"
 import { ProposalCard, type ProposalView } from "./proposal-card"
 
 export function AiChat({
   id,
+  kind,
   initialMessages,
   conversations,
   proposals,
@@ -30,6 +34,7 @@ export function AiChat({
   names,
 }: {
   id?: string
+  kind?: "chat" | "onboarding" | "review"
   initialMessages: UIMessage[]
   conversations: { id: string; title: string }[]
   proposals: ProposalView[]
@@ -64,6 +69,13 @@ export function AiChat({
     generateId: () => crypto.randomUUID(),
     onFinish: () => router.refresh(),
   })
+  const hydrated = useSyncExternalStore(
+    subscribe,
+    () => true,
+    () => false,
+  )
+  const progress = kind === "onboarding" ? interviewProgress(messages) : null
+  const restricted = kind === "onboarding" && !can(role, "catalog.manage")
   const busy = status === "submitted" || status === "streaming"
   useEffect(() => {
     const viewport = window.visualViewport
@@ -103,7 +115,7 @@ export function AiChat({
   function conversationList() {
     return (
       <>
-        <Button className="w-full" variant="outline" disabled={pending || busy || navigating} onClick={newConversation}>
+        <Button className="w-full" variant="outline" disabled={!hydrated || pending || busy || navigating} onClick={newConversation}>
           <Plus className="size-4" />
           {t("newChat")}
         </Button>
@@ -129,7 +141,7 @@ export function AiChat({
                     <Button
                       variant="ghost"
                       size="icon"
-                      disabled={pending || busy || navigating}
+                      disabled={!hydrated || pending || busy || navigating}
                       aria-label={t("conversationMenu", { title: c.title })}
                     />
                   }
@@ -192,7 +204,7 @@ export function AiChat({
           </h1>
           <LinkButton href="/assistant/recommendations" size="sm" variant="ghost">{t("review.title")}</LinkButton>
           <Sheet open={dialogsOpen} onOpenChange={setDialogsOpen}>
-            <SheetTrigger render={<Button variant="outline" size="sm" />}>
+            <SheetTrigger render={<Button variant="outline" size="sm" disabled={!hydrated} />}>
               <MessagesSquare className="size-4" />
               {t("conversations")}
             </SheetTrigger>
@@ -204,6 +216,38 @@ export function AiChat({
             </SheetContent>
           </Sheet>
         </header>
+        {kind === "onboarding" ? (
+          <div className="shrink-0 space-y-2 border-b p-3" data-testid="ai-interview-progress">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <p className="font-medium">
+                {t("interview.step", { step: progress ? INTERVIEW_STEPS.indexOf(progress.step) + 1 : 1 })} ·{" "}
+                {t(`interview.steps.${progress?.step ?? "income"}`)}
+              </p>
+              <LinkButton
+                href="/dashboard"
+                variant="ghost"
+                size="sm"
+                aria-disabled={busy}
+                onClick={(e) => {
+                  if (busy) e.preventDefault()
+                }}
+              >
+                {t("interview.pause")}
+              </LinkButton>
+            </div>
+            <ol className="grid grid-cols-5 gap-1" aria-label={t("interview.title")}>
+              {INTERVIEW_STEPS.map((step, index) => (
+                <li
+                  key={step}
+                  aria-current={step === (progress?.step ?? "income") ? "step" : undefined}
+                  title={t(`interview.steps.${step}`)}
+                  className={`h-1 rounded-full ${index <= (progress ? INTERVIEW_STEPS.indexOf(progress.step) : 0) ? "bg-primary" : "bg-muted"}`}
+                />
+              ))}
+            </ol>
+            <p className="text-xs text-muted-foreground">{t("interview.saved")}</p>
+          </div>
+        ) : null}
         <div
           ref={feed}
           data-testid="ai-messages"
@@ -220,12 +264,14 @@ export function AiChat({
           {!messages.length ? (
             <>
               <EmptyState icon={Sparkles} title={t("emptyTitle")} description={t("emptyHint")} />
+              {kind !== "onboarding" && can(role, "catalog.manage") ? <InterviewStart /> : null}
               <div className="flex flex-wrap gap-2">
-                {starters.map((key) => (
+                {(kind === "onboarding" ? [] : starters).map((key) => (
                   <Button
                     key={key}
                     variant="outline"
                     className="h-auto max-w-full whitespace-normal text-left"
+                    disabled={!hydrated}
                     onClick={() => edit(t(`starters.${key}`))}
                   >
                     {t(`starters.${key}`)}
@@ -251,11 +297,35 @@ export function AiChat({
               {proposals
                 .filter((p) => p.messageId === m.id)
                 .map((p) => (
-                  <ProposalCard key={p.id} proposal={p} role={role} names={names} onEdit={edit} />
+                  <ProposalCard key={p.id} interview={kind === "onboarding"} proposal={p} role={role} names={names} onEdit={edit} />
                 ))}
             </div>
           ))}
         </div>
+        {restricted ? (
+          <p role="alert" className="border-t p-3 text-sm text-muted-foreground">
+            {t("noPermission")}
+          </p>
+        ) : null}
+        {progress && !busy && !error && !proposals.some((p) => p.messageId === messages.at(-1)?.id) ? (
+          <div className="flex shrink-0 flex-wrap gap-2 border-t px-3 py-2" data-testid="ai-interview-chips">
+            {progress.quickReplies.map((reply) => (
+              <Button
+                key={reply}
+                size="sm"
+                variant="outline"
+                className="h-auto max-w-full whitespace-normal text-left"
+                disabled={!hydrated || restricted || pending}
+                onClick={() => {
+                  scrollToLatest()
+                  void sendMessage({ text: reply })
+                }}
+              >
+                {reply}
+              </Button>
+            ))}
+          </div>
+        ) : null}
         {!pinned ? (
           <Button variant="secondary" size="sm" className="mx-auto my-1 shrink-0" onClick={scrollToLatest}>
             <ArrowDown className="size-4" />
@@ -295,7 +365,7 @@ export function AiChat({
           className="flex shrink-0 items-end gap-2 border-t bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
           onSubmit={(e) => {
             e.preventDefault()
-            if (!input.trim() || busy) return
+            if (!hydrated || restricted || !input.trim() || busy) return
             if (!id) {
               run(createAiConversationAction, {
                 onSuccess: (data) => {
@@ -319,7 +389,7 @@ export function AiChat({
           />
           <Textarea
             ref={field}
-            disabled={pending || navigating}
+            disabled={!hydrated || restricted || pending || navigating}
             value={input}
             maxLength={4000}
             placeholder={t("placeholder")}
@@ -338,7 +408,12 @@ export function AiChat({
               <Square className="size-4" />
             </Button>
           ) : (
-            <Button type="submit" size="icon" disabled={!input.trim() || pending || navigating} aria-label={t("send")}>
+            <Button
+              type="submit"
+              size="icon"
+              disabled={!hydrated || restricted || !input.trim() || pending || navigating}
+              aria-label={t("send")}
+            >
               <Send className="size-4" />
             </Button>
           )}
@@ -361,3 +436,5 @@ function DraftLoader({ id, onDraft }: { id?: string; onDraft: (text: string) => 
   }, [id, onDraft])
   return null
 }
+
+const subscribe = () => () => {}

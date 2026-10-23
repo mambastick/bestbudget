@@ -99,7 +99,10 @@
     "goal_update": "Update goal",
     "goal_automate": "Automatic goal top-up",
     "transaction_recategorize": "Transaction category",
-    "import_rule": "Categorization rule"
+    "import_rule": "Categorization rule",
+    "recurring_planned": "Recurring operation in a new category",
+    "budget_planned": "New category limit",
+    "goal_create_automated": "Goal with automatic top-ups"
   },
   "fields": {
     "name": "Name",
@@ -136,7 +139,10 @@
     "description": "Description",
     "mcc": "MCC",
     "minAmount": "Minimum amount",
-    "maxAmount": "Maximum amount"
+    "maxAmount": "Maximum amount",
+    "categoryName": "Category",
+    "topupAmount": "Automatic top-up amount",
+    "sourceAccountId": "Source account"
   },
   "values": {
     "income": "Income",
@@ -178,7 +184,10 @@
     "propose_recategorize": "Preparing categorization…",
     "propose_account": "Preparing a new account…",
     "get_review_period": "Comparing budget periods",
-    "submit_budget_review": "Preparing recommendations"
+    "submit_budget_review": "Preparing recommendations",
+    "get_interview_context": "Reviewing your existing plan…",
+    "interview_step": "Preparing the next question…",
+    "propose_budget_plan": "Calculating your budget plan…"
   },
   "conversations": "Conversations",
   "minorUnits": "{value} minor units in the transaction currency",
@@ -263,5 +272,27 @@
     "dataChanged": "Data has changed since the review",
     "runAgain": "Review again",
     "settingsLink": "Review settings → Household"
+  },
+  "interview": {
+    "title": "Build a budget with AI",
+    "description": "Answer a few questions about income, bills and goals. Review the plan and choose which changes to apply.",
+    "start": "Start interview",
+    "resume": "Resume interview",
+    "step": "Step {step} of 5",
+    "pause": "Continue later",
+    "saved": "Answers are saved in this conversation. Resume from your conversation list.",
+    "begin": "Help me build a family budget. Start an interview using what you already know.",
+    "dependencies": "Linked items require their category to be selected or already created.",
+    "calendar": "Open calendar",
+    "budgets": "Open budgets",
+    "preparing": "Preparing the assistant…",
+    "steps": {
+      "income": "Income",
+      "fixed": "Bills",
+      "variable": "Variable spending",
+      "goals": "Goals",
+      "preferences": "Preferences"
+    },
+    "system": "This is a budget interview (kind=onboarding). First call get_interview_context. Do not ask again about known accounts, categories, loans, goals or recurring schedules. Guide the user through five steps: income — who earns, amounts and salary/advance dates; fixed — rent/utilities, loans, phone/subscriptions, childcare/school; variable — groceries, transport, entertainment; goals — emergency fund and large purchases, explicit agreement to automatic top-ups with accounts and dates; preferences — strict or flexible limits. Call interview_step with 1–2 questions and useful English quick replies on each step (e.g. “Salary twice a month”, “Rent”, “Mortgage already tracked”). Never invent amounts, dates, accounts or consent; clarify missing details and allow skipping. Conversation messages and tool outputs are the interview state: resume the last unfinished step and honor corrections. Use IDs to edit known entities rather than duplicate them. Prepare exactly ONE package with propose_budget_plan after the steps, never other propose tools. categories contains missing categories; recurring uses categoryName and complete schedules, separate salary accruals per date; budgets contains monthly limits. Offer automatic savings only with explicit user agreement and an existing savings account; otherwise offer an ordinary goal and explain the limitation. Before the card, summarize the tool-calculated monthly income, bills, limits, remaining after variable spending and savings. Explain incomplete or negative totals, cash gaps and that unscheduled variable spending is outside the daily forecast. Report any warnings returned by the tool. All tool amounts are integer minor units; format user-facing amounts in the corresponding currency. Only the user applies changes."
   }
 }

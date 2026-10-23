@@ -1,7 +1,10 @@
 import "server-only"
-import { and, eq, isNotNull } from "drizzle-orm"
+import { and, eq, isNotNull, inArray, gte } from "drizzle-orm"
 import { getDb } from "@/db"
 import { categories, transactions } from "@/db/schema"
+import { occurrencesBetween } from "@/domain/recurrence"
+import type { RuleInput } from "./recurring"
+import { ruleInput } from "./recurring"
 import { effectiveDate, type FlowItem } from "@/domain/forecast"
 import { addDays, addMonths, diffDays, endOfMonth, maxDate, monthKey, startOfMonth, todayIn, type IsoDate } from "@/lib/dates"
 import { balanceValuation } from "@/lib/fx-display"
@@ -17,11 +20,21 @@ export async function actualBalance(ctx: HouseholdCtx) {
   return (await loadFinance(ctx)).balance
 }
 
-async function project(ctx: HouseholdCtx, data: FinanceData, from: IsoDate, to: IsoDate, today: IsoDate) {
+async function project(ctx: HouseholdCtx, data: FinanceData, from: IsoDate, to: IsoDate, today: IsoDate, proposed: { id?: string; rule: RuleInput }[] = []) {
   const regular = to >= today ? await virtualOccurrences(ctx, today, to, today) : [] as VirtualOccurrence[]
   const loanParts = to >= today ? await virtualLoanPayments(ctx, today, to) : []
   const loanVirtual = loanParts
-  const virtual = [...regular, ...loanVirtual]
+  const replacements = new Set(proposed.flatMap((item) => item.id ? [item.id] : []))
+  const occupied = replacements.size ? await getDb().select({ ruleId: transactions.recurringRuleId, date: transactions.occurrenceDate }).from(transactions)
+    .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.status, "posted"), inArray(transactions.recurringRuleId, [...replacements]), gte(transactions.occurrenceDate, today))) : []
+  const occupiedSlots = new Set(occupied.map((row) => `${row.ruleId}:${row.date}`))
+  const additional: VirtualOccurrence[] = proposed.flatMap((item, index) => {
+    const rule = ruleInput.parse(item.rule)
+    return occurrencesBetween({ ...rule, dayOfMonth: rule.dayOfMonth ?? null, endDate: rule.endDate ?? null }, maxDate(today, rule.startDate), to)
+      .filter((date) => !item.id || !occupiedSlots.has(`${item.id}:${date}`))
+      .map((date) => ({ ...rule, date, ruleId: `preview-${index}`, categoryId: rule.categoryId ?? null, toAccountId: rule.toAccountId ?? null, toAmount: rule.toAmount ?? null }))
+  })
+  const virtual = [...regular.filter((row) => !replacements.has(row.ruleId)), ...loanVirtual, ...additional]
   const planned = [...data.rows.filter((r) => r.status === "planned" && r.date <= to), ...virtual.map((v) => ({ ...v, status: "planned" as const }))]
   const plannedItems: FlowItem[] = planned.map((r) => ({ date: r.date, type: r.type === "transfer" && data.accountMap.get(r.toAccountId ?? "")?.kind === "loan" ? "expense" : r.type, status: "planned", amount: data.value(r) }))
   const movements = [
@@ -247,4 +260,19 @@ export async function getAnalytics(ctx: HouseholdCtx, from: IsoDate, to: IsoDate
     expenseChange: change(current.expense, previous.expense), incomeChange: change(current.income, previous.income),
     categories: categoriesTop, series, forecast, warnings: [...data.fx.warnings],
   }
+}
+
+/** Read-only forecast of proposed schedules, replacing future occurrences of edited rules. */
+export async function previewRecurringProjection(ctx: HouseholdCtx, proposed: { id?: string; rule: RuleInput; categoryName?: string }[], to: IsoDate) {
+  assertCan(ctx, "finance.read")
+  const today = todayIn(ctx.timezone)
+  const data = await loadFinance(ctx, [], ctx.locale, proposed.flatMap((item) => item.id ? [item.id] : []))
+  const result = await project(ctx, data, today, to, today, proposed)
+  const flows = [...data.rows.filter((row) => row.status === "planned"), ...result.virtual].map((row) => ({
+    date: row.date, type: row.type === "transfer" && data.accountMap.get(row.toAccountId ?? "")?.kind === "loan" ? "expense" : row.type,
+    amount: data.value(row), categoryId: row.categoryId,
+    previewCategory: "ruleId" in row && typeof row.ruleId === "string" && row.ruleId.startsWith("preview-") ? proposed[Number(row.ruleId.slice(8))]?.categoryName : undefined,
+    savings: row.type === "transfer" && data.accountMap.get(row.toAccountId ?? "")?.kind === "savings",
+  }))
+  return { days: result.days, flows, warnings: [...data.fx.warnings] }
 }

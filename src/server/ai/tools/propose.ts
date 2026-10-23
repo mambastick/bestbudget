@@ -15,6 +15,7 @@ for (const [name, types] of Object.entries(groups)) {
   registerTool({
     name,
     kind: "propose",
+    conversationKinds: ["chat", "review"],
     detailed: name === "propose_recategorize",
     description: `Create a pending human-reviewed proposal (${types.join(", ")}). Does not change finances. Use existing entity IDs from read tools. budget.set amount=null removes a limit. All amounts are integer minor units.`,
     inputSchema: proposalSchema(types),

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { useLocale, useTranslations } from "next-intl"
 import { applyAiProposalAction, dismissAiProposalAction } from "@/app/actions/ai"
 import { Button } from "@/components/ui/button"
@@ -23,6 +23,7 @@ export function ProposalCard({
   onDismiss,
   editLabel,
   canDismiss = true,
+  interview = false,
 }: {
   proposal: ProposalView
   role: HouseholdRole
@@ -31,11 +32,27 @@ export function ProposalCard({
   onDismiss?: () => void
   editLabel?: string
   canDismiss?: boolean
+  interview?: boolean
 }) {
-  const t = useTranslations("ai")
+  const t = useTranslations("ai"),
+    locale = useLocale()
   const { pending, run } = useAction()
   const [selected, setSelected] = useState(() => proposal.items.filter((i) => !i.result && can(role, i.permission)).map((i) => i.id))
-  const open = !proposal.expired && ["pending", "partially_applied"].includes(proposal.status)
+  const hydrated = useSyncExternalStore(
+    subscribe,
+    () => true,
+    () => false,
+  )
+  const open = (!interview || can(role, "catalog.manage")) && !proposal.expired && ["pending", "partially_applied"].includes(proposal.status)
+  function value(field: string, raw: unknown, item: ProposalItem, before = false) {
+    if (raw === null || raw === undefined) return t("none")
+    if (MONEY_FIELDS.has(field) && typeof raw === "number" && item.type === "import.rule" && !item.after.currency)
+      return t("minorUnits", { value: new Intl.NumberFormat(locale).format(raw) })
+    if (MONEY_FIELDS.has(field) && typeof raw === "number") return formatMoney(raw, proposalCurrency(item, field, before), { locale })
+    if (typeof raw === "boolean") return t(`values.${raw ? "yes" : "no"}`)
+    if (typeof raw === "string") return names[raw] ?? (t.has(`values.${raw}`) ? t(`values.${raw}`) : raw)
+    return String(raw)
+  }
   return (
     <Card className="min-w-0 border-primary/20" data-testid="ai-proposal">
       <CardHeader>
@@ -45,20 +62,82 @@ export function ProposalCard({
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <ProposalItems
-          items={proposal.items}
-          role={role}
-          names={names}
-          selected={selected}
-          setSelected={setSelected}
-          open={open}
-          pending={pending}
-        />
+        {proposal.items.some((item) => item.dependsOn?.length) ? (
+          <p className="text-xs text-muted-foreground">{t("interview.dependencies")}</p>
+        ) : null}
+        <ul className="divide-y">
+          {proposal.items.map((item) => (
+            <li key={item.id} className="space-y-2 py-3 first:pt-0">
+              <label className="flex items-start gap-3">
+                <Checkbox
+                  className="mt-0.5"
+                  aria-label={item.label || t(`kinds.${item.type.replaceAll(".", "_")}`)}
+                  checked={item.result ? true : selected.includes(item.id)}
+                  disabled={!hydrated || !open || Boolean(item.result) || !can(role, item.permission) || pending}
+                  onCheckedChange={(checked) =>
+                    setSelected((ids) =>
+                      checked
+                        ? [...new Set([...ids, ...(item.dependsOn ?? []), item.id])]
+                        : ids.filter(
+                            (id) =>
+                              id !== item.id && !proposal.items.find((candidate) => candidate.id === id)?.dependsOn?.includes(item.id),
+                          ),
+                    )
+                  }
+                />
+                <span className="min-w-0 break-words text-sm font-medium">
+                  {item.type === "budget.set" && proposalIsCreation(item) ? t("newBudget") : t(`kinds.${item.type.replaceAll(".", "_")}`)}
+                  {item.label ? ` · ${item.label}` : ""}
+                  {item.type === "budget.set" && proposalIsCreation(item) && typeof item.after.amount === "number"
+                    ? ` — ${t("perMonth", { amount: formatMoney(item.after.amount, item.currency, { locale }) })}`
+                    : ""}
+                </span>
+              </label>
+              <dl className="space-y-1 pl-7 text-xs">
+                {proposalChanges(item)
+                  .filter(({ field }) => t.has(`fields.${field}`) && !(item.type === "budget.set" && proposalIsCreation(item)))
+                  .map(({ field, before, after }) => (
+                    <div key={field} className="grid grid-cols-1 gap-0.5 sm:grid-cols-[8rem_1fr]">
+                      <dt className="text-muted-foreground">{t(`fields.${field}`)}</dt>
+                      <dd className="min-w-0 break-words">
+                        {!proposalIsCreation(item) ? (
+                          <>
+                            <span className="text-muted-foreground">{value(field, before, item, true)}</span>
+                            <span aria-hidden> → </span>
+                          </>
+                        ) : null}
+                        <span>{field === "amount" && after === null ? t("remove") : value(field, after, item)}</span>
+                      </dd>
+                    </div>
+                  ))}
+              </dl>
+              {!can(role, item.permission) ? <p className="pl-7 text-xs text-muted-foreground">{t("noPermission")}</p> : null}
+              {item.result ? (
+                <div className="flex items-center gap-2 pl-7 text-xs">
+                  <span>{t("applied")}</span>
+                  <LinkButton href={item.result.href} size="sm" variant="link">
+                    {t("openEntity")}
+                  </LinkButton>
+                </div>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+        {interview && proposal.items.some((item) => item.result) ? (
+          <div className="flex flex-wrap gap-2">
+            <LinkButton href="/calendar" variant="outline" size="sm">
+              {t("interview.calendar")}
+            </LinkButton>
+            <LinkButton href="/budgets" variant="outline" size="sm">
+              {t("interview.budgets")}
+            </LinkButton>
+          </div>
+        ) : null}
         {open ? (
           <>
             <div className="flex flex-wrap gap-2">
               <Button
-                disabled={pending || !selected.some((id) => proposal.items.some((i) => i.id === id && !i.result))}
+                disabled={!hydrated || pending || !selected.some((id) => proposal.items.some((i) => i.id === id && !i.result))}
                 onClick={() =>
                   run(
                     () =>
@@ -72,14 +151,10 @@ export function ProposalCard({
               >
                 {t("apply")}
               </Button>
-              <Button
-                variant="outline"
-                disabled={pending || !canDismiss}
-                onClick={() => (onDismiss ? onDismiss() : run(() => dismissAiProposalAction(proposal.id)))}
-              >
+              <Button variant="outline" disabled={!hydrated || pending || !canDismiss} onClick={() => onDismiss ? onDismiss() : run(() => dismissAiProposalAction(proposal.id))}>
                 {t("dismiss")}
               </Button>
-              <Button variant="ghost" onClick={() => onEdit(t("editPrompt", { title: proposal.title }))}>
+              <Button variant="ghost" disabled={!hydrated || pending} onClick={() => onEdit(t("editPrompt", { title: proposal.title }))}>
                 {editLabel ?? t("edit")}
               </Button>
             </div>
@@ -90,6 +165,8 @@ export function ProposalCard({
     </Card>
   )
 }
+
+const subscribe = () => () => {}
 
 export function ProposalItems({
   items,

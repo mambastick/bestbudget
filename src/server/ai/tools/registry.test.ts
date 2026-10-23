@@ -24,9 +24,31 @@ describe("AI schemas", () => {
         "propose_goal",
         "propose_recategorize",
         "propose_account",
+        "get_interview_context",
+        "interview_step",
+        "propose_budget_plan",
       ]),
     )
-    expect(proposalHandlers.size).toBeGreaterThanOrEqual(13)
+    expect([...proposalHandlers.keys()]).toEqual(
+      expect.arrayContaining([
+        "budget.set",
+        "category.create",
+        "category.rename",
+        "category.archive",
+        "account.create",
+        "recurring.create",
+        "recurring.update",
+        "recurring.pause",
+        "goal.create",
+        "goal.update",
+        "goal.automate",
+        "transaction.recategorize",
+        "import.rule",
+        "recurring.planned",
+        "budget.planned",
+        "goal.create_automated",
+      ]),
+    )
     expect(toolRegistry.get("get_review_period")?.conversationKinds).toEqual(["review"])
     expect(toolRegistry.get("submit_budget_review")?.conversationKinds).toEqual(["review"])
     expect(toolRegistry.get("get_spending")!.inputSchema.safeParse({ from: "2020-01-01", to: "2026-01-01" }).success).toBe(false)
@@ -38,9 +60,8 @@ describe("AI schemas", () => {
       }).success,
     ).toBe(false)
     expect(
-      toolRegistry
-        .get("propose_budget_changes")!
-        .inputSchema.safeParse({ title: "Budget", items: [{ type: "execute_sql", input: {} }] }).success,
+      toolRegistry.get("propose_budget_changes")!.inputSchema.safeParse({ title: "Budget", items: [{ type: "execute_sql", input: {} }] })
+        .success,
     ).toBe(false)
     expect(
       proposalHandlers

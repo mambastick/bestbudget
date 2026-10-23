@@ -3,15 +3,28 @@ import { and, asc, eq, inArray } from "drizzle-orm"
 import { z } from "zod"
 import { getDb } from "@/db"
 import { categories, categoryBudgets, financialAccounts, goals, recurringRules, transactions } from "@/db/schema"
+import type { ProposalItem } from "@/domain/ai/types"
+import { AppError } from "@/server/errors"
 import type { Permission } from "@/domain/permissions"
 import type { HouseholdCtx } from "@/server/context"
 import { notFound } from "@/server/errors"
 import { todayIn } from "@/lib/dates"
 import { budgetInput, setBudget } from "@/server/services/budgets"
 import { accountInput, categoryInput, createAccount, createCategory, setCategoryArchived, updateCategory } from "@/server/services/catalog"
-import { automateGoal, createGoal, goalInput, previewGoalAutomation, updateGoal } from "@/server/services/goals"
+import {
+  goalAutomationInput,
+  automateGoal,
+  createGoal,
+  goalInput,
+  previewGoalAutomation,
+  updateGoal,
+  newAutomatedGoalInput,
+  previewNewGoalAutomation,
+  createAutomatedGoal,
+} from "@/server/services/goals"
 import { categoryRuleInput, saveCategoryRule } from "@/server/services/imports"
 import { createRules, ruleInput, ruleUpdateInput, stopRule, updateRule } from "@/server/services/recurring"
+import { namedBudgetInput, namedRuleInput, createNamedRule, setNamedBudget, plannedCategorySnapshot } from "@/server/services/budget-plan"
 import { isoDate, updateTransaction } from "@/server/services/transactions"
 
 export type Snapshot = Record<string, unknown> | null
@@ -21,7 +34,7 @@ export interface ProposalHandler {
   operation(input: unknown, before: Snapshot): "create" | "update"
   snapshot(ctx: HouseholdCtx, input: unknown, lock?: boolean): Promise<Snapshot>
   after(ctx: HouseholdCtx, input: unknown, before: Snapshot): Record<string, unknown>
-  apply(ctx: HouseholdCtx, input: unknown, before: Snapshot): Promise<{ href: string; entityId?: string }>
+  apply(ctx: HouseholdCtx, input: unknown, before: Snapshot, dependencies: ProposalItem[]): Promise<{ href: string; entityId?: string }>
 }
 export const proposalHandlers = new Map<string, ProposalHandler>()
 export function registerProposal<T>(
@@ -32,7 +45,12 @@ export function registerProposal<T>(
     operation?: "create" | ((input: NoInfer<T>, before: Snapshot) => "create" | "update")
     snapshot?(ctx: HouseholdCtx, input: NoInfer<T>, lock: boolean): Promise<Snapshot>
     after?(ctx: HouseholdCtx, input: NoInfer<T>, before: Snapshot): Record<string, unknown>
-    apply(ctx: HouseholdCtx, input: NoInfer<T>, before: Snapshot): Promise<{ href: string; entityId?: string }>
+    apply(
+      ctx: HouseholdCtx,
+      input: NoInfer<T>,
+      before: Snapshot,
+      dependencies: ProposalItem[],
+    ): Promise<{ href: string; entityId?: string }>
   },
 ) {
   if (proposalHandlers.has(type)) throw new Error("DuplicateProposalType")
@@ -43,11 +61,11 @@ export function registerProposal<T>(
       typeof handler.operation === "function" ? handler.operation(schema.parse(input), before) : (handler.operation ?? "update"),
     snapshot: (ctx, input, lock = false) => handler.snapshot?.(ctx, schema.parse(input), lock) ?? Promise.resolve(null),
     after: (ctx, input, before) => handler.after?.(ctx, schema.parse(input), before) ?? (schema.parse(input) as Record<string, unknown>),
-    apply: (ctx, input, before) => handler.apply(ctx, schema.parse(input), before),
+    apply: (ctx, input, before, dependencies) => handler.apply(ctx, schema.parse(input), before, dependencies),
   })
 }
 const idInput = z.object({ id: z.uuid() })
-const automationInput = z.object({ accountId: z.uuid(), day: z.number().int().min(1).max(31), version: z.number().int().positive() })
+const automationInput = goalAutomationInput
 const goalChangeInput = goalInput.safeExtend({ id: z.uuid(), version: z.number().int().positive() })
 
 async function owned(
@@ -265,3 +283,59 @@ export function proposalExpiry() {
 export function defaultPauseDate(ctx: HouseholdCtx) {
   return todayIn(ctx.timezone)
 }
+
+function categoryDependency(dependencies: ProposalItem[]) {
+  const dependency = dependencies.find((item) => item.type === "category.create")
+  if (!dependency?.result?.entityId) throw new AppError("ai.invalidProposal")
+  return dependency.result.entityId
+}
+registerProposal("recurring.planned", namedRuleInput, {
+  operation: "create",
+  permission: "finance.write",
+  snapshot: async (ctx, input, lock) => ({
+    ...(await referenced(ctx, input.rule, lock)),
+    categorySnapshot: await plannedCategorySnapshot(ctx, input.category, lock),
+  }),
+  after: (_ctx, input) => ({ ...input.rule, categoryName: input.category.name }),
+  apply: async (ctx, input, _before, dependencies) => ({
+    href: "/calendar",
+    entityId: (await createNamedRule(ctx, input, categoryDependency(dependencies))).id,
+  }),
+})
+registerProposal("budget.planned", namedBudgetInput, {
+  operation: "create",
+  permission: "catalog.manage",
+  snapshot: async (ctx, input, lock) => ({ categorySnapshot: await plannedCategorySnapshot(ctx, input.category, lock) }),
+  after: (_ctx, input) => ({ categoryName: input.category.name, amount: input.amount }),
+  apply: async (ctx, input, _before, dependencies) => {
+    const id = categoryDependency(dependencies)
+    await setNamedBudget(ctx, input, id)
+    return { href: "/budgets", entityId: id }
+  },
+})
+
+registerProposal("goal.create_automated", newAutomatedGoalInput, {
+  operation: "create",
+  permission: "finance.write",
+  snapshot: async (ctx, input, lock) => ({
+    references: await referenceSnapshot(ctx, [input.goal, input.automation], lock),
+    automationPreview: await previewNewGoalAutomation(ctx, input),
+  }),
+  after: (_ctx, input, before) => {
+    const preview = before!.automationPreview as Record<string, unknown>
+    return {
+      ...input.goal,
+      topupAmount: preview.amount,
+      toAmount: preview.toAmount,
+      startDate: preview.startDate,
+      endDate: preview.endDate,
+      sourceAccountId: preview.accountId,
+      toAccountId: preview.toAccountId,
+      day: preview.day,
+    }
+  },
+  apply: async (ctx, input, before) => {
+    const goal = await createAutomatedGoal(ctx, input, before!.automationPreview as Awaited<ReturnType<typeof previewNewGoalAutomation>>)
+    return { href: `/goals/${goal.id}`, entityId: goal.id }
+  },
+})

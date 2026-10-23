@@ -62,3 +62,12 @@ export async function dismissAiProposalAction(id: string) {
     refresh()
   })
 }
+
+export async function startBudgetInterviewAction() {
+  return runAction(async () => {
+    const { startBudgetInterview } = await import("@/server/ai/interview")
+    const result = await startBudgetInterview(await actionHousehold())
+    refresh()
+    return result
+  })
+}

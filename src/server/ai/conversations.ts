@@ -2,6 +2,7 @@ import "server-only"
 import { randomUUID } from "node:crypto"
 import { and, asc, desc, eq, gte, gt, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm"
 import { z } from "zod"
+import { assertCan } from "@/server/context"
 import type { UIMessage } from "ai"
 import { getDb, withDb } from "@/db"
 import { aiConversations, aiHouseholdSettings, aiMessages, aiUsage, households, users } from "@/db/schema"
@@ -20,7 +21,8 @@ export async function listConversations(ctx: HouseholdCtx) {
     .limit(100)
 }
 export async function createConversation(ctx: HouseholdCtx, kind: "chat" | "onboarding" | "review" = "chat") {
-  const { view } = await requireAi(ctx)
+  const { view, ctx: fresh } = await requireAi(ctx)
+  if (kind === "onboarding") assertCan(fresh, "catalog.manage")
   const [row] = await getDb()
     .insert(aiConversations)
     .values({
@@ -127,6 +129,7 @@ export async function beginTurn(ctx: HouseholdCtx, raw: z.input<typeof turnInput
       if (config.monthlyTokenLimit && (used?.tokens ?? 0) + AI_TURN_RESERVATION > config.monthlyTokenLimit)
         throw new AppError("ai.monthlyLimit")
       const conversation = await getConversation(ctx, input.id)
+      if (conversation.kind === "onboarding") assertCan((await requireAi(ctx)).ctx, "catalog.manage")
       if (conversation.busyUntil && conversation.busyUntil > new Date()) throw new AppError("ai.busy")
       if (conversation.consentFingerprint !== fingerprint(view.provider) || conversation.dataLevel !== view.dataLevel)
         throw new AppError("ai.consentChanged")
