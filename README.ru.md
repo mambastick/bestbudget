@@ -8,7 +8,7 @@ Self-hosted приложение для семейных финансов: пл�
 [![Release](https://img.shields.io/github/v/release/mambastick/bestbudget?include_prereleases)](https://github.com/mambastick/bestbudget/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**1.0.0-beta.2 — бета-версия.** Обзор, календарь, бюджеты, аналитика, операции и регулярные платежи, каркас приложения, вход и настройки поддерживают ru/en. Остальные области переводятся в фазе 2; подробная документация пока на русском.
+**1.0.0-beta.3 — бета-версия.** Интерфейс на русском и английском следует языку системы; каждый пользователь может выбрать язык и тему вручную. Подробная документация пока на русском.
 
 ## Скриншоты
 
@@ -17,7 +17,9 @@ Self-hosted приложение для семейных финансов: пл�
 ![Обзор: баланс, плановые платежи и прогноз на месяц](docs/screenshots/readme/dashboard.png)
 
 <details>
-<summary>Календарь, график ипотеки и цели на телефоне</summary>
+<summary>Английский интерфейс, календарь, график ипотеки и цели на телефоне</summary>
+
+![Обзор на английском с вымышленными демо-данными](docs/screenshots/i18n/finance/dashboard-en-desktop-light.png)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/readme/calendar-dark.png">
@@ -33,6 +35,10 @@ Self-hosted приложение для семейных финансов: пл�
 
 ## Возможности
 
+- Интерфейс на русском и английском, язык выбирается по системе.
+- Светлая, тёмная или системная тема.
+- Установка на главный экран (PWA).
+
 - **Учёт и планирование:** доходы, расходы, переводы, запланированные/выполненные/пропущенные операции, поиск, фильтры и экспорт CSV. Факт в отчётах отделён от прогноза.
 - **Регулярные платежи:** ежедневные, еженедельные, ежемесячные и ежегодные расписания; несколько дат зарплаты; подтверждение фактической суммы/даты, пропуск одного начисления или изменение будущих.
 - **Календарь и денежный поток:** прогноз остатка по дням, ближайшие обязательства и предупреждения о кассовых разрывах; месячные бюджеты категорий без блокировки операций.
@@ -46,12 +52,12 @@ Self-hosted приложение для семейных финансов: пл�
 
 ## Быстрый старт — Docker Compose
 
-Нужны Docker Engine с Compose v2 и Linux-сервер/NAS. Checkout исходников не требуется. После публикации релиза:
+Нужны Docker Engine с Compose v2 и Linux-сервер/NAS. Checkout исходников и вход в реестр образов не требуются:
 
 ```bash
 mkdir bestbudget && cd bestbudget
-curl -fL https://raw.githubusercontent.com/mambastick/bestbudget/v1.0.0-beta.2/compose.yaml -o compose.yaml
-curl -fL https://raw.githubusercontent.com/mambastick/bestbudget/v1.0.0-beta.2/.env.example -o .env
+curl -fL https://raw.githubusercontent.com/mambastick/bestbudget/v1.0.0-beta.3/compose.yaml -o compose.yaml
+curl -fL https://raw.githubusercontent.com/mambastick/bestbudget/v1.0.0-beta.3/.env.example -o .env
 mkdir -p backups
 chmod 600 .env
 ```
@@ -73,7 +79,7 @@ docker compose up -d
 
 Откройте `APP_URL/setup`, введите `SETUP_TOKEN` и создайте первого администратора. Создайте семейное пространство, затем пригласите семью через **Настройки → Семья**. После появления администратора первичная настройка закрывается; `SETUP_TOKEN` можно удалить.
 
-Compose загружает `ghcr.io/mambastick/bestbudget:1.0.0-beta.2` (amd64/arm64), автоматически применяет миграции и хранит PostgreSQL в томе `pgdata`. Проверка состояния: `/api/health`.
+Compose загружает `ghcr.io/mambastick/bestbudget:1.0.0-beta.3` (amd64/arm64), автоматически применяет миграции и хранит PostgreSQL в томе `pgdata`. Проверка состояния: `/api/health`.
 
 Для доступа через интернет используйте HTTPS reverse proxy. Укажите внешний адрес в `APP_URL`; передавайте `Host`, `X-Forwarded-Host`, `X-Forwarded-Proto`. Включайте `TRUST_PROXY=true` только за доверенным прокси; при прокси на том же сервере задайте `APP_BIND=127.0.0.1`. [Прокси и SSO](docs/sso.md).
 
@@ -82,7 +88,7 @@ Compose загружает `ghcr.io/mambastick/bestbudget:1.0.0-beta.2` (amd64/a
 Нужны ingress-контроллер, настройка TLS и постоянное хранилище. Бэкапы по расписанию требуют Kubernetes 1.27+.
 
 ```bash
-helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.0-beta.2 \
+helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.0-beta.3 \
   --namespace bestbudget --create-namespace \
   --set appUrl=https://budget.example.com \
   --set ingress.enabled=true --set ingress.className=nginx --set ingress.tls.enabled=true
@@ -90,13 +96,17 @@ helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0
 
 Helm выведет инструкцию получения токена настройки. Сгенерированные секреты сохраняются при обновлении. Внешний PostgreSQL, готовые Secret, диски и все параметры — в [README чарта](deploy/helm/bestbudget/README.md).
 
+## Установка на телефон
+
+Откройте BestBudget по HTTPS. На iPhone/iPad: Safari → «Поделиться» → «На экран “Домой”»; на Android: «Установить приложение» в меню пользователя BestBudget или браузера. Установленное приложение iOS хранит данные отдельно: при необходимости войдите внутри приложения. Финансовые данные требуют соединения; офлайн-страница предлагает повторить загрузку. [Установка, сессии и обновления](docs/pwa.md).
+
 ## Конфигурация
 
 Полный список — в [`.env.example`](.env.example). Дополнительные сервисы также настраиваются в админке там, где это предусмотрено.
 
 | Переменная окружения | По умолчанию / назначение |
 |---|---|
-| `BESTBUDGET_VERSION` | `1.0.0-beta.2`; тег образа Compose |
+| `BESTBUDGET_VERSION` | `1.0.0-beta.3`; тег образа Compose |
 | `APP_URL` | Обязательный внешний URL; cookie, проверка Origin, приглашения и callback SSO. **Для PWA нужен HTTPS** (кроме localhost); HTTP по LAN-адресу недостаточно. |
 | `BETTER_AUTH_SECRET`, `SETUP_TOKEN` | Обязательный секрет сессий и токен первоначальной настройки |
 | `ENCRYPTION_KEY` | Необязательный; иначе производится от `BETTER_AUTH_SECRET`. Сохраняйте для восстановления зашифрованных настроек |
@@ -112,10 +122,6 @@ Helm выведет инструкцию получения токена нас�
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_ALLOW_SIGNUP` | Пустой issuer использует настройки UI; новые SSO-аккаунты по умолчанию требуют приглашения; [SSO](docs/sso.md) |
 | `AUTH_FORCE_LOCAL_LOGIN` | `false`; аварийное восстановление входа по паролю |
 | `SMTP_URL`, `SMTP_FROM` | Необязательный самостоятельный сброс пароля; иначе пароль сбрасывает администратор |
-
-## Приложение на главном экране
-
-Установите BestBudget через меню пользователя или профиль; на iPhone — Safari: **Поделиться → На экран «Домой»**. Приложение открывается в отдельном окне; офлайн доступна заглушка, финансовые данные не кешируются. [Установка, вход и ограничения iOS](docs/pwa.md).
 
 ## Импорт выписок
 
@@ -136,7 +142,7 @@ Helm выведет инструкцию получения токена нас�
 
 ```bash
 docker compose run --rm backup now
-# Set BESTBUDGET_VERSION=1.0.0-beta.2 in .env and update compose.yaml from the release tag.
+# Set BESTBUDGET_VERSION=1.0.0-beta.3 in .env and update compose.yaml from the release tag.
 docker compose pull
 docker compose up -d
 ```
@@ -203,4 +209,4 @@ Issues и PR приветствуются. Опишите проблему и в
 Вендорные компоненты сохраняют [лицензии своих авторов](THIRD_PARTY_NOTICES.md),
 включая ограничения Commons Clause у React Bits и Animate UI.
 
-Язык каркаса, входа и настроек выбирается по браузеру или вручную (ru/en); финансовые экраны будут переведены в фазе 2. [Конвенции локализации](docs/i18n.md).
+Язык интерфейса выбирается по браузеру или вручную (ru/en); уведомления и письма приходят на языке получателя. [Конвенции локализации](docs/i18n.md).

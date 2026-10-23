@@ -3,7 +3,7 @@
 Self-hosted family budget: income, expenses, recurring payments and cash-flow forecast.
 
 ```bash
-helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.0-beta.2 \
+helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0.0-beta.3 \
   --namespace bestbudget --create-namespace \
   --set appUrl=https://budget.example.com \
   --set ingress.enabled=true --set ingress.className=nginx --set ingress.tls.enabled=true
@@ -12,7 +12,7 @@ helm install bestbudget oci://ghcr.io/mambastick/charts/bestbudget --version 1.0
 | Value | Default | Description |
 |---|---|---|
 | `appUrl` | — | **Required.** Public URL of the app (cookies, CSRF, invitation links, SSO callback). |
-| `image.repository` / `image.tag` | `ghcr.io/mambastick/bestbudget` / `1.0.0-beta.2` | Container image. |
+| `image.repository` / `image.tag` | `ghcr.io/mambastick/bestbudget` / `1.0.0-beta.3` | Container image. |
 | `replicaCount` | `1` | App replicas (migrations are serialized with an advisory lock). |
 | `auth.secret`, `auth.setupToken`, `auth.encryptionKey` | generated | Kept across upgrades when generated. |
 | `auth.trustProxy` | `true` | Use `X-Forwarded-For` from the ingress for client IPs. |
