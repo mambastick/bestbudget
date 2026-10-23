@@ -1,4 +1,7 @@
 {
+  "template": {
+    "cashback": "Рублёвый кэшбэк"
+  },
   "page": {
     "title": "Импорт выписки",
     "description": "CSV и XLSX · до 10 МБ и 50 000 строк"

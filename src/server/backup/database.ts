@@ -12,7 +12,7 @@ export async function withPgTools<T>(url: string, operation: (command: PgCommand
   const temporary = await mkdtemp(path.join(tmpdir(), "bestbudget-pg-"))
   try {
     const parsed = new URL(url)
-    if (!["postgres:", "postgresql:"].includes(parsed.protocol)) throw new BackupError("DATABASE_URL должен быть PostgreSQL URI")
+    if (!["postgres:", "postgresql:"].includes(parsed.protocol)) throw new BackupError("DATABASE_URL must be a PostgreSQL URI")
     const options = new Map([
       ["host", parsed.hostname.replace(/^\[|\]$/g, "")], ["port", parsed.port || "5432"],
       ["user", decodeURIComponent(parsed.username)], ["dbname", decodeURIComponent(parsed.pathname.slice(1))],
@@ -21,10 +21,10 @@ export async function withPgTools<T>(url: string, operation: (command: PgCommand
     for (const [key, value] of parsed.searchParams) {
       if (key === "password") password = value
       else if (/^[a-z_]+$/.test(key) && !["service", "servicefile", "passfile"].includes(key)) options.set(key, value)
-      else throw new BackupError("Неподдерживаемый параметр DATABASE_URL")
+      else throw new BackupError("Unsupported DATABASE_URL parameter")
     }
     if ([...options.values()].some((value) => /[\r\n\0]/.test(value) || value.trim() !== value) || /[\r\n\0]/.test(password)) {
-      throw new BackupError("Неподдерживаемые символы в DATABASE_URL")
+      throw new BackupError("Unsupported characters in DATABASE_URL")
     }
     const passfile = path.join(temporary, "pgpass")
     await writeFile(passfile, `*:*:*:*:${password.replace(/[\\:]/g, "\\$&")}\n`, { mode: 0o600 })
@@ -36,21 +36,21 @@ export async function withPgTools<T>(url: string, operation: (command: PgCommand
     Object.assign(env, { PGSERVICE: "backup", PGSERVICEFILE: servicefile, PGCONNECT_TIMEOUT: "15" })
     return await operation((tool, args) => new Promise<void>((resolve, reject) => {
       const child = spawn(tool, args, { env, stdio: "ignore" })
-      child.once("error", () => reject(new BackupError(`${tool} недоступен в образе`)))
-      child.once("exit", (code) => code === 0 ? resolve() : reject(new BackupError(`${tool}: операция не выполнена. Проверьте доступ к БД, права и версию PostgreSQL`)))
+      child.once("error", () => reject(new BackupError(`${tool} is unavailable in the image`)))
+      child.once("exit", (code) => code === 0 ? resolve() : reject(new BackupError(`${tool}: operation failed. Check database access, permissions and PostgreSQL version`)))
     }))
   } finally { await rm(temporary, { recursive: true, force: true }) }
 }
 
 export async function withDatabase<T>(config: BackupConfig, operation: (sql: ReturnType<typeof postgres>, command: PgCommand) => Promise<T>) {
-  if (!config.DATABASE_URL) throw new BackupError("Не задан DATABASE_URL")
+  if (!config.DATABASE_URL) throw new BackupError("DATABASE_URL is not set")
   const sql = postgres(config.DATABASE_URL, { max: 1, connect_timeout: 15, idle_timeout: 0, onnotice: () => {} })
   try {
     const [lock] = await sql<{ locked: boolean }[]>`select pg_try_advisory_lock(174903113, 481516) as locked`
-    if (!lock?.locked) throw new BackupError("Другая операция бэкапа или восстановления ещё выполняется. Повторите позже")
+    if (!lock?.locked) throw new BackupError("Another backup or restore operation is running. Try again later")
     return await withPgTools(config.DATABASE_URL, (command) => operation(sql, command))
   } catch (error) {
     if (error instanceof BackupError) throw error
-    throw new BackupError("Не удалось выполнить операцию с БД. Проверьте DATABASE_URL и доступность PostgreSQL")
+    throw new BackupError("Database operation failed. Check DATABASE_URL and PostgreSQL availability")
   } finally { await sql.end({ timeout: 5 }) }
 }

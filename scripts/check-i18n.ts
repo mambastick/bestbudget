@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import ts from "typescript"
-import { translatedPaths, allowedLiterals } from "./i18n.config"
+import { translatedPaths, allowedLiterals, excludedPaths } from "./i18n.config"
 
 function filesAt(file: string): string[] {
   if (!fs.statSync(file).isDirectory()) return [file]
@@ -29,9 +29,9 @@ for (const file of namespaces) {
   }
 }
 
-const sources = filesAt("src").filter((f) => /\.tsx?$/.test(f) && !/\.(test|spec)\./.test(f) && !f.includes("/fixtures/"))
+const sources = ["src", "scripts/backup"].flatMap(filesAt).filter((f) => /\.tsx?$/.test(f) && !/\.(test|spec)\./.test(f) && !f.includes("/fixtures/"))
 for (const file of new Set(translatedPaths.flatMap(filesAt))) {
-  if (!sources.includes(file)) continue
+  if (!sources.includes(file) || excludedPaths.includes(file)) continue
   const source = ts.createSourceFile(file, fs.readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true)
   function visit(node: ts.Node) {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node) || ts.isJsxText(node)) {
