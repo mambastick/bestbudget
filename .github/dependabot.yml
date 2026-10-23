@@ -19,3 +19,9 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 2
+    ignore:
+      - dependency-name: node
+        # Docker uses Bundler requirements: ~> 25.0 excludes all 25.x tags, including slim variants.
+        # Odd Node majors do not enter LTS. Extend this explicit list before Node 41;
+        # Dependabot version requirements cannot express an odd/even major predicate.
+        versions: ["~> 23.0", "~> 25.0", "~> 27.0", "~> 29.0", "~> 31.0", "~> 33.0", "~> 35.0", "~> 37.0", "~> 39.0"]
