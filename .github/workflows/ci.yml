@@ -20,7 +20,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
-      - run: pnpm test
+      - name: Test fixed clock scenarios
+        run: |
+          for instant in 2026-10-23T09:00:00Z 2026-11-01T09:00:00Z 2026-12-31T20:30:00Z; do
+            TEST_NOW="$instant" pnpm test
+          done
       - run: pnpm build
 
   e2e:
