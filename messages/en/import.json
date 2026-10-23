@@ -29,6 +29,7 @@
     "originalCurrency": "Original purchase currency"
   },
   "wizard": {
+    "loading": "Preparing import…",
     "mapAccount": "Match an account",
     "chooseFile": "Choose a file",
     "uploadFailed": "Couldn’t upload the file. Check your connection and try again.",

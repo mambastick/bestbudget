@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl"
 
+import { HydratedControls } from "@/components/app/hydrated-controls"
 import { LinkButton } from "@/components/app/link-button"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
@@ -28,30 +29,32 @@ export function OnboardingForm({ userName, canCancel }: { userName: string; canC
           {t("onboarding.aHouseholdIsASharedBudgetWithAccounts")}{" "}</CardDescription>
       </CardHeader>
       <CardContent>
-        <form
-          className="grid grid-cols-1 gap-4"
-          onSubmit={(e) => {
-            e.preventDefault()
-            run(() => createHouseholdAction({ name, timezone }), { onSuccess: () => router.replace("/dashboard") })
-          }}
-        >
-          <Field>
-            <FieldLabel htmlFor="hh-name">{t("onboarding.name")}</FieldLabel>
-            <Input id="hh-name" required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="hh-tz">{t("onboarding.timeZone")}</FieldLabel>
-            <TimezoneSelect id="hh-tz" value={timezone} onChange={setTimezone} />
-            <p className="text-xs text-muted-foreground">{t("onboarding.determinesTodayForPlannedTransactionsAndForecasts")}</p>
-          </Field>
-          <Button type="submit" disabled={pending}>
-            {pending ? t("onboarding.creating") : t("onboarding.create")}
-          </Button>
-          {canCancel ? (
-            <LinkButton variant="ghost" href="/dashboard">
-              {t("onboarding.cancel")}{" "}</LinkButton>
-          ) : null}
-        </form>
+        <HydratedControls loadingLabel={t("onboarding.preparing")}>
+          <form
+            className="grid grid-cols-1 gap-4"
+            onSubmit={(e) => {
+              e.preventDefault()
+              run(() => createHouseholdAction({ name, timezone }), { onSuccess: () => router.replace("/dashboard") })
+            }}
+          >
+            <Field>
+              <FieldLabel htmlFor="hh-name">{t("onboarding.name")}</FieldLabel>
+              <Input id="hh-name" required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="hh-tz">{t("onboarding.timeZone")}</FieldLabel>
+              <TimezoneSelect id="hh-tz" value={timezone} onChange={setTimezone} />
+              <p className="text-xs text-muted-foreground">{t("onboarding.determinesTodayForPlannedTransactionsAndForecasts")}</p>
+            </Field>
+            <Button type="submit" disabled={pending}>
+              {pending ? t("onboarding.creating") : t("onboarding.create")}
+            </Button>
+            {canCancel ? (
+              <LinkButton variant="ghost" href="/dashboard">
+                {t("onboarding.cancel")}{" "}</LinkButton>
+            ) : null}
+          </form>
+        </HydratedControls>
       </CardContent>
     </Card>
   )

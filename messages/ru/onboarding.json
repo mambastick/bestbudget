@@ -1,5 +1,6 @@
 {
   "onboarding": {
+    "preparing": "Подготовка формы…",
     "ourHousehold": "Наша семья",
     "newHousehold": "Новое семейное пространство",
     "hello": "Здравствуйте, {userName}!",

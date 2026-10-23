@@ -1,27 +1,59 @@
+import { execFileSync } from "node:child_process"
 import { test, expect, type Page } from "./fixtures"
 import postgres from "postgres"
-import { E2E_ENV, SETUP_TOKEN } from "../playwright.config"
+import { E2E_ENV } from "../playwright.config"
 
-const OWNER = { email: "owner@e2e.test", password: "owner-password-1" }
-async function loginOrSetup(page: Page) {
+let importOwner: { email: string; password: string }
+
+test.beforeAll(async ({ browserName }, testInfo) => {
+  importOwner = { email: `imports-${browserName}-${testInfo.workerIndex}@e2e.test`, password: "owner-password-1" }
+  execFileSync(process.execPath, ["--import", "tsx", "scripts/admin.ts", "create-admin"], {
+    env: { ...process.env, ...E2E_ENV, ADMIN_NAME: "Импорт E2E", ADMIN_EMAIL: importOwner.email, ADMIN_PASSWORD: importOwner.password },
+    stdio: "pipe",
+  })
+})
+
+async function login(page: Page) {
+  const response = await page.request.post("/api/auth/sign-in/email", {
+    headers: { Origin: E2E_ENV.APP_URL },
+    data: importOwner,
+  })
+  expect(response.ok()).toBe(true)
   await page.goto("/")
-  if (page.url().includes("/setup")) {
-    await page.getByLabel("Токен настройки").fill(SETUP_TOKEN)
-    await page.getByLabel("Имя").fill("Евгений")
-    await page.getByLabel("E-mail").fill(OWNER.email)
-    await page.getByLabel("Пароль", { exact: true }).fill(OWNER.password)
-    await page.getByLabel("Повторите пароль").fill(OWNER.password)
-    await page.getByRole("button", { name: "Создать администратора" }).click()
-    await expect(page).toHaveURL(/\/onboarding/)
-    await page.getByLabel("Название").fill("Семья E2E")
+  await expect(page).toHaveURL(/\/(onboarding|dashboard)/)
+  if (page.url().includes("/onboarding")) {
+    await beforeHydration(page, "/onboarding", async () => {
+      await expect(page.getByLabel("Название", { exact: true })).toBeDisabled()
+      await expect(page.getByRole("combobox", { name: "Часовой пояс", exact: true })).toBeDisabled()
+      await expect(page.getByRole("button", { name: "Создать", exact: true })).toBeDisabled()
+      await expect(page.getByRole("status")).toHaveText("Подготовка формы…")
+    })
+    await expect(page.getByLabel("Название", { exact: true })).toBeEnabled()
+    await page.getByLabel("Название").fill("Семья импорта E2E")
     await page.getByRole("button", { name: "Создать", exact: true }).click()
-  } else if (page.url().includes("/login")) {
-    await page.getByLabel("E-mail").fill(OWNER.email)
-    await page.getByLabel("Пароль", { exact: true }).fill(OWNER.password)
-    await page.getByRole("button", { name: "Войти", exact: true }).click()
   }
   await expect(page).toHaveURL(/\/dashboard/)
 }
+
+async function ready(page: Page) {
+  await expect(page.getByLabel("Выписка CSV / XLSX")).toBeEnabled()
+  await expect(page.getByRole("combobox", { name: "Кодировка CSV", exact: true })).toBeEnabled()
+  await expect(page.getByRole("button", { name: "Прочитать файл", exact: true })).toBeEnabled()
+}
+
+async function beforeHydration(page: Page, url: string, check: () => Promise<void>) {
+  let release!: () => void
+  const scripts = new Promise<void>((resolve) => { release = resolve })
+  await page.route("**/_next/static/**/*.js", async (route) => { await scripts; await route.continue() })
+  try {
+    await page.goto(url, { waitUntil: "commit" })
+    await check()
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: "wait" })
+  }
+}
+
 async function select(page: Page, label: string, option: string) {
   await page.getByRole("combobox", { name: label, exact: true }).click()
   await page.getByRole("option", { name: option, exact: true }).click()
@@ -50,7 +82,7 @@ async function seedPreviewCandidates() {
   const db = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
   try {
     const [owner] =
-      await db`select u.id, hm.household_id from users u join household_members hm on hm.user_id = u.id where u.email = ${OWNER.email} and hm.role = 'owner'`
+      await db`select u.id, hm.household_id from users u join household_members hm on hm.user_id = u.id where u.email = ${importOwner.email} and hm.role = 'owner'`
     if (!owner) throw new Error("Synthetic owner is missing")
     const [account] = await db`select id from financial_accounts where household_id = ${owner.household_id} and name = 'Основной счёт'`
     const [category] = await db`select id from categories where household_id = ${owner.household_id} and name = 'Ипотека'`
@@ -65,6 +97,7 @@ async function seedPreviewCandidates() {
 }
 async function upload(page: Page, lines = syntheticLines) {
   await page.goto("/transactions/import")
+  await ready(page)
   await page
     .getByLabel("Выписка CSV / XLSX")
     .setInputFiles({ name: "synthetic.csv", mimeType: "text/csv", buffer: Buffer.from(csv(lines)) })
@@ -79,7 +112,7 @@ async function commit(page: Page, count: number) {
 }
 
 test("30-row statement: compact preview, filters, bulk actions, similar rule, mobile sheet, commit and repeat", async ({ page }) => {
-  await loginOrSetup(page)
+  await login(page)
   await seedPreviewCandidates()
   await upload(page)
   await select(page, "Профиль", "Мастер колонок (в том числе Альфа / Сбер)")
@@ -172,7 +205,8 @@ test("30-row statement: compact preview, filters, bulk actions, similar rule, mo
   await expect(page.getByRole("button", { name: "Импортировать 26 операций", exact: true })).toBeEnabled()
   await page.getByRole("button", { name: "Импортировать 26 операций", exact: true }).scrollIntoViewIfNeeded()
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-  await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, { timeout: 15000 })
+  await page.mouse.move(0, 0)
+  await expect(page.locator('[data-sonner-toast][data-type="success"]')).toHaveCount(0, { timeout: 15000 })
   await page.evaluate(() => window.scrollTo(0, 0))
   await page.screenshot({ path: "work/import-preview-375.png", fullPage: true })
   await page.setViewportSize({ width: 1440, height: 1000 })
@@ -204,20 +238,16 @@ test("30-row statement: compact preview, filters, bulk actions, similar rule, mo
 })
 
 test("reads a synthetic XLSX through the production upload route and rejects a foreign origin", async ({ page }) => {
-  await loginOrSetup(page)
+  await login(page)
   const denied = await page.request.post("/api/import", { headers: { Origin: "https://foreign.invalid" }, data: "ignored" })
   expect(denied.status()).toBe(403)
-  let release!: () => void
-  const scripts = new Promise<void>((resolve) => { release = resolve })
-  await page.route("**/_next/static/**/*.js", async (route) => { await scripts; await route.continue() })
-  try {
-    await page.goto("/transactions/import", { waitUntil: "commit" })
+  await beforeHydration(page, "/transactions/import", async () => {
+    // Playwright can populate a disabled input: preserve even an already selected native file.
     await page.getByLabel("Выписка CSV / XLSX").setInputFiles("tests/fixtures/import/synthetic.xlsx")
     await expect(page.getByRole("button", { name: "Прочитать файл", exact: true })).toBeDisabled()
-  } finally {
-    release()
-    await page.unrouteAll({ behavior: "wait" })
-  }
+  })
+  await ready(page)
+  expect(await page.getByLabel("Выписка CSV / XLSX").evaluate((input: HTMLInputElement) => input.files?.[0]?.name)).toBe("synthetic.xlsx")
   // A cold SSR page must not accept an upload click until its handler is attached.
   const inspection = page.waitForResponse((response) => response.url().endsWith("/api/import") && response.request().method() === "POST")
   await page.getByRole("button", { name: "Прочитать файл", exact: true }).click()
@@ -233,8 +263,55 @@ test("reads a synthetic XLSX through the production upload route and rejects a f
   await expect(page.getByText("SYNTHETIC XLSX SHOP", { exact: true })).toHaveCount(1)
 })
 
+test("hydration: gates every import step and preserves a file selected before handlers attach", async ({ page, context }, testInfo) => {
+  await login(page)
+  const cdp = await context.newCDPSession(page)
+  await cdp.send("Emulation.setCPUThrottlingRate", { rate: 6 })
+  try {
+    await page.setViewportSize({ width: 375, height: 812 })
+    await beforeHydration(page, "/transactions/import", async () => {
+      const input = page.getByLabel("Выписка CSV / XLSX")
+      await expect(input).toBeVisible()
+      await input.setInputFiles({ name: "early.csv", mimeType: "text/csv", buffer: Buffer.from(csv(syntheticLines.slice(0, 1))) })
+      expect(await input.evaluate((node: HTMLInputElement) => node.files?.[0]?.name)).toBe("early.csv")
+      await expect(input).toBeDisabled()
+      await expect(page.getByRole("combobox", { name: "Кодировка CSV", exact: true })).toBeDisabled()
+      await expect(page.getByRole("combobox", { name: "Разделитель CSV", exact: true })).toBeDisabled()
+      await expect(page.getByRole("combobox", { name: "Сохранённые настройки чтения", exact: true })).toBeDisabled()
+      await expect(page.getByLabel("Строка заголовков", { exact: true })).toBeDisabled()
+      await expect(page.getByLabel("Номер листа XLSX", { exact: true })).toBeDisabled()
+      await expect(page.getByRole("button", { name: "Прочитать файл", exact: true })).toBeDisabled()
+      await expect(page.getByRole("status")).toHaveText("Подготовка импорта…")
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+      await page.screenshot({ path: testInfo.outputPath("import-loading-375.png") })
+    })
+    await ready(page)
+    await expect(page.getByRole("status")).toHaveCount(0)
+    expect(await page.getByLabel("Выписка CSV / XLSX").evaluate((input: HTMLInputElement) => input.files?.[0]?.name)).toBe("early.csv")
+    const inspection = page.waitForResponse((response) => response.url().endsWith("/api/import") && response.request().method() === "POST")
+    await page.getByRole("button", { name: "Прочитать файл", exact: true }).click()
+    expect(await (await inspection).json()).toMatchObject({ ok: true, data: { stage: "inspect", kind: "csv", rowCount: 1 } })
+    await expect(page.getByRole("combobox", { name: "Профиль", exact: true })).toContainText("BestBudget CSV v1")
+    await page.getByRole("button", { name: "Подготовить предпросмотр", exact: true }).click()
+    await expect(page).toHaveURL(/batch=/)
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await beforeHydration(page, page.url(), async () => {
+      await expect(page.getByRole("button", { name: "Импортировать 1 операцию", exact: true })).toBeDisabled()
+      await expect(page.getByRole("button", { name: "Все 1", exact: true })).toBeDisabled()
+      await expect(page.getByRole("combobox", { name: "Категория: PYATEROCHKA", exact: true })).toBeDisabled()
+      await expect(page.getByRole("status")).toHaveText("Подготовка импорта…")
+    })
+    await expect(page.getByRole("button", { name: "Импортировать 1 операцию", exact: true })).toBeEnabled()
+    await expect(page.getByRole("button", { name: "Все 1", exact: true })).toBeEnabled()
+    await expect(page.getByTestId("import-row")).toHaveCount(1)
+  } finally {
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 })
+    await cdp.detach()
+  }
+})
+
 test("shows statement rows in pages of 100 and applies bulk category only to selected rows", async ({ page }) => {
-  await loginOrSetup(page)
+  await login(page)
   const lines = Array.from({ length: 205 }, (_, i) => `Основной счёт;2026-09-01;-${200 + i}.12;RUB;PAGE SHOP ${i};;posted;5411;`)
   await upload(page, lines)
   await page.getByRole("button", { name: "Подготовить предпросмотр", exact: true }).click()

@@ -1,5 +1,6 @@
 {
   "onboarding": {
+    "preparing": "Preparing form…",
     "ourHousehold": "Our household",
     "newHousehold": "New household",
     "hello": "Hello, {userName}!",
