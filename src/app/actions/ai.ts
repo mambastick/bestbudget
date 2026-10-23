@@ -27,7 +27,7 @@ export async function testAiConnectionAction(input: SettingsInput) {
 export async function listAiModelsAction(input: SettingsInput) {
   return runAction(async () => {
     await actionSystemAdmin()
-    return listModels(await configForInput(input))
+    return listModels(await configForInput({ ...input, enabled: false }))
   })
 }
 export async function saveHouseholdAiAction(input: Parameters<typeof saveHouseholdAi>[1]) {

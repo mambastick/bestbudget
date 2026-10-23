@@ -442,5 +442,21 @@ describe("AI foundation", () => {
     await updateCategory(f.ctx, categoryId, { name: "Renamed", icon: "circle", color: "#123456" })
     await expect(applyProposal(f.ctx, budget.id, [budget.items[0]!.id])).rejects.toMatchObject({ code: "conflict" })
   })
-
+  it("keeps an unset DB model editable after ENV-only connection checks and allows initial model discovery", async () => {
+    const f = await enabled()
+    await db
+      .update(aiSettings)
+      .set({ provider: "openai", model: "", enabled: false, verifiedFingerprint: null })
+      .where(eq(aiSettings.id, 1))
+    const config = (await getAiConfig())!
+    expect(config).toMatchObject({ model: "", enabled: false, source: "db", version: 1 })
+    await saveAiSettings(f.owner.id, {
+      provider: "openai_compatible",
+      baseUrl: "http://localhost:11434/v1",
+      model: "manual",
+      version: config.version,
+      enabled: false,
+    })
+    expect((await getAiConfig())?.model).toBe("manual")
+  })
 })

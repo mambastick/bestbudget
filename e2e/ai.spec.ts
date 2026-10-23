@@ -49,6 +49,8 @@ test("AI consent, streaming proposal, selective apply and ru/en mobile layouts",
     expect(disabled.status()).toBe(404)
     await page.goto("/admin?tab=ai")
     await page.getByLabel("Провайдер", { exact: true }).selectOption("mock")
+    await page.getByRole("button", { name: "Получить модели", exact: true }).click()
+    await expect(page.locator("#ai-models option[value=test-budget]")).toHaveCount(1)
     await page.getByLabel("Модель", { exact: true }).fill("test-budget")
     await page.getByRole("checkbox", { name: "Включить на инстансе", exact: true }).check()
     await page.getByRole("button", { name: "Проверить подключение", exact: true }).click()

@@ -22,20 +22,22 @@ const httpUrl = z
       return false
     }
   })
-export const settingsInput = z.object({
-  version: z.number().int().nonnegative().optional(),
-  provider: z.enum([...PROVIDERS, "mock"]),
-  baseUrl: httpUrl.default(""),
-  apiKey: z.string().max(4000).optional(),
-  clearKey: z.boolean().default(false),
-  model: z.string().trim().min(1).max(200),
-  temperature: z.number().min(0).max(2).nullable().default(null),
-  monthlyTokenLimit: z.number().int().safe().nonnegative().default(0),
-  enabled: z.boolean().default(false),
-  selfHosted: z.boolean().default(false),
-  gigachatScope: z.enum(["GIGACHAT_API_PERS", "GIGACHAT_API_B2B", "GIGACHAT_API_CORP"]).default("GIGACHAT_API_PERS"),
-  gigachatAuthUrl: httpUrl.default("https://ngw.devices.sberbank.ru:9443/api/v2/oauth"),
-})
+export const settingsInput = z
+  .object({
+    version: z.number().int().nonnegative().optional(),
+    provider: z.enum([...PROVIDERS, "mock"]),
+    baseUrl: httpUrl.default(""),
+    apiKey: z.string().max(4000).optional(),
+    clearKey: z.boolean().default(false),
+    model: z.string().trim().max(200).default(""),
+    temperature: z.number().min(0).max(2).nullable().default(null),
+    monthlyTokenLimit: z.number().int().safe().nonnegative().default(0),
+    enabled: z.boolean().default(false),
+    selfHosted: z.boolean().default(false),
+    gigachatScope: z.enum(["GIGACHAT_API_PERS", "GIGACHAT_API_B2B", "GIGACHAT_API_CORP"]).default("GIGACHAT_API_PERS"),
+    gigachatAuthUrl: httpUrl.default("https://ngw.devices.sberbank.ru:9443/api/v2/oauth"),
+  })
+  .refine((config) => !config.enabled || config.model.length > 0, { path: ["model"], message: "validation.titleRequired" })
 export type SettingsInput = z.input<typeof settingsInput>
 export interface AiConfig extends z.output<typeof settingsInput> {
   source: "env" | "db"
@@ -76,7 +78,7 @@ export function resolveConfig(
   decrypt = decryptSecret,
 ): AiConfig | null {
   const fromEnv = Boolean(environment.AI_PROVIDER)
-  if (!fromEnv && !row?.model) return null
+  if (!fromEnv && !row) return null
   const parsed = settingsInput.parse(
     fromEnv
       ? {
