@@ -13,3 +13,9 @@ export function proposalChanges(item: ProposalItem) {
     )
     .map(([field, after]) => ({ field, before: item.before?.[field] ?? null, after }))
 }
+
+/** A transfer's credited amount uses the destination currency, including the original account before an edit. */
+export function proposalCurrency(item: ProposalItem, field: string, before = false) {
+  if (field === "toAmount") return (before ? item.beforeToCurrency : item.toCurrency) ?? item.currency
+  return (before ? item.beforeCurrency : item.currency) ?? item.currency
+}

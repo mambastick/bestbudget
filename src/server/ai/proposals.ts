@@ -62,10 +62,13 @@ export async function createProposal(
       const { listCategories } = await import("@/server/services/catalog")
       label = (await listCategories(ctx, { includeArchived: true })).find((c) => c.id === after.categoryId)?.name ?? label
     }
-    if (!after.currency && typeof after.accountId === "string") {
-      const { listAccounts } = await import("@/server/services/catalog")
-      after.currency = (await listAccounts(ctx, { includeArchived: true })).find((a) => a.id === after.accountId)?.currency ?? ctx.currency
-    }
+    const accounts = z
+      .array(z.object({ id: z.uuid(), currency: z.string() }))
+      .parse((before?.references as Record<string, unknown> | undefined)?.accounts ?? [])
+    const accountCurrency = (id: unknown) => accounts.find((account) => account.id === id)?.currency
+    const currency =
+      typeof after.currency === "string" ? after.currency : (accountCurrency(after.accountId ?? before?.accountId) ?? ctx.currency)
+    const beforeCurrency = typeof before?.currency === "string" ? before.currency : (accountCurrency(before?.accountId) ?? ctx.currency)
     items.push({
       id: randomUUID(),
       type: item.type,
@@ -76,7 +79,10 @@ export async function createProposal(
       permission: handler.permission,
       householdCurrency: ctx.currency,
       householdTimezone: ctx.timezone,
-      currency: typeof after.currency === "string" ? after.currency : ctx.currency,
+      currency,
+      beforeCurrency,
+      toCurrency: accountCurrency(after.toAccountId ?? before?.toAccountId),
+      beforeToCurrency: accountCurrency(before?.toAccountId),
     })
   }
   const [proposal] = await getDb()

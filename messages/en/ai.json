@@ -178,5 +178,6 @@
     "propose_recategorize": "Preparing categorization…",
     "propose_account": "Preparing a new account…"
   },
-  "conversations": "Conversations"
+  "conversations": "Conversations",
+  "minorUnits": "{value} minor units in the transaction currency"
 }

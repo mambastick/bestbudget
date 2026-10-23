@@ -18,6 +18,9 @@ export interface ProposalItem {
   permission: Permission
   label: string
   currency: string
+  beforeCurrency?: string
+  toCurrency?: string
+  beforeToCurrency?: string
   householdCurrency: string
   householdTimezone: string
   result?: { href: string; entityId?: string }

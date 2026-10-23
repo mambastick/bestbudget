@@ -24,7 +24,9 @@ import { chatResponse } from "@/server/ai/chat"
 import { applyProposal, createProposal, listProposals } from "@/server/ai/proposals"
 import { buildTools, toolRegistry } from "@/server/ai/tools"
 import { setBudget } from "@/server/services/budgets"
-import { createAccount } from "@/server/services/catalog"
+import { createRules } from "@/server/services/recurring"
+import { proposalCurrency } from "@/domain/ai/description"
+import { createAccount, updateAccount, updateCategory } from "@/server/services/catalog"
 import { todayIn } from "@/lib/dates"
 import { createTransaction } from "@/server/services/transactions"
 import { AI_TURN_RESERVATION } from "@/domain/ai/types"
@@ -245,13 +247,12 @@ describe("AI foundation", () => {
     expect((await householdAiView(f.ctx)).enabled).toBe(true)
   })
   it("rolls back earlier service writes if a later item fails service validation", async () => {
-    const f = await enabled(),
-      other = await setupHousehold("Other account")
+    const f = await enabled()
     const p = await pending(f, [
       { type: "account.create", input: { name: "Rollback account", kind: "savings", currency: "RUB", openingBalance: 0 } },
       {
         type: "goal.create",
-        input: { name: "Wrong reference", kind: "account", accountId: other.mainAccount, currency: "RUB", targetAmount: 1000 },
+        input: { name: "Wrong reference", kind: "account", accountId: f.mainAccount, currency: "RUB", targetAmount: 1000 },
       },
     ])
     await expect(
@@ -260,7 +261,7 @@ describe("AI foundation", () => {
         p.id,
         p.items.map((i) => i.id),
       ),
-    ).rejects.toMatchObject({ code: "not_found" })
+    ).rejects.toMatchObject({ messageKey: "goal.activeSavingsAccount" })
     expect(
       await db
         .select()
@@ -329,16 +330,43 @@ describe("AI foundation", () => {
   it("warns the model when a planned foreign-currency payment has no exchange rate", async () => {
     const f = await enabled()
     const account = await createAccount(f.ctx, { name: "USD", kind: "cash", currency: "USD", openingBalance: 0 })
-    await createTransaction(f.ctx, { type: "expense", status: "planned", accountId: account.id, categoryId: f.cat("Продукты"), date: todayIn(f.ctx.timezone), amount: 100 })
-    const result = await toolRegistry.get("get_forecast")!.execute({ days: 7 }, { ctx: f.ctx, conversationId: f.conversation.id, messageId: randomUUID() }) as { warnings: string[] }
+    await createTransaction(f.ctx, {
+      type: "expense",
+      status: "planned",
+      accountId: account.id,
+      categoryId: f.cat("Продукты"),
+      date: todayIn(f.ctx.timezone),
+      amount: 100,
+    })
+    const result = (await toolRegistry
+      .get("get_forecast")!
+      .execute({ days: 7 }, { ctx: f.ctx, conversationId: f.conversation.id, messageId: randomUUID() })) as { warnings: string[] }
     expect(result.warnings.some((warning) => warning.includes("USD"))).toBe(true)
   })
 
   it("retries an interrupted tool call with a fresh assistant ID and keeps later turns usable", async () => {
     const f = await enabled()
-    const input = { id: f.conversation.id, message: { id: randomUUID(), role: "user" as const, parts: [{ type: "text" as const, text: "Help me set up budgets" }] } }
+    const input = {
+      id: f.conversation.id,
+      message: { id: randomUUID(), role: "user" as const, parts: [{ type: "text" as const, text: "Help me set up budgets" }] },
+    }
     const interrupted = await beginTurn(f.ctx, input)
-    await finishTurn(f.ctx, interrupted, { id: interrupted.messageId, role: "assistant", parts: [{ type: "text", text: "Partial response" }, { type: "tool-list_accounts", toolCallId: "interrupted", state: "input-available", input: {} }] }, 100, 0, 1, "provider_error")
+    await finishTurn(
+      f.ctx,
+      interrupted,
+      {
+        id: interrupted.messageId,
+        role: "assistant",
+        parts: [
+          { type: "text", text: "Partial response" },
+          { type: "tool-list_accounts", toolCallId: "interrupted", state: "input-available", input: {} },
+        ],
+      },
+      100,
+      0,
+      1,
+      "provider_error",
+    )
     const response = await chatResponse(f.ctx, input)
     const stream = await response.text()
     expect(stream).toContain("propose_budget_changes")
@@ -348,6 +376,71 @@ describe("AI foundation", () => {
     expect(proposal!.messageId).not.toBe(interrupted.messageId)
     const next = await chatResponse(f.ctx, { ...input, message: { ...input.message, id: randomUUID() } })
     expect(await next.text()).not.toContain('"type":"error"')
+  })
+
+  it("preserves source and destination currencies for both sides of proposal changes", async () => {
+    const f = await enabled("detailed")
+    const usd = await createAccount(f.ctx, { name: "USD", kind: "cash", currency: "USD", openingBalance: 0 })
+    const eur = await createAccount(f.ctx, { name: "EUR", kind: "cash", currency: "EUR", openingBalance: 0 })
+    const rule = {
+      type: "transfer" as const,
+      accountId: usd.id,
+      toAccountId: eur.id,
+      amount: 100,
+      toAmount: 200,
+      frequency: "once" as const,
+      startDate: todayIn(f.ctx.timezone),
+    }
+    const [created] = await createRules(f.ctx, { rule })
+    const proposal = await pending(f, [
+      {
+        type: "recurring.update",
+        input: {
+          id: created!.id,
+          version: created!.version,
+          rule: { ...rule, accountId: f.mainAccount, toAccountId: usd.id, amount: 5000, toAmount: 100 },
+        },
+      },
+    ])
+    const item = proposal.items[0]!
+    expect(proposalCurrency(item, "amount", true)).toBe("USD")
+    expect(proposalCurrency(item, "amount")).toBe("RUB")
+    expect(proposalCurrency(item, "toAmount", true)).toBe("EUR")
+    expect(proposalCurrency(item, "toAmount")).toBe("USD")
+    await applyProposal(f.ctx, proposal.id, [item.id])
+    const transaction = await createTransaction(f.ctx, {
+      type: "expense",
+      status: "posted",
+      accountId: usd.id,
+      categoryId: f.cat("Продукты"),
+      date: todayIn(f.ctx.timezone),
+      amount: 100,
+    })
+    const recategorize = await pending(f, [{ type: "transaction.recategorize", input: { id: transaction.id, categoryId: f.cat("ЖКХ") } }])
+    expect(recategorize.items[0]).toMatchObject({ currency: "USD", beforeCurrency: "USD" })
+  })
+  it("rejects changes to referenced account currencies and category identities", async () => {
+    const f = await enabled()
+    const usd = await createAccount(f.ctx, { name: "USD", kind: "cash", currency: "USD", openingBalance: 0 })
+    const rule = await pending(f, [
+      {
+        type: "recurring.create",
+        input: {
+          type: "expense",
+          accountId: usd.id,
+          categoryId: f.cat("Продукты"),
+          amount: 100,
+          frequency: "monthly",
+          startDate: todayIn(f.ctx.timezone),
+        },
+      },
+    ])
+    await updateAccount(f.ctx, usd.id, { name: "EUR", kind: "cash", currency: "EUR", openingBalance: 0, version: usd.version })
+    await expect(applyProposal(f.ctx, rule.id, [rule.items[0]!.id])).rejects.toMatchObject({ code: "conflict" })
+    const budget = await pending(f)
+    const categoryId = (budget.items[0]!.input as { categoryId: string }).categoryId
+    await updateCategory(f.ctx, categoryId, { name: "Renamed", icon: "circle", color: "#123456" })
+    await expect(applyProposal(f.ctx, budget.id, [budget.items[0]!.id])).rejects.toMatchObject({ code: "conflict" })
   })
 
 })

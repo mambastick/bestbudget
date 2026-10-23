@@ -178,5 +178,6 @@
     "propose_recategorize": "Готовлю распределение по категориям…",
     "propose_account": "Готовлю новый счёт…"
   },
-  "conversations": "Диалоги"
+  "conversations": "Диалоги",
+  "minorUnits": "{value} мин. ед. в валюте операции"
 }

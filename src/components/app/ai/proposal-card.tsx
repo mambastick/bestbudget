@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { LinkButton } from "@/components/app/link-button"
 import { useAction } from "@/hooks/use-action"
 import { can, type HouseholdRole } from "@/domain/permissions"
-import { proposalChanges } from "@/domain/ai/description"
+import { proposalChanges, proposalCurrency } from "@/domain/ai/description"
 import type { ProposalItem } from "@/domain/ai/types"
 import { formatMoney } from "@/lib/money"
 import type { aiProposals } from "@/db/schema"
@@ -41,9 +41,11 @@ export function ProposalCard({
   const { pending, run } = useAction()
   const [selected, setSelected] = useState(() => proposal.items.filter((i) => !i.result && can(role, i.permission)).map((i) => i.id))
   const open = !proposal.expired && ["pending", "partially_applied"].includes(proposal.status)
-  function value(field: string, raw: unknown, item: ProposalItem) {
+  function value(field: string, raw: unknown, item: ProposalItem, before = false) {
     if (raw === null || raw === undefined) return t("none")
-    if (MONEY_FIELDS.has(field) && typeof raw === "number") return formatMoney(raw, item.currency, { locale })
+    if (MONEY_FIELDS.has(field) && typeof raw === "number" && item.type === "import.rule" && !item.after.currency)
+      return t("minorUnits", { value: new Intl.NumberFormat(locale).format(raw) })
+    if (MONEY_FIELDS.has(field) && typeof raw === "number") return formatMoney(raw, proposalCurrency(item, field, before), { locale })
     if (typeof raw === "boolean") return t(`values.${raw ? "yes" : "no"}`)
     if (typeof raw === "string") return names[raw] ?? (t.has(`values.${raw}`) ? t(`values.${raw}`) : raw)
     return String(raw)
@@ -82,7 +84,7 @@ export function ProposalCard({
                       <dd className="min-w-0 break-words">
                         {item.before ? (
                           <>
-                            <span className="text-muted-foreground">{value(field, before, item)}</span>
+                            <span className="text-muted-foreground">{value(field, before, item, true)}</span>
                             <span aria-hidden> → </span>
                           </>
                         ) : null}

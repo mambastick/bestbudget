@@ -1,8 +1,8 @@
 import "server-only"
-import { and, eq } from "drizzle-orm"
+import { and, asc, eq, inArray } from "drizzle-orm"
 import { z } from "zod"
 import { getDb } from "@/db"
-import { categories, categoryBudgets, goals, recurringRules, transactions } from "@/db/schema"
+import { categories, categoryBudgets, financialAccounts, goals, recurringRules, transactions } from "@/db/schema"
 import type { Permission } from "@/domain/permissions"
 import type { HouseholdCtx } from "@/server/context"
 import { notFound } from "@/server/errors"
@@ -60,18 +60,54 @@ async function owned(
   if (!row) throw notFound()
   return JSON.parse(JSON.stringify(row)) as Record<string, unknown>
 }
-const versioned = (table: Parameters<typeof owned>[1]) => (ctx: HouseholdCtx, input: { id: string }, lock: boolean) =>
-  owned(ctx, table, input.id, lock)
+/** Capture referenced accounts/categories as well as the edited entity; their currencies and labels can change independently. */
+async function referenceSnapshot(ctx: HouseholdCtx, values: Record<string, unknown>[], lock: boolean) {
+  const accountIds = [
+    ...new Set(values.flatMap((value) => [value.accountId, value.toAccountId]).filter((id): id is string => typeof id === "string")),
+  ].sort()
+  const categoryIds = [...new Set(values.map((value) => value.categoryId).filter((id): id is string => typeof id === "string"))].sort()
+  const accountQuery = getDb()
+    .select()
+    .from(financialAccounts)
+    .where(and(eq(financialAccounts.householdId, ctx.householdId), inArray(financialAccounts.id, accountIds)))
+    .orderBy(asc(financialAccounts.id))
+  const categoryQuery = getDb()
+    .select()
+    .from(categories)
+    .where(and(eq(categories.householdId, ctx.householdId), inArray(categories.id, categoryIds)))
+    .orderBy(asc(categories.id))
+  const accounts = accountIds.length ? await (lock ? accountQuery.for("update") : accountQuery) : []
+  const cats = categoryIds.length ? await (lock ? categoryQuery.for("update") : categoryQuery) : []
+  if (accounts.length !== accountIds.length || cats.length !== categoryIds.length) throw notFound()
+  return JSON.parse(JSON.stringify({ accounts, categories: cats })) as Record<string, unknown>
+}
+const versioned = (table: Parameters<typeof owned>[1]) => async (ctx: HouseholdCtx, input: { id: string }, lock: boolean) => {
+  const before = await owned(ctx, table, input.id, lock)
+  const data = input as Record<string, unknown>
+  return {
+    ...before,
+    references: await referenceSnapshot(
+      ctx,
+      [before, data, typeof data.rule === "object" && data.rule ? (data.rule as Record<string, unknown>) : {}],
+      lock,
+    ),
+  }
+}
+const referenced = async (ctx: HouseholdCtx, input: Record<string, unknown>, lock: boolean) => ({
+  references: await referenceSnapshot(ctx, [input], lock),
+})
 registerProposal("budget.set", budgetInput, {
   permission: "catalog.manage",
   async snapshot(ctx, input, lock) {
-    await owned(ctx, categories, input.categoryId, lock)
+    const category = await owned(ctx, categories, input.categoryId, lock)
     const query = getDb()
       .select()
       .from(categoryBudgets)
       .where(and(eq(categoryBudgets.householdId, ctx.householdId), eq(categoryBudgets.categoryId, input.categoryId)))
     const [row] = await (lock ? query.for("update") : query)
-    return row ? { id: row.id, version: row.version, categoryId: row.categoryId, amount: row.amount } : null
+    return row
+      ? { id: row.id, version: row.version, categoryId: row.categoryId, amount: row.amount, categorySnapshot: category }
+      : { categorySnapshot: category }
   },
   apply: async (ctx, input) => {
     await setBudget(ctx, input)
@@ -105,6 +141,7 @@ registerProposal("account.create", accountInput, {
 })
 registerProposal("recurring.create", ruleInput, {
   permission: "finance.write",
+  snapshot: referenced,
   apply: async (ctx, input) => ({
     href: "/transactions?tab=rules",
     entityId: (await createRules(ctx, { rule: input }, undefined, ctx.locale))[0]!.id,
@@ -130,6 +167,7 @@ registerProposal("recurring.pause", idInput.extend({ endDate: isoDate }), {
 })
 registerProposal("goal.create", goalInput, {
   permission: "finance.write",
+  snapshot: referenced,
   apply: async (ctx, input) => {
     const goal = await createGoal(ctx, input)
     return { href: `/goals/${goal.id}`, entityId: goal.id }
@@ -150,6 +188,7 @@ registerProposal("goal.automate", automationInput.extend(idInput.shape), {
     const preview = await previewGoalAutomation(ctx, input.id, input)
     return {
       ...goal,
+      references: await referenceSnapshot(ctx, [goal, input], lock),
       automationPreview: {
         amount: preview.amount,
         toAmount: preview.toAmount,
@@ -193,6 +232,7 @@ registerProposal("transaction.recategorize", idInput.extend({ categoryId: z.uuid
 })
 registerProposal("import.rule", categoryRuleInput, {
   permission: "finance.write",
+  snapshot: referenced,
   apply: async (ctx, input) => ({ href: "/transactions/import", entityId: await saveCategoryRule(ctx, input) }),
 })
 

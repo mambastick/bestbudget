@@ -185,7 +185,13 @@ registerTool({
   description: "Daily balance forecast for 1–366 days; no descriptions or notes.",
   inputSchema: forecastInput,
   execute: async (input, { ctx }) => {
-    const forecast = await projection(ctx, todayIn(ctx.timezone), addDays(todayIn(ctx.timezone), input.days - 1), todayIn(ctx.timezone), ctx.locale)
+    const forecast = await projection(
+      ctx,
+      todayIn(ctx.timezone),
+      addDays(todayIn(ctx.timezone), input.days - 1),
+      todayIn(ctx.timezone),
+      ctx.locale,
+    )
     return { currency: ctx.currency, days: forecast.days, warnings: forecast.warnings }
   },
 })
