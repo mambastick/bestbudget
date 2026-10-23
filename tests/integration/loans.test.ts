@@ -5,6 +5,8 @@ import { financialAccounts, loanEvents, loans, transactions, exchangeRates } fro
 import { addDays, addMonths, startOfMonth, todayIn } from "@/lib/dates"
 import { confirmTelegramPayment } from "@/server/notifications/telegram"
 import { notificationSnapshot } from "@/server/notifications/snapshot"
+import { automateGoal, contributeToGoal, createGoal, transferToGoal } from "@/server/services/goals"
+import { saveManualRate } from "@/server/services/exchange-rates"
 import { createAccount, listAccounts, updateAccount } from "@/server/services/catalog"
 import {
   createLoan,
@@ -78,6 +80,61 @@ async function confirmFirst(
 }
 
 describe("loans", () => {
+  it("excludes liability accounts from goal destinations and funding", async () => {
+    const f = await fixture()
+    const input = { name: "Отпуск", kind: "account" as const, currency: "RUB" as const, targetAmount: 100_000_00, targetDate: addMonths(f.today, 6) }
+    await expect(createGoal(f.ctx, { ...input, accountId: f.loan.accountId })).rejects.toThrow("накопительный")
+    const savings = await createAccount(f.ctx, { name: "Копилка", kind: "savings", openingBalance: 0 })
+    const goal = await createGoal(f.ctx, { ...input, accountId: savings.id })
+    await expect(transferToGoal(f.ctx, goal.id, { accountId: f.loan.accountId, amount: 1_000_00, date: f.today })).rejects.toThrow("Кредиты")
+    await expect(automateGoal(f.ctx, goal.id, { accountId: f.loan.accountId, day: 1, version: goal.version })).rejects.toThrow("Кредиты")
+  })
+
+  it("counts savings goal accounts once in net assets, including FX, without adding manual contributions", async () => {
+    const f = await fixture()
+    await saveManualRate(f.ctx.userId, { currency: "USD", date: f.today, rateToRub: "100" })
+    const savings = await createAccount(f.ctx, { name: "Копилка", kind: "savings", openingBalance: 20_000_00 })
+    const usd = await createAccount(f.ctx, { name: "USD savings", kind: "savings", currency: "USD", openingBalance: 100_00 })
+    await createGoal(f.ctx, { name: "Отпуск", kind: "account", currency: "RUB", targetAmount: 10_000_00, accountId: savings.id, priority: 1 })
+    const goal = await createGoal(f.ctx, { name: "Подушка", kind: "account", currency: "RUB", targetAmount: 30_000_00, accountId: savings.id, priority: 2 })
+    await createGoal(f.ctx, { name: "USD цель", kind: "account", currency: "USD", targetAmount: 1_000_00, accountId: usd.id })
+    const manual = await createGoal(f.ctx, { name: "Ручная копилка", kind: "manual", currency: "RUB", targetAmount: 50_000_00 })
+    await contributeToGoal(f.ctx, manual.id, { date: f.today, amount: 10_000_00 })
+    const before = await getDashboard(f.ctx, f.today)
+    expect(before.balance).toBe(30_000_00)
+    expect(before.netAssets).toBe(-70_000_00)
+    await transferToGoal(f.ctx, goal.id, { accountId: f.mainAccount, amount: 5_000_00, date: f.today })
+    expect((await getDashboard(f.ctx, f.today)).netAssets).toBe(before.netAssets)
+    const payment = await confirmFirst(f)
+    expect((await getDashboard(f.ctx, f.today)).netAssets).toBe(before.netAssets - payment.loanInterest)
+  })
+
+  it("keeps goal funding and grouped loan payments in materialized and virtual calendars and projections", async () => {
+    const f = await fixture()
+    const savings = await createAccount(f.ctx, { name: "Копилка", kind: "savings", openingBalance: 0 })
+    const goal = await createGoal(f.ctx, { name: "Отпуск", kind: "account", currency: "RUB", targetAmount: 120_000_00, accountId: savings.id, targetDate: addMonths(f.today, 6) })
+    const rule = await automateGoal(f.ctx, goal.id, { accountId: f.mainAccount, day: Number(f.today.slice(8)), version: goal.version })
+    const future = addMonths(f.today, 4)
+    for (const [date, virtual] of [[f.today, false], [future, true]] as const) {
+      const calendar = await getCalendarMonth(f.ctx, date)
+      expect(calendar.items.filter((r) => r.date === date && r.loanId === f.loan.id)).toEqual([
+        expect.objectContaining({ amount: 8884_88, loanPrincipal: expect.any(Number), loanInterest: expect.any(Number), virtual }),
+      ])
+      expect(calendar.items.filter((r) => r.date === date && r.recurringRuleId === rule.id)).toEqual([
+        expect.objectContaining({ type: "transfer", amount: rule.amount, virtual }),
+      ])
+    }
+    const projected = await projection(f.ctx, f.today, future, f.today)
+    expect(projected.virtual.some((r) => "loanId" in r && r.loanId === f.loan.id)).toBe(true)
+    expect(projected.virtual.some((r) => r.ruleId === rule.id)).toBe(true)
+    const payments = (await getLoan(f.ctx, f.loan.id)).rows.filter((r) => r.kind === "scheduled" && r.date <= future)
+    expect(projected.days.at(-1)!.balance).toBe(-payments.reduce((sum, r) => sum + r.payment, 0))
+    const dashboard = await getDashboard(f.ctx, f.today)
+    expect(dashboard.upcoming.some((r) => r.loanId === f.loan.id)).toBe(true)
+    expect(dashboard.upcoming.some((r) => r.ruleId === rule.id)).toBe(true)
+    expect(dashboard.plannedExpense).toBe(1000_00)
+  })
+
   it("creates a negative liability account and idempotent two-part plans on the 62-day horizon", async () => {
     const f = await fixture()
     const before = await parts(f.loan.id)

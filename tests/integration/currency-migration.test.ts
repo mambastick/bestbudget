@@ -31,12 +31,23 @@ it("upgrades beta operations, transfers and recurring rules without changing RUB
     const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", migrations), "utf8")) as { entries: { tag: string }[] }
     for (const entry of journal.entries.filter((entry) => entry.tag !== "0000_init")) {
       await db.exec(readFileSync(new URL(`${entry.tag}.sql`, migrations), "utf8"))
+      if (entry.tag === "0005_savings_goals") {
+        // Exercise the loan upgrade with existing goals and an automatic funding link from main.
+        await db.exec(`
+          insert into goals(id, household_id, name, kind, account_id, target_amount) values
+            ('00000000-0000-4000-8000-000000000008', '00000000-0000-4000-8000-000000000001', 'Beta goal', 'account', '00000000-0000-4000-8000-000000000003', 300000);
+          update recurring_rules set goal_id = '00000000-0000-4000-8000-000000000008' where id = '00000000-0000-4000-8000-000000000006';
+        `)
+      }
     }
     expect((await db.query("select id, type, status, title, date, account_id, to_account_id, category_id, recurring_rule_id, occurrence_date, amount::text, version from transactions order by title")).rows).toEqual(beforeOperations)
     expect((await db.query("select id, title, amount::text, account_id, to_account_id, category_id, start_date, generate_from, version from recurring_rules order by title")).rows).toEqual(beforeRules)
     expect((await db.query("select to_amount from transactions union all select to_amount from recurring_rules")).rows).toEqual(Array.from({ length: 6 }, () => ({ to_amount: null })))
     expect((await db.query("select currency, opening_balance::text, version from financial_accounts order by id")).rows).toEqual([
       { currency: "RUB", opening_balance: "123456", version: 1 }, { currency: "RUB", opening_balance: "0", version: 1 },
+    ])
+    expect((await db.query("select g.name, g.target_amount::text, g.version, r.title from goals g join recurring_rules r on r.goal_id = g.id")).rows).toEqual([
+      { name: "Beta goal", target_amount: "300000", version: 1, title: "Beta transfer rule" },
     ])
     expect((await db.query("select credit_limit::text from financial_accounts order by id")).rows).toEqual([{ credit_limit: "0" }, { credit_limit: "0" }])
     expect((await db.query("select count(*)::int as n from transactions where loan_id is not null")).rows).toEqual([{ n: 0 }])

@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test"
+import { addMonths, todayIn } from "../src/lib/dates"
 import { SETUP_TOKEN } from "../playwright.config"
 
 const admin = { name: "Евгений", email: "owner@e2e.test", password: "owner-password-1" }
 
-test("existing mortgage: preview, mobile schedule, calendar payment and atomic confirmation", async ({ page }) => {
+test("existing mortgage and savings goal: shared dashboard, calendar and atomic confirmation", async ({ page }) => {
   await page.goto("/")
   if (page.url().includes("/setup")) {
     await page.getByLabel("Токен настройки").fill(SETUP_TOKEN)
@@ -24,6 +25,9 @@ test("existing mortgage: preview, mobile schedule, calendar payment and atomic c
   await page.getByLabel("Название").fill("Ипотека E2E")
   await page.getByRole("button", { name: "Создать", exact: true }).click()
   await expect(page).toHaveURL(/\/dashboard/)
+  const browserErrors: string[] = []
+  page.on("pageerror", (error) => browserErrors.push(error.message))
+  page.on("console", (message) => { if (message.type() === "error") browserErrors.push(message.text()) })
   await page.goto("/loans/new")
   await page.setViewportSize({ width: 375, height: 812 })
   await page.getByRole("radio", { name: "Уже выплачиваю", exact: true }).click()
@@ -64,11 +68,48 @@ test("existing mortgage: preview, mobile schedule, calendar payment and atomic c
   await page.evaluate(() => window.scrollTo(0, 0))
   await page.screenshot({ path: test.info().outputPath("loan-detail-desktop.png"), fullPage: true })
   await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto("/accounts")
+  await page.getByRole("button", { name: "Счёт", exact: true }).click()
+  let goalDialog = page.getByRole("dialog")
+  await goalDialog.getByLabel("Название").fill("Копилка семьи")
+  await goalDialog.getByRole("combobox").first().click()
+  await page.getByRole("option", { name: "Накопительный счёт", exact: true }).click()
+  await goalDialog.getByLabel("Начальный остаток").fill("75000")
+  await goalDialog.getByRole("button", { name: "Сохранить", exact: true }).click()
+  await expect(goalDialog).toBeHidden()
+  await page.goto("/goals")
+  await page.getByRole("button", { name: "Создать цель", exact: true }).click()
+  goalDialog = page.getByRole("dialog")
+  await goalDialog.getByLabel("Название", { exact: true }).fill("Семейный отпуск")
+  await goalDialog.getByLabel("Накопительный счёт", { exact: true }).click()
+  await expect(page.getByRole("option", { name: /Семейная ипотека/ })).toHaveCount(0)
+  await expect(page.getByRole("option")).toHaveCount(1)
+  await page.getByRole("option", { name: "Копилка семьи · RUB", exact: true }).click()
+  await goalDialog.getByLabel("Сумма цели", { exact: true }).fill("150000")
+  const today = todayIn("Europe/Moscow")
+  const target = addMonths(today, 6)
+  await goalDialog.getByLabel("Срок (необязательно)").click()
+  const calendar = page.locator('[data-slot="popover-content"]').filter({ visible: true })
+  await calendar.locator("select").last().selectOption(target.slice(0, 4))
+  await calendar.locator("select").first().selectOption(String(Number(target.slice(5, 7)) - 1))
+  await calendar.locator(`[data-day="${new Date(target + "T12:00:00Z").toLocaleDateString("ru-RU")}"]`).click()
+  await goalDialog.getByRole("button", { name: "Создать цель", exact: true }).click()
+  await expect(page).toHaveURL(/\/goals\/[a-f0-9-]+/)
+  await page.getByRole("button", { name: "Откладывать автоматически", exact: true }).click()
+  goalDialog = page.getByRole("dialog")
+  await goalDialog.getByLabel("Счёт списания").click()
+  await expect(page.getByRole("option", { name: /Семейная ипотека/ })).toHaveCount(0)
+  await page.getByRole("option", { name: "Основной счёт · RUB", exact: true }).click()
+  await goalDialog.getByLabel("День месяца").fill(today.slice(8))
+  await goalDialog.getByRole("button", { name: "Настроить", exact: true }).click()
+  await expect(goalDialog).toBeHidden()
+  await noOverflow()
   await page.goto("/calendar")
   await noOverflow()
   await page.getByRole("radio", { name: "Список", exact: true }).click()
   const item = page.getByRole("listitem").filter({ hasText: "Платёж по кредиту: Семейная ипотека" })
   await expect(item).toHaveCount(1)
+  await expect(page.getByRole("listitem").filter({ hasText: "На цель: Семейный отпуск" })).toHaveCount(1)
   await page.screenshot({ path: test.info().outputPath("loan-calendar-375.png"), fullPage: true })
   await item.getByRole("button", { name: /Подтвердить/ }).click()
   const dialog = page.getByRole("dialog")
@@ -91,4 +132,37 @@ test("existing mortgage: preview, mobile schedule, calendar payment and atomic c
   await page.goto("/loans")
   await expect(page.getByRole("link", { name: "Семейная ипотека", exact: true })).toBeVisible()
   await noOverflow()
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  await page.goto("/dashboard")
+  await expect(page).toHaveTitle(/Обзор/)
+  const main = page.getByRole("main").last()
+  await expect(main.getByRole("heading", { name: "Обзор", exact: true })).toBeVisible()
+  await expect(main.getByTestId("goal-card")).toContainText("Семейный отпуск")
+  await expect(main.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "50")
+  await expect(main.getByText("На цель: Семейный отпуск", { exact: true }).first()).toBeVisible()
+  const assets = main.locator('[data-slot="card"]').filter({ has: page.getByText("Чистые активы", { exact: true }) })
+  const debts = main.locator('[data-slot="card"]').filter({ has: page.getByText("Долги", { exact: true }) })
+  await expect(assets).toContainText("−26 000 ₽")
+  await expect(debts).toContainText("101 000 ₽")
+  await expect(debts).toContainText("Платёж по кредиту: Семейная ипотека")
+  await expect(main.getByLabel("66 115,12 ₽", { exact: true }).first()).toBeVisible()
+  await page.getByText("Автопополнение настроено", { exact: true }).waitFor({ state: "hidden" })
+  for (const [width, height, name] of [[1280, 900, "desktop"], [375, 812, "375"]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await page.mouse.move(0, 0)
+    await noOverflow()
+    await expect(main.getByLabel("66 115,12 ₽", { exact: true }).first()).toHaveText(/66\s115[,.]12\s₽/)
+    // Motion counters and Recharts use JS animations; screenshot's CSS animation option does not finish them.
+    let previous = ""
+    let stable = 0
+    await expect.poll(async () => {
+      const current = await main.innerHTML()
+      stable = current === previous ? stable + 1 : 0
+      previous = current
+      return stable
+    }, { intervals: [100], timeout: 10_000 }).toBeGreaterThanOrEqual(5)
+    await page.screenshot({ path: test.info().outputPath(`dashboard-${name}.png`), fullPage: true, animations: "disabled" })
+  }
+  expect(browserErrors).toEqual([])
 })
