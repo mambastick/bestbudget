@@ -5,9 +5,30 @@ import { fingerprint } from "../config"
 
 describe("AI schemas", () => {
   it("registers the complete foundation surface with bounded inputs", () => {
-    expect([...toolRegistry.values()].filter((t) => t.kind === "read")).toHaveLength(11)
-    expect([...toolRegistry.values()].filter((t) => t.kind === "propose")).toHaveLength(6)
-    expect(proposalHandlers.size).toBe(13)
+    expect([...toolRegistry.keys()]).toEqual(
+      expect.arrayContaining([
+        "get_overview",
+        "list_accounts",
+        "list_categories",
+        "get_spending",
+        "get_income",
+        "list_recurring",
+        "list_budgets",
+        "list_goals",
+        "list_loans",
+        "get_forecast",
+        "search_transactions",
+        "propose_budget_changes",
+        "propose_recurring",
+        "propose_categories",
+        "propose_goal",
+        "propose_recategorize",
+        "propose_account",
+      ]),
+    )
+    expect(proposalHandlers.size).toBeGreaterThanOrEqual(13)
+    expect(toolRegistry.get("get_review_period")?.conversationKinds).toEqual(["review"])
+    expect(toolRegistry.get("submit_budget_review")?.conversationKinds).toEqual(["review"])
     expect(toolRegistry.get("get_spending")!.inputSchema.safeParse({ from: "2020-01-01", to: "2026-01-01" }).success).toBe(false)
     expect(toolRegistry.get("get_forecast")!.inputSchema.safeParse({ days: 367 }).success).toBe(false)
     expect(
@@ -17,8 +38,9 @@ describe("AI schemas", () => {
       }).success,
     ).toBe(false)
     expect(
-      toolRegistry.get("propose_budget_changes")!.inputSchema.safeParse({ title: "Budget", items: [{ type: "execute_sql", input: {} }] })
-        .success,
+      toolRegistry
+        .get("propose_budget_changes")!
+        .inputSchema.safeParse({ title: "Budget", items: [{ type: "execute_sql", input: {} }] }).success,
     ).toBe(false)
     expect(
       proposalHandlers

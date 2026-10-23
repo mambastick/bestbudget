@@ -6,6 +6,8 @@ import { formatMoney } from "@/lib/money"
 
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "validation.time")
 export const preferencesInput = z.object({
+  aiReview: z.boolean().default(true),
+  reviewEmail: z.boolean().default(false),
   telegram: z.boolean().default(false),
   push: z.boolean().default(false),
   due: z.boolean().default(true),

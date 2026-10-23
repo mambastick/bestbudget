@@ -13,6 +13,7 @@ import { AppError, conflict, forbidden, notFound } from "@/server/errors"
 import { requireAi } from "./access"
 import { getConversation } from "./conversations"
 import { fingerprint } from "./config"
+import { assertReviewProposalCurrent, rejectedFingerprints, reviewForProposal, reviewItemFingerprint } from "./review-state"
 import { proposalExpiry, proposalHandlers } from "./proposal-registry"
 
 export async function createProposal(
@@ -35,7 +36,11 @@ export async function createProposal(
     .select()
     .from(aiConversations)
     .where(
-      and(eq(aiConversations.id, conversationId), eq(aiConversations.householdId, ctx.householdId), eq(aiConversations.userId, ctx.userId)),
+      and(
+        eq(aiConversations.id, conversationId),
+        eq(aiConversations.householdId, ctx.householdId),
+        eq(aiConversations.userId, ctx.userId),
+      ),
     )
   if (!conversation) throw notFound()
   if (conversation.consentFingerprint !== fingerprint(view.provider) || conversation.dataLevel !== view.dataLevel)
@@ -74,8 +79,11 @@ export async function createProposal(
       .parse((before?.references as Record<string, unknown> | undefined)?.accounts ?? [])
     const accountCurrency = (id: unknown) => accounts.find((account) => account.id === id)?.currency
     const currency =
-      typeof after.currency === "string" ? after.currency : (accountCurrency(after.accountId ?? before?.accountId) ?? ctx.currency)
-    const beforeCurrency = typeof before?.currency === "string" ? before.currency : (accountCurrency(before?.accountId) ?? ctx.currency)
+      typeof after.currency === "string"
+        ? after.currency
+        : (accountCurrency(after.accountId ?? before?.accountId) ?? ctx.currency)
+    const beforeCurrency =
+      typeof before?.currency === "string" ? before.currency : (accountCurrency(before?.accountId) ?? ctx.currency)
     const allocationCurrency = accountCurrency(after.accountId ?? before?.accountId)
     const beforeAllocationCurrency = accountCurrency(before?.accountId)
     items.push({
@@ -97,16 +105,39 @@ export async function createProposal(
       beforeFieldCurrencies: beforeAllocationCurrency ? { allocatedAmount: beforeAllocationCurrency } : undefined,
     })
   }
+  if (conversation.kind === "review") {
+    const rejected = await rejectedFingerprints(ctx)
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (rejected.has(reviewItemFingerprint(items[i]!))) items.splice(i, 1)
+    }
+    if (!items.length && !skippedUnchanged)
+      return {
+        proposalId: null,
+        status: "dismissed",
+        skippedUnchanged,
+        instruction:
+          "The household rejected this direction of change. Do not propose it again, reword it or include it in the review.",
+      }
+  }
   if (!items.length)
     return {
       proposalId: null,
       status: "unchanged",
       skippedUnchanged,
-      instruction: "All requested items already match current data. No proposal was created. Tell the user no changes are needed.",
+      instruction:
+        "All requested items already match current data. No proposal was created. Tell the user no changes are needed.",
     }
   const [proposal] = await getDb()
     .insert(aiProposals)
-    .values({ householdId: ctx.householdId, conversationId, messageId, title: raw.title, items, expiresAt: proposalExpiry() })
+    .values({
+      householdId: ctx.householdId,
+      conversationId,
+      messageId,
+      title: raw.title,
+      author: conversation.kind === "review" ? "ai_review" : "assistant",
+      items,
+      expiresAt: proposalExpiry(),
+    })
     .returning()
   return {
     proposalId: proposal!.id,
@@ -142,6 +173,8 @@ export async function applyProposal(ctx: HouseholdCtx, proposalId: string, itemI
       await db.select().from(aiHouseholdSettings).where(eq(aiHouseholdSettings.householdId, ctx.householdId)).for("share")
       const { view, ctx: current } = await requireAi(fresh)
       fresh = current
+      // Match dismissal lock order: recommendation before proposal.
+      await reviewForProposal(fresh, proposalId, true)
       const [proposal] = await db
         .select()
         .from(aiProposals)
@@ -151,14 +184,14 @@ export async function applyProposal(ctx: HouseholdCtx, proposalId: string, itemI
       const [conversation] = await db
         .select()
         .from(aiConversations)
-        .where(
-          and(
-            eq(aiConversations.id, proposal.conversationId),
-            eq(aiConversations.householdId, ctx.householdId),
-            eq(aiConversations.userId, ctx.userId),
-          ),
+        .where(and(eq(aiConversations.id, proposal.conversationId), eq(aiConversations.householdId, ctx.householdId)))
+      if (!conversation || (conversation.kind !== "review" && conversation.userId !== ctx.userId)) throw notFound()
+      if (conversation.kind === "review")
+        await assertReviewProposalCurrent(
+          fresh,
+          proposalId,
+          ids.every((id) => proposal.items.some((i) => i.id === id && i.result)),
         )
-      if (!conversation) throw notFound()
       if (conversation.consentFingerprint !== fingerprint(view.provider) || conversation.dataLevel !== view.dataLevel)
         throw new AppError("ai.consentChanged")
       if (proposal.expiresAt <= new Date()) throw new AppError("ai.expired")
@@ -201,6 +234,11 @@ export async function applyProposal(ctx: HouseholdCtx, proposalId: string, itemI
   )
 }
 export async function dismissProposal(ctx: HouseholdCtx, id: string) {
+  const review = await reviewForProposal(ctx, z.uuid().parse(id))
+  if (review) {
+    const { dismissRecommendation } = await import("./reviews")
+    return dismissRecommendation(ctx, review.recommendation.id)
+  }
   const [proposal] = await getDb()
     .select({ id: aiProposals.id })
     .from(aiProposals)
@@ -209,7 +247,11 @@ export async function dismissProposal(ctx: HouseholdCtx, id: string) {
       and(eq(aiConversations.id, aiProposals.conversationId), eq(aiConversations.householdId, aiProposals.householdId)),
     )
     .where(
-      and(eq(aiProposals.id, z.uuid().parse(id)), eq(aiProposals.householdId, ctx.householdId), eq(aiConversations.userId, ctx.userId)),
+      and(
+        eq(aiProposals.id, z.uuid().parse(id)),
+        eq(aiProposals.householdId, ctx.householdId),
+        eq(aiConversations.userId, ctx.userId),
+      ),
     )
   if (!proposal) throw notFound()
   await getDb()

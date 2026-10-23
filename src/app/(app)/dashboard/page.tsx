@@ -1,3 +1,4 @@
+import { AiReviewWidget } from "@/components/app/ai/review-widget"
 import { householdAiView } from "@/server/ai/access"
 import { useTranslations } from "next-intl"
 import { getTranslations, getLocale } from "next-intl/server"
@@ -58,7 +59,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <FxWarnings warnings={d.warnings} canManageRates={ctx.user.role === "admin"} />
       <PageHeader title={t("title")} description={t("description", { month: formatMonth(month, locale) })} actions={<MonthSwitcher month={month} today={today} basePath="/dashboard" />} />
 
-      {ai.enabled ? <LinkButton href="/assistant" variant="outline" className="justify-self-start">{aiT("title")}</LinkButton> : null}
+      {ai.enabled ? <div className="grid grid-cols-1 gap-3"><LinkButton href="/assistant" variant="outline" className="justify-self-start">{aiT("title")}</LinkButton><AiReviewWidget ctx={ctx} /></div> : null}
       {empty ? (
         <EmptyState
           icon={Plus}

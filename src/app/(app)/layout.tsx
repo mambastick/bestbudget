@@ -1,3 +1,4 @@
+import { recommendationSummary } from "@/server/ai/reviews"
 import { householdAiView } from "@/server/ai/access"
 import { AppShell } from "@/components/app/app-shell"
 import { CatalogProvider } from "@/components/app/operations/catalog-context"
@@ -18,6 +19,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     listAccounts(ctx, { includeArchived: true }),
   ])
   const ai = await householdAiView(ctx)
+  const reviews = ai.enabled ? await recommendationSummary(ctx) : { count: 0 }
   const catalog = {
     today: todayIn(ctx.timezone),
     currency: ctx.currency,
@@ -30,6 +32,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <OperationsProvider>
         <AppShell
           aiEnabled={ai.enabled}
+          aiRecommendationCount={reviews.count}
           user={{ name: ctx.user.name, email: ctx.user.email, isAdmin: ctx.user.role === "admin" }}
           households={memberships.map((m) => ({ id: m.id, name: m.name, role: m.role }))}
           activeHouseholdId={ctx.householdId}
