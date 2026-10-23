@@ -8,7 +8,7 @@ Self-hosted family finance: planned vs actual spending, recurring payments and c
 [![Release](https://img.shields.io/github/v/release/mambastick/bestbudget?include_prereleases)](https://github.com/mambastick/bestbudget/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Current release target: 1.0.0-beta.2.** The interface is currently in Russian. Detailed docs are currently in Russian.
+**1.0.0-beta.2 (beta).** The interface is currently in Russian. Detailed docs are currently in Russian.
 
 ## Screenshots
 
@@ -39,7 +39,7 @@ Synthetic demo data, light theme. No bank credentials or real family finances.
 - **Multiple currencies:** accounts and transfers with separate debit/credit amounts; household base-currency reports; cached Bank of Russia rates or manual rates for offline installations.
 - **Loans:** mortgages and consumer loans, annuity/differentiated schedules, principal/interest split, prepayments, rate changes, debt reconciliation and credit-card limits.
 - **Savings goals:** account allocations, manual contributions, emergency fund based on spending history, progress forecasts and recurring planned top-ups.
-- **Statement import (pending [PR #8](https://github.com/mambastick/bestbudget/pull/8)):** CSV/XLSX mapping, preview, duplicate checks and batch undo. Bank-specific formats are experimental; PDF is out of scope. See the [import guide on its branch](https://github.com/mambastick/bestbudget/blob/codex/import/docs/import.md).
+- **Statement import:** CSV/XLSX column mapping, preview, duplicate checks, own transfers, planned-payment confirmation, category rules and batch undo. [Import guide](docs/import.md).
 - **Reminders:** opt-in Telegram and Web Push for payments, overdue items, cash gaps and budget overruns; quiet hours and daily digests. [Notifications](docs/notifications.md).
 - **Family and access:** multiple households, one-time invitations, owner/admin/member roles, password login and generic OIDC SSO. System admins manage the installation without access to other households' finances.
 - **Operations:** scheduled PostgreSQL backups, optional S3 upload, Docker Compose and Helm; responsive light/dark UI and installable PWA. PWA does not cache financial pages for offline use.
@@ -112,7 +112,18 @@ See [`.env.example`](.env.example) for the complete list. Optional services can 
 | `AUTH_FORCE_LOCAL_LOGIN` | `false`; emergency password-login recovery |
 | `SMTP_URL`, `SMTP_FROM` | Optional self-service password reset; otherwise an admin resets passwords |
 
-Import documentation currently lives on [PR #8's branch](https://github.com/mambastick/bestbudget/blob/codex/import/docs/import.md).
+## Statement import
+
+Open **Операции → Импорт выписки** (Transactions → Import statement), upload CSV/XLSX and map columns and accounts. Check the preview before posting: identify duplicates and your own transfers, confirm matching planned transactions and choose categories. Save category rules for similar purchases and reusable column profiles for your household.
+
+A batch posts atomically; its history lets you undo unchanged imported transactions and restore confirmed plans. Pending bank holds are skipped until the bank posts them. BestBudget CSV v1 and exported transactions are supported; bank-specific profiles are **experimental** and require preview checks. **PDF is not supported**; save old XLS files as CSV/XLSX first. [Workflow, formats and undo limits](docs/import.md).
+
+<details>
+<summary>Statement import preview</summary>
+
+![Statement preview with duplicate checks, own transfers and planned-payment matches](docs/screenshots/import/import-preview-desktop.png)
+
+</details>
 
 ## Upgrading and backups
 
@@ -172,7 +183,7 @@ Issues and pull requests are welcome. Describe the problem and reproduction step
 
 ## Roadmap
 
-- Complete statement import acceptance and validate bank formats on locally anonymized samples.
+- Validate native profiles for Sber, T-Bank and Alfa-Bank using locally anonymized real statement samples. Current bank formats remain experimental; column mapping is available.
 - Optional IMAP attachments and Android SMS/push **drafts**, with user review before posting.
 - Monitor Russian Open Banking access for self-hosted clients; no direct retail-bank API integration or availability date is promised. See the [banking research](docs/research/bank-integrations-ru.md) and [statement format study](docs/research/statement-formats.md).
 
