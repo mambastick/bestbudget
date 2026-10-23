@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 import { testOidcDiscoveryAction, updateOidcSettingsAction } from "@/app/actions/admin"
 import { Section } from "@/components/app/settings/section"
@@ -24,6 +25,7 @@ interface OidcValue {
 }
 
 export function OidcSettingsForm({ source, value, defaultRedirectUri }: { source: "env" | "db"; value: OidcValue | null; defaultRedirectUri: string }) {
+  const t = useTranslations("admin")
   const fromEnv = source === "env"
   const [s, setS] = useState<OidcValue>(
     value ?? { enabled: false, displayName: "SSO", issuerUrl: "", clientId: "", hasSecret: false, scopes: "openid profile email", redirectUri: "", allowSignup: false },
@@ -35,14 +37,12 @@ export function OidcSettingsForm({ source, value, defaultRedirectUri }: { source
   return (
     <Section
       title="SSO (OpenID Connect)"
-      description="Keycloak, Authentik, Microsoft Entra ID и другие OIDC-провайдеры. Секрет хранится в зашифрованном виде."
-      action={fromEnv ? <Badge variant="secondary">из переменных окружения</Badge> : null}
+      description={t("oidcHint")}
+      action={fromEnv ? <Badge variant="secondary">{t("fromEnv")}</Badge> : null}
     >
       {fromEnv ? (
         <p className="mb-4 rounded-lg bg-muted p-3 text-xs text-muted-foreground">
-          Провайдер настроен через OIDC_* в переменных окружения — они имеют приоритет над настройками в интерфейсе. Чтобы управлять SSO здесь, уберите
-          OIDC_ISSUER из окружения.
-        </p>
+          {t("oidcEnv")}</p>
       ) : null}
       <form
         className="grid grid-cols-1 gap-4"
@@ -60,14 +60,14 @@ export function OidcSettingsForm({ source, value, defaultRedirectUri }: { source
                 redirectUri: s.redirectUri,
                 allowSignup: s.allowSignup,
               }),
-            { success: "Настройки SSO сохранены", onSuccess: () => setSecret("") },
+            { success: t("oidcSaved"), onSuccess: () => setSecret("") },
           )
         }}
       >
         <fieldset disabled={fromEnv} className="grid grid-cols-1 gap-4">
-          <Toggle label="Включить вход через SSO" checked={s.enabled} onChange={(v) => setS({ ...s, enabled: v })} disabled={fromEnv} />
+          <Toggle label={t("enableSso")} checked={s.enabled} onChange={(v) => setS({ ...s, enabled: v })} disabled={fromEnv} />
           <Field>
-            <FieldLabel htmlFor="oidc-name">Отображаемое название</FieldLabel>
+            <FieldLabel htmlFor="oidc-name">{t("displayName")}</FieldLabel>
             <Input id="oidc-name" value={s.displayName} maxLength={40} onChange={(e) => setS({ ...s, displayName: e.target.value })} />
           </Field>
           <Field>
@@ -83,9 +83,9 @@ export function OidcSettingsForm({ source, value, defaultRedirectUri }: { source
                 type="button"
                 variant="outline"
                 disabled={testing.pending || !s.issuerUrl}
-                onClick={() => testing.run(() => testOidcDiscoveryAction(s.issuerUrl), { onSuccess: (d) => toast.success(`Провайдер доступен: ${d.issuer}`) })}
+                onClick={() => testing.run(() => testOidcDiscoveryAction(s.issuerUrl), { onSuccess: (d) => toast.success(t("providerAvailable", { issuer: d.issuer })) })}
               >
-                Проверить
+                {t("check")}
               </Button>
             </div>
           </Field>
@@ -99,7 +99,7 @@ export function OidcSettingsForm({ source, value, defaultRedirectUri }: { source
               id="oidc-secret"
               autoComplete="off"
               value={secret}
-              placeholder={s.hasSecret ? "•••••• (сохранён; оставьте пустым, чтобы не менять)" : ""}
+              placeholder={s.hasSecret ? t("keepSecret") : ""}
               onChange={(e) => setSecret(e.target.value)}
             />
           </Field>
@@ -111,12 +111,12 @@ export function OidcSettingsForm({ source, value, defaultRedirectUri }: { source
             <FieldLabel htmlFor="oidc-redirect">Redirect URI</FieldLabel>
             <Input id="oidc-redirect" value={s.redirectUri} placeholder={defaultRedirectUri} onChange={(e) => setS({ ...s, redirectUri: e.target.value })} />
             <p className="text-xs text-muted-foreground">
-              Зарегистрируйте в провайдере: <code className="break-all">{s.redirectUri || defaultRedirectUri}</code>
+              {t.rich("registerRedirect", { uriTag: (chunks) => <code className="break-all">{chunks}</code>, uri: s.redirectUri || defaultRedirectUri })}
             </p>
           </Field>
           <Toggle
-            label="Создавать аккаунты при первом входе через SSO"
-            hint="Если выключено, новый пользователь может войти через SSO только по приглашению. Существующие аккаунты по e-mail не связываются автоматически."
+            label={t("ssoSignup")}
+            hint={t("ssoSignupHint")}
             checked={s.allowSignup}
             onChange={(v) => setS({ ...s, allowSignup: v })}
             disabled={fromEnv}
@@ -124,7 +124,7 @@ export function OidcSettingsForm({ source, value, defaultRedirectUri }: { source
         </fieldset>
         {!fromEnv ? (
           <Button type="submit" className="justify-self-start" disabled={pending}>
-            Сохранить
+            {t("save")}
           </Button>
         ) : null}
       </form>

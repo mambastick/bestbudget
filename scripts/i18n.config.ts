@@ -10,6 +10,10 @@ export const translatedPaths = [
   "src/app/layout.tsx", "src/app/manifest.ts", "src/server/errors.ts", "src/app/actions/preferences.ts",
   "src/app/actions/auth.ts", "src/server/services/preferences.ts", "src/server/services/catalog.ts",
   "src/server/services/households.ts", "src/lib/auth-client.ts", "src/lib/timezones.ts", "src/lib/auth.ts",
+  // Administration, recipient notifications and mail (phase 2, area C).
+  "src/app/(app)/admin", "src/components/app/admin", "src/domain/notifications.ts",
+  "src/server/notifications", "src/server/jobs/notifications.ts", "src/app/actions/notifications.ts",
+  "src/server/services/notification-settings.ts", "src/lib/mail.ts",
 ] as const
 
 // Language autonyms remain readable even when the surrounding interface uses another language.

@@ -1,3 +1,4 @@
+import { getLocale, getTranslations } from "next-intl/server"
 import type { Metadata } from "next"
 import { ExchangeRatesSettings } from "@/components/app/admin/exchange-rates"
 import { listExchangeRates } from "@/server/services/exchange-rates"
@@ -19,40 +20,39 @@ import { requireSystemAdmin } from "@/server/session"
 import { defaultRedirectUri, getAppSettings, getAuthMethods, getOidcConfig } from "@/server/services/settings"
 import { listHouseholdsForAdmin, listSystemEvents, listUsersForAdmin } from "@/server/services/users"
 
-export const metadata: Metadata = { title: "Администрирование" }
-
-const TABS = [
-  { key: "users", label: "Пользователи" },
-  { key: "households", label: "Пространства" },
-  { key: "auth", label: "Авторизация" },
-  { key: "rates", label: "Курсы валют" },
-  { key: "events", label: "События" },
-  { key: "notifications", label: "Уведомления" },
-] as const
-
-const EVENT_LABELS: Record<string, string> = {
-  "auth.sign_in": "Вход в систему",
-  "auth.user_created": "Создан пользователь",
-  "setup.admin_created": "Создан первый администратор",
-  "settings.auth.update": "Изменены способы входа",
-  "settings.oidc.update": "Изменены настройки SSO",
-  "admin.user_ban": "Пользователь заблокирован",
-  "admin.user_unban": "Пользователь разблокирован",
-  "admin.user_role": "Изменена роль пользователя",
-  "admin.user_password_reset": "Сброшен пароль пользователя",
-  "admin.user_sessions_revoked": "Завершены сеансы пользователя",
-  "household.delete": "Удалено семейное пространство",
-  "cli.admin_created": "Администратор создан из консоли",
-  "cli.password_reset": "Пароль сброшен из консоли",
-  "cli.local_auth_enabled": "Вход по паролю включён из консоли",
-  "cli.promote": "Права администратора выданы из консоли",
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("admin")
+  return { title: t("title") }
 }
+
+const tabKeys = ["users", "households", "auth", "rates", "events", "notifications"] as const
 
 // Server-only page: the admin needs the system time zone for timestamps.
 const TZ = process.env.TZ || "Europe/Moscow"
 
 export default async function AdminPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const admin = await requireSystemAdmin()
+  const t = await getTranslations("admin")
+  const locale = await getLocale()
+  const TABS = tabKeys.map((key) => ({ key, label: t(key) }))
+  const EVENT_LABELS: Record<string, string> = {
+    "auth.sign_in": t("signedIn"),
+    "auth.user_created": t("userCreated"),
+    "setup.admin_created": t("firstAdmin"),
+    "settings.auth.update": t("authUpdated"),
+    "settings.oidc.update": t("oidcUpdated"),
+    "admin.user_ban": t("userBanned"),
+    "admin.user_unban": t("userUnbanned"),
+    "admin.user_role": t("roleUpdated"),
+    "admin.user_password_reset": t("passwordReset"),
+    "admin.user_sessions_revoked": t("sessionsRevoked"),
+    "household.delete": t("householdDeleted"),
+    "cli.admin_created": t("cliAdmin"),
+    "cli.password_reset": t("cliPassword"),
+    "cli.local_auth_enabled": t("cliLocal"),
+    "cli.promote": t("cliPromote")
+  }
+
   const requested = (await searchParams).tab
   const tab = TABS.find((t) => t.key === requested)?.key ?? "users"
 
@@ -68,16 +68,16 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   } else if (tab === "households") {
     const households = await listHouseholdsForAdmin()
     content = (
-      <Section title="Семейные пространства" description="Администратор приложения видит только метаданные — финансовые данные доступны лишь участникам.">
+      <Section title={t("householdsTitle")} description={t("householdsHint")}>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Название</TableHead>
-                <TableHead>Владелец</TableHead>
-                <TableHead className="text-right">Участников</TableHead>
-                <TableHead>Часовой пояс</TableHead>
-                <TableHead>Создано</TableHead>
+                <TableHead>{t("name")}</TableHead>
+                <TableHead>{t("owner")}</TableHead>
+                <TableHead className="text-right">{t("members")}</TableHead>
+                <TableHead>{t("timezone")}</TableHead>
+                <TableHead>{t("created")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -87,7 +87,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
                   <TableCell>{h.owner ? `${h.owner.name} (${h.owner.email})` : "—"}</TableCell>
                   <TableCell className="text-right">{h.members}</TableCell>
                   <TableCell>{h.timezone}</TableCell>
-                  <TableCell>{formatDateTime(h.createdAt, TZ)}</TableCell>
+                  <TableCell>{formatDateTime(h.createdAt, TZ, locale)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -132,16 +132,16 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   } else {
     const events = await listSystemEvents(200)
     content = (
-      <Section title="Системные события" description="Вход, изменения настроек авторизации и действия администраторов. Секреты не записываются.">
+      <Section title={t("eventsTitle")} description={t("eventsHint")}>
         <ul className="divide-y">
           {events.map((e) => (
             <li key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-2 text-sm">
-              <span className="w-36 shrink-0 text-xs text-muted-foreground tabular">{formatDateTime(e.createdAt, TZ)}</span>
+              <span className="w-36 shrink-0 text-xs text-muted-foreground tabular">{formatDateTime(e.createdAt, TZ, locale)}</span>
               <span className="min-w-0 flex-1">{EVENT_LABELS[e.action] ?? e.action}</span>
-              <span className="text-xs text-muted-foreground">{e.actorEmail ?? "система"}</span>
+              <span className="text-xs text-muted-foreground">{e.actorEmail ?? t("system")}</span>
             </li>
           ))}
-          {events.length === 0 ? <li className="py-6 text-center text-sm text-muted-foreground">Событий пока нет</li> : null}
+          {events.length === 0 ? <li className="py-6 text-center text-sm text-muted-foreground">{t("noEvents")}</li> : null}
         </ul>
       </Section>
     )
@@ -150,10 +150,10 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   return (
     <div className="grid grid-cols-1 gap-6">
       <PageHeader
-        title="Администрирование"
+        title={t("title")}
         description={
           <>
-            Управление приложением <Badge variant="secondary" className="ml-1">системный администратор</Badge>
+            {t("manageApp")}<Badge variant="secondary" className="ml-1">{t("systemAdmin")}</Badge>
           </>
         }
       />

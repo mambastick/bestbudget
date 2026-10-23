@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useTranslations } from "next-intl"
 import { updateAuthSettingsAction } from "@/app/actions/admin"
 import { Section } from "@/components/app/settings/section"
 import { Button } from "@/components/ui/button"
@@ -11,44 +12,45 @@ import { useAction } from "@/hooks/use-action"
 import type { AppSettings } from "@/server/services/settings"
 
 export function AuthSettingsForm({ settings, oidcActive, localForced, smtp }: { settings: AppSettings; oidcActive: boolean; localForced: boolean; smtp: boolean }) {
+  const t = useTranslations("admin")
   const [s, setS] = useState(settings)
   const { pending, run } = useAction()
   return (
-    <Section title="Способы входа" description="Хотя бы один способ входа всегда остаётся включённым.">
+    <Section title={t("signInMethods")} description={t("signInHint")}>
       <form
         className="grid grid-cols-1 gap-4"
         onSubmit={(e) => {
           e.preventDefault()
-          run(() => updateAuthSettingsAction(s), { success: "Настройки сохранены" })
+          run(() => updateAuthSettingsAction(s), { success: t("saved") })
         }}
       >
         <Field>
-          <FieldLabel htmlFor="app-name">Название приложения</FieldLabel>
+          <FieldLabel htmlFor="app-name">{t("appName")}</FieldLabel>
           <Input id="app-name" value={s.appName} maxLength={40} onChange={(e) => setS({ ...s, appName: e.target.value })} />
         </Field>
         <Toggle
-          label="Вход по e-mail и паролю"
+          label={t("passwordSignIn")}
           hint={
             localForced
-              ? "Принудительно включён переменной AUTH_FORCE_LOCAL_LOGIN (аварийный доступ)."
+              ? t("localForced")
               : oidcActive
-                ? "Чтобы отключить, привяжите SSO к своему аккаунту — иначе можно потерять доступ."
-                : "Нельзя отключить, пока SSO не настроен и не включён."
+                ? t("linkSsoFirst")
+                : t("configureSsoFirst")
           }
           checked={s.localAuthEnabled}
           onChange={(v) => setS({ ...s, localAuthEnabled: v })}
         />
         <Toggle
-          label="Публичная регистрация"
-          hint="По умолчанию выключена: новые пользователи приходят только по приглашениям."
+          label={t("publicRegistration")}
+          hint={t("registrationHint")}
           checked={s.publicRegistration}
           onChange={(v) => setS({ ...s, publicRegistration: v })}
         />
         <p className="text-xs text-muted-foreground">
-          Восстановление пароля по e-mail: {smtp ? "включено (SMTP настроен)" : "SMTP не настроен — сбрасывайте пароли во вкладке «Пользователи»"}.
+          {t(smtp ? "resetEnabled" : "resetDisabled")}
         </p>
         <Button type="submit" className="justify-self-start" disabled={pending}>
-          Сохранить
+          {t("save")}
         </Button>
       </form>
     </Section>

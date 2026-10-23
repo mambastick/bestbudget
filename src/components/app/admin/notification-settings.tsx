@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useLocale, useTranslations } from "next-intl"
 import { testTelegramAction, updateTelegramSettingsAction } from "@/app/actions/notifications"
 import { Toggle } from "@/components/app/admin/auth-settings"
 import { Section } from "@/components/app/settings/section"
@@ -12,6 +13,8 @@ import { useAction } from "@/hooks/use-action"
 import type { notificationAdmin } from "@/server/notifications/view"
 
 export function NotificationAdmin(props: Awaited<ReturnType<typeof notificationAdmin>>) {
+  const t = useTranslations("admin")
+  const locale = useLocale()
   const [token, setToken] = useState("")
   const [mode, setMode] = useState(props.mode)
   const [disabled, setDisabled] = useState(!props.enabled)
@@ -21,19 +24,18 @@ export function NotificationAdmin(props: Awaited<ReturnType<typeof notificationA
     <div className="grid grid-cols-1 gap-4">
       <Section
         title="Telegram"
-        description="Создайте бота через @BotFather. Токен хранится зашифрованным. Тест приходит в Telegram текущего администратора, подключённый в профиле."
+        description={t("telegramHint")}
       >
         <p className="mb-3 text-sm">
-          Бот: {props.username ? `@${props.username}` : "не настроен"} · Фоновые задачи:{" "}
-          {props.jobsEnabled ? "включены" : "отключены (JOBS_ENABLED=false)"}
+          {t("botStatus", { bot: props.username ? `@${props.username}` : t("notConfigured"), jobs: t(props.jobsEnabled ? "jobsEnabled" : "jobsDisabled") })}
         </p>
         <p className="mb-3 text-xs text-muted-foreground">
-          Последний апдейт: {props.lastUpdate ? new Date(props.lastUpdate).toLocaleString("ru-RU") : "нет"}
-          {props.transportError ? ` · Ошибка: ${props.transportError}` : ""}
+          {t("lastUpdate", { date: props.lastUpdate ? new Date(props.lastUpdate).toLocaleString(locale) : t("none") })}
+          {props.transportError ? ` · ${t("transportError", { error: props.transportError })}` : ""}
         </p>
         {props.fromEnv ? (
           <p className="mb-3 text-sm">
-            Токен задан через TELEGRAM_BOT_TOKEN. Режим: {props.mode}. Настройка через окружение имеет приоритет.
+            {t("botEnv", { mode: props.mode })}
           </p>
         ) : (
           <form
@@ -41,7 +43,7 @@ export function NotificationAdmin(props: Awaited<ReturnType<typeof notificationA
             onSubmit={(e) => {
               e.preventDefault()
               action.run(() => updateTelegramSettingsAction({ token, mode, disabled, version }), {
-                success: "Настройки бота сохранены",
+                success: t("botSaved"),
                 onSuccess: () => {
                   setToken("")
                   setVersion(version + 1)
@@ -49,14 +51,14 @@ export function NotificationAdmin(props: Awaited<ReturnType<typeof notificationA
               })
             }}
           >
-            <Toggle label="Отключить бота" checked={disabled} onChange={setDisabled} />
+            <Toggle label={t("disableBot")} checked={disabled} onChange={setDisabled} />
             <Field>
-              <FieldLabel htmlFor="telegram-token">Токен бота</FieldLabel>
+              <FieldLabel htmlFor="telegram-token">{t("botToken")}</FieldLabel>
               <PasswordInput
                 id="telegram-token"
                 autoComplete="off"
                 value={token}
-                placeholder={props.enabled ? "Оставьте пустым, чтобы сохранить" : "123456:…"}
+                placeholder={props.enabled ? t("keepToken") : "123456:…"}
                 onChange={(e) => setToken(e.target.value)}
               />
             </Field>
@@ -64,13 +66,13 @@ export function NotificationAdmin(props: Awaited<ReturnType<typeof notificationA
               value={mode}
               onChange={setMode}
               options={[
-                { value: "polling", label: "Polling (за NAT)" },
+                { value: "polling", label: t("polling") },
                 { value: "webhook", label: "Webhook (HTTPS)" },
               ]}
               disabled={props.modeFromEnv}
             />
             <Button type="submit" className="justify-self-start" disabled={action.pending}>
-              Сохранить бота
+              {t("saveBot")}
             </Button>
           </form>
         )}
@@ -78,29 +80,29 @@ export function NotificationAdmin(props: Awaited<ReturnType<typeof notificationA
           className="mt-4"
           variant="outline"
           disabled={action.pending || !props.enabled}
-          onClick={() => action.run(testTelegramAction, { success: "Тест отправлен в ваш Telegram" })}
+          onClick={() => action.run(testTelegramAction, { success: t("testSent") })}
         >
-          Тест Telegram
+          {t("testTelegram")}
         </Button>
       </Section>
       <Section
         title="Web Push"
-        description="Приватный VAPID-ключ хранится зашифрованным. При смене ключей браузеры нужно подключить заново."
+        description={t("pushHint")}
       >
         <p className="break-all font-mono text-xs">{props.publicKey}</p>
       </Section>
       <Section
-        title="Последние ошибки доставки"
-        description="Без имён, адресов, названий семей и содержимого уведомлений. unknown — результат отправки неизвестен, повтор отключён."
+        title={t("deliveryErrors")}
+        description={t("deliveryHint")}
       >
         <ul className="divide-y">
           {props.errors.map((e) => (
             <li key={e.id} className="break-words py-2 text-xs">
-              {new Date(e.createdAt).toLocaleString("ru-RU")} · {e.channel} · {e.kind} · {e.status} · {e.error} ·
-              попыток: {e.attempts}
+              {new Date(e.createdAt).toLocaleString(locale)} · {e.channel} · {t.has(`deliveryKind.${e.kind}`) ? t(`deliveryKind.${e.kind}`) : e.kind} · {t.has(`deliveryStatus.${e.status}`) ? t(`deliveryStatus.${e.status}`) : e.status} · {e.error} ·
+              {t("attempts", { count: e.attempts })}
             </li>
           ))}
-          {!props.errors.length ? <li className="text-sm text-muted-foreground">Ошибок пока нет</li> : null}
+          {!props.errors.length ? <li className="text-sm text-muted-foreground">{t("noErrors")}</li> : null}
         </ul>
       </Section>
     </div>
