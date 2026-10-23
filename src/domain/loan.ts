@@ -144,6 +144,7 @@ export function calculateLoanSchedule(
   let balance = p.trackingBalance
   let payment = p.paymentAmount ?? Math.max(1, annuityPayment(balance, currentRate, p.termMonths))
   let principalPart = Math.max(1, rounded(BigInt(balance), BigInt(p.termMonths)))
+  let maturity = p.termMonths
   const sorted = [...events].sort((a, b) => a.date.localeCompare(b.date))
   for (const e of sorted) {
     if (!isIsoDate(e.date) || e.date < p.trackingDate || e.date > dueDate(p.firstPaymentDate, p.termMonths - 1, p.paymentDay))
@@ -169,19 +170,46 @@ export function calculateLoanSchedule(
       fractionD *= d
       cursor = to
     }
-    const applyEvent = (e: LoanEventInput, months: number) => {
+    // Lock in the shortened contract term, including interest already accrued in this period.
+    const projectMaturity = (first: number, from: string, carryN = 0n, carryD = 1n) => {
+      let rest = balance
+      let previousDate = from
+      for (let slot = first; slot < maturity; slot++) {
+        const nextDate = dueDate(p.firstPaymentDate, slot, p.paymentDay)
+        const periodStart = slot === 0 ? p.trackingDate : dueDate(p.firstPaymentDate, slot - 1, p.paymentDay)
+        const periodDays = diffDays(nextDate, periodStart)
+        const [n, d] = interestFraction(rest, rate, previousDate, nextDate, p.interestMethod, periodDays)
+        const interest = rounded(n * carryD + carryN * d, d * carryD)
+        const body = p.scheduleType === "annuity" ? payment - interest : principalPart
+        if (rest <= Math.max(0, body)) return slot + 1
+        if (body <= 0) throw new LoanCalculationError("Платёж не покрывает проценты; увеличьте платёж или срок")
+        rest -= body
+        previousDate = nextDate
+        carryN = 0n
+        carryD = 1n
+      }
+      return maturity
+    }
+    const applyEvent = (e: LoanEventInput) => {
+      const nextSlot = e.date === date ? i + 1 : i
       if (e.type === "rate_change") {
         currentRate = e.annualRate
         rate = rateUnits(currentRate)
       } else if (e.type === "reconciliation") {
         balance = e.balance
+        // A verified residual after projected payoff resumes the remaining original contract.
+        if (balance > 0 && nextSlot >= maturity) maturity = p.termMonths
         out.push({ n: i + 1, date: e.date, payment: 0, principal: 0, interest: 0, balance, kind: "reconciliation" })
       } else {
         const paid = Math.min(e.amount, balance)
         balance -= paid
         out.push({ n: i + 1, date: e.date, payment: paid, principal: paid, interest: 0, balance, kind: "prepayment" })
-        if (e.mode === "reduce_term") return
+        if (e.mode === "reduce_term") {
+          maturity = projectMaturity(nextSlot, e.date, e.date === date ? 0n : fractionN, e.date === date ? 1n : fractionD)
+          return
+        }
       }
+      const months = maturity - nextSlot
       if (months > 0) {
         payment = balance === 0 ? 0 : Math.max(1, annuityPayment(balance, currentRate, months))
         principalPart = balance === 0 ? 0 : Math.max(1, rounded(BigInt(balance), BigInt(months)))
@@ -190,17 +218,18 @@ export function calculateLoanSchedule(
     while (sorted[eventIndex] && sorted[eventIndex]!.date < date) {
       const e = sorted[eventIndex++]!
       accrue(e.date)
-      applyEvent(e, p.termMonths - i)
+      applyEvent(e)
     }
     accrue(date)
     const interest = rounded(fractionN, fractionD)
     let body = p.scheduleType === "annuity" ? payment - interest : principalPart
+    const expectedPrincipal = Math.max(0, Math.min(body, balance))
     const posted = actual.get(date)
     if (posted) {
       if (!safeMoney(posted.principal) || !safeMoney(posted.interest) || posted.principal > balance)
         throw new LoanCalculationError("Подтверждённый платёж превышает остаток долга")
       body = posted.principal
-    } else if (i === p.termMonths - 1) body = balance
+    } else if (i === maturity - 1) body = balance
     else if (balance > 0 && body <= 0) throw new LoanCalculationError("Платёж не покрывает проценты; увеличьте платёж или срок")
     body = Math.max(0, Math.min(body, balance))
     balance -= body
@@ -214,7 +243,8 @@ export function calculateLoanSchedule(
         balance,
         kind: "scheduled",
       })
-    while (sorted[eventIndex]?.date === date) applyEvent(sorted[eventIndex++]!, p.termMonths - i - 1)
+    if (posted && posted.principal > expectedPrincipal) maturity = projectMaturity(i + 1, date)
+    while (sorted[eventIndex]?.date === date) applyEvent(sorted[eventIndex++]!)
     previous = date
   }
   return out

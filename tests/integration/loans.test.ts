@@ -252,6 +252,33 @@ describe("loans", () => {
     ).rejects.toThrow()
   })
 
+  it("keeps the shortened payoff date when a later rate change regenerates plans", async () => {
+    const today = todayIn("Europe/Moscow")
+    const first = addMonths(today, -3)
+    const f = await fixture({ trackingDate: addMonths(today, -4), firstPaymentDate: first })
+    const confirmDate = async (date: string) => {
+      const id = await materializeLoanPayment(f.ctx, f.loan.id, date)
+      const row = await getTransaction(f.ctx, id)
+      await confirmLoanPayment(f.ctx, id, { version: row.version, date, amount: row.amount, allocation: "principal" })
+    }
+    await confirmDate(first)
+    let current = await getLoan(f.ctx, f.loan.id)
+    await addLoanEvent(f.ctx, f.loan.id, current.loan.version, {
+      type: "prepayment",
+      date: addDays(first, 1),
+      amount: 20_000_00,
+      mode: "reduce_term",
+    })
+    const shortened = await getLoan(f.ctx, f.loan.id)
+    const second = addMonths(first, 1)
+    await confirmDate(second)
+    current = await getLoan(f.ctx, f.loan.id)
+    await addLoanEvent(f.ctx, f.loan.id, current.loan.version, { type: "rate_change", date: addDays(second, 1), annualRate: "6" })
+    const changed = await getLoan(f.ctx, f.loan.id)
+    expect(changed.payoffDate).toBe(shortened.payoffDate)
+    expect(changed.paidInterest).toBe(current.paidInterest)
+  })
+
   it("isolates households at service and composite-FK levels", async () => {
     const f = await fixture()
     const other = await setupHousehold("Other")
@@ -265,22 +292,20 @@ describe("loans", () => {
     ).rejects.toThrow()
     await expect(getDb().update(loans).set({ paymentAccountId: other.mainAccount }).where(eq(loans.id, f.loan.id))).rejects.toThrow()
     await expect(
-      getDb()
-        .insert(transactions)
-        .values({
-          householdId: other.ctx.householdId,
-          loanId: f.loan.id,
-          loanPaymentKey: "cross",
-          loanDueDate: f.today,
-          loanPart: "principal",
-          type: "transfer",
-          status: "planned",
-          amount: 10,
-          title: "Cross",
-          accountId: other.mainAccount,
-          toAccountId: f.loan.accountId,
-          date: f.today,
-        }),
+      getDb().insert(transactions).values({
+        householdId: other.ctx.householdId,
+        loanId: f.loan.id,
+        loanPaymentKey: "cross",
+        loanDueDate: f.today,
+        loanPart: "principal",
+        type: "transfer",
+        status: "planned",
+        amount: 10,
+        title: "Cross",
+        accountId: other.mainAccount,
+        toAccountId: f.loan.accountId,
+        date: f.today,
+      }),
     ).rejects.toThrow()
   })
 

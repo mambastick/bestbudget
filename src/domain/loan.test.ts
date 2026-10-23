@@ -136,6 +136,38 @@ describe("loan schedules", () => {
     invariant(smaller, base.trackingBalance)
   })
 
+  it.each(["monthly", "daily_365", "daily_actual"] as const)(
+    "preserves the shortened maturity across later rate/payment changes with %s",
+    (interestMethod) => {
+      const p = { ...base, interestMethod }
+      for (const date of ["2024-05-01", "2024-05-15"]) {
+        const prepayment = { type: "prepayment" as const, date, amount: 20_000_00, mode: "reduce_term" as const }
+        const shorter = calculateLoanSchedule(p, [prepayment])
+        const changedRate = calculateLoanSchedule(p, [prepayment, { type: "rate_change", date: "2024-07-01", annualRate: "6" }])
+        const changedPayment = calculateLoanSchedule(p, [
+          prepayment,
+          { type: "prepayment", date: "2024-07-01", amount: 1000_00, mode: "reduce_payment" },
+        ])
+        expect(changedRate.at(-1)!.date).toBe(shorter.at(-1)!.date)
+        expect(changedPayment.at(-1)!.date).toBe(shorter.at(-1)!.date)
+        invariant(changedRate, p.trackingBalance)
+        invariant(changedPayment, p.trackingBalance)
+      }
+    },
+  )
+
+  it.each(["monthly", "daily_365", "daily_actual"] as const)(
+    "preserves maturity after extra actual principal and a later rate change with %s",
+    (interestMethod) => {
+      const p = { ...base, interestMethod }
+      const paid = [{ dueDate: p.firstPaymentDate, principal: 20_000_00, interest: 1000_00 }]
+      const shorter = calculateLoanSchedule(p, [], paid)
+      const changed = calculateLoanSchedule(p, [{ type: "rate_change", date: "2024-07-01", annualRate: "6" }], paid)
+      expect(changed.at(-1)!.date).toBe(shorter.at(-1)!.date)
+      invariant(changed, p.trackingBalance)
+    },
+  )
+
   it("caps an oversized prepayment and still settles accrued interest", () => {
     const rows = calculateLoanSchedule(base, [{ type: "prepayment", date: "2024-01-16", amount: 200_000_00, mode: "reduce_term" }])
     expect(rows[0]).toMatchObject({ principal: 100_000_00, balance: 0 })
