@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a reproducible problem using synthetic data.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never attach real bank statements, financial data, credentials or database dumps.
+        Use synthetic examples, including screenshots and logs.
+        Report vulnerabilities privately: https://github.com/mambastick/bestbudget/security/advisories/new
+  - type: input
+    id: version
+    attributes:
+      label: BestBudget version
+      description: Release version, image tag or commit SHA.
+      placeholder: 1.0.0-beta.2
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method
+      options:
+        - Docker Compose
+        - Helm / Kubernetes
+        - From source
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include a minimal synthetic example and relevant browser / OS versions.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Optional screenshots and logs must contain synthetic data only.
+    validations:
+      required: true

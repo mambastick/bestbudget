@@ -1,0 +1,41 @@
+name: Feature request
+description: Describe a use case and the improvement you need.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never attach real bank statements, financial data, credentials or database dumps.
+        Use synthetic examples, including screenshots.
+        Report vulnerabilities privately: https://github.com/mambastick/bestbudget/security/advisories/new
+  - type: input
+    id: version
+    attributes:
+      label: BestBudget version
+      description: Release version, image tag or commit SHA.
+      placeholder: 1.0.0-beta.2
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method
+      options:
+        - Docker Compose
+        - Helm / Kubernetes
+        - From source
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Explain the need using synthetic examples only.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed improvement
+      description: Describe the desired behavior and any alternatives you considered.
+    validations:
+      required: true
