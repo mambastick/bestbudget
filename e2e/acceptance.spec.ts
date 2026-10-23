@@ -410,14 +410,15 @@ test.describe.serial("single sign-on (OIDC)", () => {
       try {
         const page = await context.newPage()
         const button = locale === "ru" ? "Войти через Keycloak" : "Sign in with Keycloak"
+        const message = locale === "ru"
+          ? "У вашего SSO-аккаунта нет доступа к этому приложению. Обратитесь к администратору."
+          : "Your SSO account does not have access to this application. Contact your administrator."
         for (const groups of [undefined, "app-budget-admins", [E2E_ENV.OIDC_ADMIN_GROUP, 42], ["unrelated-admins"]]) {
           identity = { sub: `denied-${locale}`, email: `denied-${locale}@e2e.test`, email_verified: true, name: "Denied", groups }
           await page.goto("/login")
           await page.getByRole("button", { name: button }).click()
           await expect(page).toHaveURL(/\/login\?error=oidc_access_denied/)
-          await expect(page.getByRole("alert")).toHaveText(locale === "ru"
-            ? "У вашего SSO-аккаунта нет доступа к этому приложению. Обратитесь к администратору."
-            : "Your SSO account does not have access to this application. Contact your administrator.")
+          await expect(page.getByRole("alert").filter({ hasText: message })).toHaveText(message)
           expect(await (await context.request.get(`${E2E_ENV.APP_URL}/api/auth/get-session`)).json()).toBeNull()
           expect(await sql`select id from users where email = ${`denied-${locale}@e2e.test`}`).toHaveLength(0)
           await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375)
