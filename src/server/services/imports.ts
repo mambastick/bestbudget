@@ -1,6 +1,6 @@
 import "server-only"
 import { createHash } from "node:crypto"
-import { and, desc, eq, gte, lte, ne, sql } from "drizzle-orm"
+import { and, desc, eq, gte, isNotNull, lte, ne, sql } from "drizzle-orm"
 import { z } from "zod"
 import { getDb, type DbOrTx } from "@/db"
 import {
@@ -29,7 +29,7 @@ import {
   type RowDecision,
   type RowProposal,
 } from "@/domain/import/types"
-import { addDays } from "@/lib/dates"
+import { addDays, todayIn } from "@/lib/dates"
 import { CURRENCY_CODES } from "@/lib/currencies"
 import { audit } from "../audit"
 import { assertCan, type HouseholdCtx } from "../context"
@@ -44,6 +44,8 @@ import {
   updateTransaction,
   type TransactionInput,
 } from "./transactions"
+
+import { ensureLoansMaterialized } from "./loans"
 
 type ImportRow = typeof importRows.$inferSelect
 
@@ -115,6 +117,7 @@ export async function previewImport(ctx: HouseholdCtx, bytes: Uint8Array, raw: P
   )
     throw new AppError("Укажите колонки даты, описания и суммы/направления")
   const db = getDb()
+  await ensureLoansMaterialized(ctx, todayIn(ctx.timezone))
   const [accounts, cats, rules] = await Promise.all([
     db.select().from(financialAccounts).where(eq(financialAccounts.householdId, ctx.householdId)),
     db.select().from(categories).where(eq(categories.householdId, ctx.householdId)),
@@ -138,12 +141,14 @@ export async function previewImport(ctx: HouseholdCtx, bytes: Uint8Array, raw: P
       if (cells.length !== headers.length) normalized.errors.push("Число колонок не совпадает с заголовком")
       const account = resolveAccount(normalized.accountHint)
       if (!account) normalized.errors.push("Сопоставьте счёт: " + (normalized.accountHint ?? "счёт не указан"))
+      else if (account.kind === "loan") normalized.errors.push("Выписка по счёту кредита: используйте раздел «Кредиты», чтобы сохранить состав платежа")
       else if (account.currency !== normalized.currency)
         normalized.errors.push(`Валюта строки ${normalized.currency} не совпадает со счётом ${account.currency}`)
       if (normalized.typeHint === "Перевод") {
         const destination = resolveAccount(normalized.toAccountHint)
         if (
           !destination ||
+          destination.kind === "loan" ||
           destination.id === account?.id ||
           destination.currency !== normalized.toCurrency ||
           !normalized.toAmount ||
@@ -274,6 +279,46 @@ function externalKey(source: string, accountId: string | null, externalId: strin
     : null
 }
 
+/** Loan payments are composite: importing either leg separately would duplicate debt or interest. */
+function loanPaymentIndex(existing: Transaction[]) {
+  const groups = new Map<string, Transaction[]>()
+  for (const t of existing) {
+    if (!t.loanId || !t.loanPaymentKey || t.status === "skipped") continue
+    const group = groups.get(t.loanPaymentKey) ?? []
+    group.push(t)
+    groups.set(t.loanPaymentKey, group)
+  }
+  const index = new Map<string, number[]>()
+  for (const group of groups.values()) {
+    const total = group.reduce((sum, t) => sum + t.amount, 0)
+    for (const t of group) {
+      const key = `${t.accountId}:${t.date}`
+      const values = index.get(key) ?? []
+      values.push(t.amount, total)
+      index.set(key, values)
+    }
+  }
+  for (const values of index.values()) values.sort((a, b) => a - b)
+  return index
+}
+function matchesLoanPayment(row: Pick<ImportRow, "normalized" | "accountId">, index: Map<string, number[]>, input: PreviewInput) {
+  const n = row.normalized
+  if (!row.accountId || !n.effectiveDate || (n.amountMinorSigned ?? 0) >= 0) return false
+  const amount = Math.abs(n.amountMinorSigned!)
+  for (let day = -Math.max(input.plannedDays, 2); day <= Math.max(input.plannedDays, 2); day++) {
+    const values = index.get(`${row.accountId}:${addDays(n.effectiveDate, day)}`) ?? []
+    let lo = 0, hi = values.length
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1
+      if (values[mid]! < amount - input.plannedTolerance) lo = mid + 1
+      else hi = mid
+    }
+    if (values[lo] !== undefined && values[lo]! <= amount + input.plannedTolerance) return true
+  }
+  return false
+}
+const loanImportReason = "Совпадает с платежом по кредиту. Строка исключена: подтвердите платёж целиком в разделе «Кредиты», чтобы учесть тело и проценты без дублей."
+
 async function addCandidates(db: DbOrTx, ctx: HouseholdCtx, rows: PreviewRow[], input: PreviewInput, from?: string, to?: string) {
   const prior = await priorFingerprints(db, ctx)
   const priorByFingerprint = new Map<string, typeof prior>()
@@ -300,6 +345,14 @@ async function addCandidates(db: DbOrTx, ctx: HouseholdCtx, rows: PreviewRow[], 
             ),
           )
       : []
+  const loanIndex = loanPaymentIndex(existing)
+  for (const row of rows) {
+    if (matchesLoanPayment(row, loanIndex, input)) {
+      row.normalized.errors.push(loanImportReason)
+      row.normalized.confidence = "review"
+      row.decision = "skip"
+    }
+  }
   const accounts = await db
     .select({ id: financialAccounts.id, currency: financialAccounts.currency })
     .from(financialAccounts)
@@ -315,6 +368,7 @@ async function addCandidates(db: DbOrTx, ctx: HouseholdCtx, rows: PreviewRow[], 
     map.set(key, bucket)
   }
   for (const t of existing) {
+    if (t.loanId) continue
     if (t.status === "planned") {
       if (t.type !== "transfer") append(planned, `${t.accountId}:${t.type}:${t.date}`, t)
       else if (currencies.get(t.accountId) === currencies.get(t.toAccountId!)) {
@@ -399,7 +453,7 @@ async function addCandidates(db: DbOrTx, ctx: HouseholdCtx, rows: PreviewRow[], 
       }
       for (let i = lo; i < bucket.length && bucket[i]!.amount <= amount + input.plannedTolerance && planCount < 20; i++, planCount++) {
         const t = bucket[i]!
-        candidates.push({ kind: "planned", transactionId: t.id, version: t.version, label: `Подтвердить плановую: ${t.date} · ${t.title}` })
+        candidates.push({ kind: "planned", transactionId: t.id, version: t.version, transactionType: t.type, label: `Подтвердить плановую: ${t.date} · ${t.title}` })
       }
     }
     let transferCount = 0
@@ -467,6 +521,12 @@ export async function commitImport(ctx: HouseholdCtx, raw: z.input<typeof commit
       .from(importRows)
       .where(and(eq(importRows.householdId, ctx.householdId), eq(importRows.batchId, batch.id)))
       .orderBy(importRows.rowIndex)
+    const loanRows = await tx.select().from(transactions).where(and(
+      eq(transactions.householdId, ctx.householdId), isNotNull(transactions.loanId), ne(transactions.status, "skipped"),
+      batch.periodFrom ? gte(transactions.date, addDays(batch.periodFrom, -Math.max(batch.config.plannedDays, 2))) : undefined,
+      batch.periodTo ? lte(transactions.date, addDays(batch.periodTo, Math.max(batch.config.plannedDays, 2))) : undefined,
+    ))
+    const loanIndex = loanPaymentIndex(loanRows)
     const decisions = new Map(input.decisions.map((d) => [d.rowId, d]))
     const rowIds = new Set(rows.map((r) => r.id))
     if (decisions.size !== input.decisions.length || input.decisions.some((d) => !rowIds.has(d.rowId)))
@@ -571,6 +631,7 @@ export async function commitImport(ctx: HouseholdCtx, raw: z.input<typeof commit
         counters.skipped++
         continue
       }
+      if (matchesLoanPayment(row, loanIndex, batch.config)) throw new AppError(`${row.rowLocator}: ${loanImportReason}`)
       if (!canImportRow(n) || !row.accountId || !n.effectiveDate || !n.amountMinorSigned)
         throw new AppError(`${row.rowLocator}: исправьте ошибки или пропустите строку`)
       const account = accounts.find((a) => a.id === row.accountId && !a.archivedAt)

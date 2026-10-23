@@ -15,6 +15,9 @@ import {
 import { createAccount, updateAccount } from "@/server/services/catalog"
 import { createTransaction, deleteTransaction, exportTransactions, updateTransaction } from "@/server/services/transactions"
 import { csvAmount, toCsv } from "@/domain/csv"
+import { createLoan } from "@/server/services/loans"
+import { createGoal, listGoals } from "@/server/services/goals"
+import { addDays, todayIn } from "@/lib/dates"
 import { setupHousehold } from "./helpers"
 
 const header = "account;date;amount;currency;description;external_id;status;mcc"
@@ -223,6 +226,67 @@ describe("statement import integration", () => {
       amount: 200000,
       date: "2026-10-19",
     })
+  })
+  it("excludes composite loan payments and their parts, including a draft prepared before the loan existed", async () => {
+    const h = await setupHousehold()
+    const date = todayIn(h.ctx.timezone)
+    const loan = await createLoan(h.ctx, {
+      name: "Synthetic mortgage",
+      lender: "Example",
+      kind: "mortgage",
+      principal: 10000000,
+      trackingBalance: 10000000,
+      annualRate: "12",
+      trackingDate: addDays(date, -1),
+      startDate: addDays(date, -1),
+      firstPaymentDate: date,
+      termMonths: 12,
+      paymentDay: Number(date.slice(8)),
+      scheduleType: "annuity",
+      interestMethod: "monthly",
+      paymentAccountId: h.mainAccount,
+    })
+    const parts = await getDb().select().from(transactions).where(eq(transactions.loanId, loan.id))
+    const first = parts.filter((p) => p.loanDueDate === date)
+    const amount = first.reduce((sum, p) => sum + p.amount, 0)
+    const full = line(csvAmount(-amount).replace(",", "."), date)
+    const batch = await preview(h, [full, line(csvAmount(-first[0]!.amount).replace(",", "."), date)])
+    expect(batch.rows.every((r) => r.decision === "skip" && r.normalized.errors.some((e) => e.includes("платежом по кредиту")))).toBe(true)
+    expect(await commit(h, batch)).toMatchObject({ created: 0, confirmed: 0, skipped: 2 })
+    expect(await actual(h.ctx.householdId)).toHaveLength(0)
+    // A pre-existing draft must also be refused after a loan schedule appears.
+    const other = await setupHousehold()
+    const stale = await preview(other, [full])
+    await createLoan(other.ctx, { ...loan, name: "Later loan", interestCategoryId: undefined, paymentAccountId: other.mainAccount })
+    await expect(commit(other, stale)).rejects.toThrow("платежом по кредиту")
+    expect(await actual(other.ctx.householdId)).toHaveLength(0)
+  })
+  it("updates account-goal progress once for two statement sides and restores it on undo", async () => {
+    const h = await setupHousehold()
+    const savings = await createAccount(h.ctx, { name: "Goal savings", kind: "savings", openingBalance: 0 })
+    const goal = await createGoal(h.ctx, {
+      name: "Synthetic goal",
+      kind: "account",
+      accountId: savings.id,
+      currency: "RUB",
+      targetAmount: 1000000,
+    })
+    await createTransaction(h.ctx, {
+      type: "transfer",
+      amount: 200000,
+      accountId: h.mainAccount,
+      toAccountId: savings.id,
+      date: "2026-10-20",
+      status: "planned",
+    })
+    const batch = await preview(h, [line("-2000.00"), line("2000.00", "2026-10-20", "DEMO_B")], {
+      accounts: { DEMO_A: h.mainAccount, DEMO_B: savings.id },
+    })
+    expect(batch.rows.every((r) => r.proposal.candidates.some((c) => c.kind === "planned" && c.transactionType === "transfer"))).toBe(true)
+    expect(await commit(h, batch)).toMatchObject({ created: 0, confirmed: 1 })
+    expect((await listGoals(h.ctx)).goals.find((g) => g.id === goal.id)?.progress).toBe(200000)
+    await undoImport(h.ctx, batch.batch.id)
+    expect((await listGoals(h.ctx)).goals.find((g) => g.id === goal.id)?.progress).toBe(0)
   })
   it("defaults a later imported side of an existing transfer to already-present without creating income", async () => {
     const h = await setupHousehold()

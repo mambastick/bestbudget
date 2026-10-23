@@ -114,6 +114,7 @@ export interface IncomingRow {
 export interface Candidate {
   kind: "duplicate" | "manual" | "planned" | "transfer"
   transactionId?: string
+  transactionType?: "income" | "expense" | "transfer"
   version?: number
   rowIndex?: number
   label: string
