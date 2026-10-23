@@ -1,3 +1,6 @@
+import { AiAdminSettings } from "@/components/app/ai/admin-settings"
+import { publicAiConfig, mockAllowed } from "@/server/ai/config"
+import { monthlyUsage } from "@/server/ai/conversations"
 import { getLocale, getTranslations } from "next-intl/server"
 import type { Metadata } from "next"
 import { ExchangeRatesSettings } from "@/components/app/admin/exchange-rates"
@@ -26,7 +29,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t("title") }
 }
 
-const tabKeys = ["users", "households", "auth", "rates", "events", "notifications"] as const
+const tabKeys = ["users", "households", "auth", "rates", "events", "notifications", "ai"] as const
 
 export default async function AdminPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const admin = await requireSystemAdmin()
@@ -35,7 +38,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   const locale = await getLocale()
   const adminGroup = env().OIDC_ADMIN_GROUP
   const demotionWarning = adminGroup && await hasOidcRoleDemotionWarning()
-  const TABS = tabKeys.map((key) => ({ key, label: t(key) }))
+  const ai = await getTranslations("ai")
+  const TABS = tabKeys.map((key) => ({ key, label: key === "ai" ? ai("title") : t(key) }))
   const EVENT_LABELS: Record<string, string> = {
     "auth.sign_in": t("signedIn"),
     "auth.user_created": t("userCreated"),
@@ -129,6 +133,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
         />
       </div>
     )
+  } else if (tab === "ai") {
+    content = <AiAdminSettings config={await publicAiConfig()} usage={await monthlyUsage()} testBuild={mockAllowed()} />
   } else if (tab === "rates") {
     content = <ExchangeRatesSettings rates={await listExchangeRates()} today={todayIn("Europe/Moscow")} provider={env().FX_PROVIDER} />
   } else if (tab === "notifications") {

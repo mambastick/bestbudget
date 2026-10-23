@@ -1,3 +1,4 @@
+import { householdAiView } from "@/server/ai/access"
 import { useTranslations } from "next-intl"
 import { getTranslations, getLocale } from "next-intl/server"
 import { GoalsWidget } from "@/components/app/goals/goals-widget"
@@ -37,6 +38,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const ctx = await requireHousehold()
   const today = todayIn(ctx.timezone)
   const month = parseMonthKey((await searchParams).month, today)
+  const ai = await householdAiView(ctx)
+  const aiT = await getTranslations("ai")
   const d = await getDashboard(ctx, month, locale)
   const cur = ctx.currency
   const isCurrent = monthKey(month) === monthKey(today)
@@ -55,6 +58,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <FxWarnings warnings={d.warnings} canManageRates={ctx.user.role === "admin"} />
       <PageHeader title={t("title")} description={t("description", { month: formatMonth(month, locale) })} actions={<MonthSwitcher month={month} today={today} basePath="/dashboard" />} />
 
+      {ai.enabled ? <LinkButton href="/assistant" variant="outline" className="justify-self-start">{aiT("title")}</LinkButton> : null}
       {empty ? (
         <EmptyState
           icon={Plus}

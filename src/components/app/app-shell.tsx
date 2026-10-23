@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl"
 
 import { AnimateIcon } from "@animate-ui/react/icons"
-import { Check, ChevronsUpDown, Landmark, PiggyBank, Plus, Target } from "lucide-react"
+import { Check, ChevronsUpDown, Sparkles, Landmark, PiggyBank, Plus, Target } from "lucide-react"
 import { CalendarDays } from "@/components/animate-ui/icons/calendar-days"
 import { ChartLine } from "@/components/animate-ui/icons/chart-line"
 import { Gauge } from "@/components/animate-ui/icons/gauge"
@@ -57,6 +57,7 @@ export interface ShellProps {
   user: { name: string; email: string; isAdmin: boolean }
   households: { id: string; name: string; role: HouseholdRole }[]
   activeHouseholdId: string
+  aiEnabled?: boolean
   children: React.ReactNode
 }
 
@@ -68,15 +69,16 @@ function initials(name: string) {
     .join("")
 }
 
-export function AppShell({ user, households, activeHouseholdId, children }: ShellProps) {
+export function AppShell({ user, households, activeHouseholdId, aiEnabled, children }: ShellProps) {
+  const assistant = usePathname().startsWith("/assistant")
   // Client session reads can persist rolling cookies; server-component reads cannot write them.
   authClient.useSession()
   return (
     <SidebarProvider>
-      <AppSidebar user={user} households={households} activeHouseholdId={activeHouseholdId} />
+      <AppSidebar aiEnabled={aiEnabled} user={user} households={households} activeHouseholdId={activeHouseholdId} />
       <SidebarInset className="min-w-0">
         <Header title={households.find((h) => h.id === activeHouseholdId)?.name ?? "BestBudget"} />
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-4 pb-24 sm:px-6 sm:pt-6 md:pb-10">{children}</main>
+        <main className={assistant ? "mx-auto w-full max-w-6xl min-h-0 flex-1 px-3 pt-3 sm:px-6 sm:pt-6" : "mx-auto w-full max-w-6xl flex-1 px-4 pt-4 pb-24 sm:px-6 sm:pt-6 md:pb-10"}>{children}</main>
       </SidebarInset>
       <RefreshOnFocus />
       <Suspense><TransactionShortcut /></Suspense>
@@ -84,8 +86,9 @@ export function AppShell({ user, households, activeHouseholdId, children }: Shel
   )
 }
 
-function AppSidebar({ user, households, activeHouseholdId }: Omit<ShellProps, "children">) {
+function AppSidebar({ user, households, activeHouseholdId, aiEnabled }: Omit<ShellProps, "children">) {
   const t = useTranslations("nav")
+  const ai = useTranslations("ai")
   const roles = useTranslations("common.roles")
   const NAV = [
     { href: "/dashboard", label: t("appShell.overview"), icon: LayoutDashboard },
@@ -96,6 +99,7 @@ function AppSidebar({ user, households, activeHouseholdId }: Omit<ShellProps, "c
     { href: "/loans", label: t("appShell.loans"), icon: Landmark },
     { href: "/analytics", label: t("appShell.analytics"), icon: ChartLine },
     { href: "/accounts", label: t("appShell.accounts"), icon: Wallet },
+    ...(aiEnabled ? [{ href: "/assistant", label: ai("title"), icon: Sparkles }] : []),
     { href: "/settings", label: t("appShell.settings"), icon: Settings },
   ]
 
@@ -266,7 +270,7 @@ function Header({ title }: { title: string }) {
         </AnimateIcon>
       </header>
       {/* Mobile: thumb-reachable quick add. */}
-      {!pathname.startsWith("/transactions/import") ? <Button
+      {!pathname.startsWith("/transactions/import") && !pathname.startsWith("/assistant") ? <Button
         size="icon-lg"
         onClick={() => ops.openCreate()}
         data-slot="transaction-fab"
