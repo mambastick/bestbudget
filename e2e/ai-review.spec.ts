@@ -128,11 +128,16 @@ test("budget reviews: opt-in schedule, recommendations, apply/dismiss, repeat su
     const expired = page.locator('[data-testid="ai-recommendation"][data-status="expired"]')
     await expect(expired).toHaveCount(1)
     await expired.getByRole("button", { name: "Отклонить", exact: true }).click()
+    await expect(page.locator('[data-testid="ai-recommendation"][data-status="dismissed"]')).toHaveCount(1)
     const [after] = await db`select count(*)::int n from category_budgets where household_id = ${owner.household_id}`
     expect(after!.n).toBe(1)
     const [decision] = await db`select count(*)::int n from ai_review_decisions where household_id = ${owner.household_id}`
     expect(decision!.n).toBe(1)
     await page.getByRole("button", { name: "Разобрать сейчас", exact: true }).click()
+    await expect.poll(async () => {
+      const [row] = await db`select count(*)::int n from ai_reviews where household_id = ${owner.household_id} and status = 'completed'`
+      return row!.n
+    }).toBe(2)
     await expect(page.getByText("Нет новых рекомендаций", { exact: true })).toBeVisible()
     await expect(page.locator('[data-testid="ai-recommendation"][data-status="pending"]')).toHaveCount(0)
     await expect(page.getByTestId("ai-review-badge")).toHaveCount(0)

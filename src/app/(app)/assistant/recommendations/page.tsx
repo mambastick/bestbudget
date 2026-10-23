@@ -26,13 +26,15 @@ export default async function RecommendationsPage() {
   ])
   return (
     <div className="grid min-w-0 grid-cols-1 gap-5 pb-8">
-      <NavTabs
-        active="recommendations"
-        tabs={[
-          { key: "chat", label: t("review.chatTab"), href: "/assistant" },
-          { key: "recommendations", label: t("review.title"), href: "/assistant/recommendations" },
-        ]}
-      />
+      <div className="min-w-0 px-1 sm:px-0">
+        <NavTabs
+          active="recommendations"
+          tabs={[
+            { key: "chat", label: t("review.chatTab"), href: "/assistant" },
+            { key: "recommendations", label: t("review.title"), href: "/assistant/recommendations" },
+          ]}
+        />
+      </div>
       <AiRecommendations
         rows={rows}
         latest={latest}
