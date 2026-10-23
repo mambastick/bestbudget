@@ -1,0 +1,89 @@
+{
+  "candidateRevision": "617d71e263160ecd5fb8fde558d779bc080fe36f",
+  "beta3Revision": "b6de3fbfe045084286df9e0fdbe4f5931cf56253",
+  "candidateMigrationCount": 8,
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1792661600319,
+      "tag": "0000_init",
+      "breakpoints": true,
+      "hash": "9ed5703b61767c281a070a2a7367e76f3000408c8cdb3325c845c07d967983fd"
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792707340790,
+      "tag": "0001_multicurrency",
+      "breakpoints": true,
+      "hash": "6ed5ff1b5d78224d249f9cd0cbc0fc95fd1c36b36517b9b491d1af4625144a69"
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792707460392,
+      "tag": "0002_currency_edit_versions",
+      "breakpoints": true,
+      "hash": "a3ea9cfb71cbac5564c9888b38a906a03e11c26ba89ce85a5570c6000f86cd9e"
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792709141216,
+      "tag": "0003_cbr_fetch_coverage",
+      "breakpoints": true,
+      "hash": "6fd297e529d40c9ae3271ed2e5fa23a9d517c286347a532e759998d770f2b72e"
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792711654121,
+      "tag": "0004_payment_notifications",
+      "breakpoints": true,
+      "hash": "39eaf4404cd08cd19312e9ebda6e106b6c75d51165e29167e477695ebeadfec4"
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792712714256,
+      "tag": "0005_savings_goals",
+      "breakpoints": true,
+      "hash": "02db18b0b102a338bc12f15b68990d1f1294ae167bf03e46213b9df14ebedd6d"
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792714349608,
+      "tag": "0006_loan_schedules",
+      "breakpoints": true,
+      "hash": "1d6fe13624ee276a553547f2ab3f98bf5c27cfeb30e11126f3cb679196112627"
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792716090188,
+      "tag": "0007_statement_import",
+      "breakpoints": true,
+      "hash": "17649777aaffa55084f05c44478655e021878c4aa5956396df3cea0e4729fe2a"
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792746403763,
+      "tag": "0008_user_locale",
+      "breakpoints": true,
+      "hash": "09c36173302522bd06a2d5e5045da2c0b12099a7206443040cd058b730566700"
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792751929539,
+      "tag": "0009_recipient_last_seen_locale",
+      "breakpoints": true,
+      "hash": "a1dabc13a92cb23ad1b67c0f829e43a970745ec7da4954404aadf8ff7ef426b7"
+    }
+  ]
+}

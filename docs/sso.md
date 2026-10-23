@@ -85,6 +85,56 @@ OIDC_ADMIN_GROUP=app-bestbudget-admins
 
 Для Helm используйте `oidc.roleMapping.groupsClaim`, `oidc.roleMapping.userGroup`, `oidc.roleMapping.adminGroup`.
 
+### Пример для Authentik
+
+Создайте группы `app-bestbudget-users` и `app-bestbudget-admins` и OAuth2/OIDC provider с confidential-клиентом,
+Authorization Code, ключом подписи и точным redirect URI `https://budget.example.com/api/auth/callback/oidc`.
+У приложения должен быть доступ хотя бы для одной из этих групп; администратору достаточно admins-группы.
+
+В provider выберите scope mappings `openid`, `email` и `profile`. Стандартный Authentik `profile` включает `groups`
+как массив имён групп. Убедитесь, что claims включены в подписанный ID token. Для отдельного scope `groups` можно
+создать [OAuth2 scope mapping](https://docs.goauthentik.io/add-secure-apps/providers/property-mappings/), выбрать его
+в provider и вернуть только нужные приложению группы:
+
+```python
+return {"groups": [group.name for group in request.user.groups.all()
+                   if group.name in ("app-bestbudget-users", "app-bestbudget-admins")]}
+```
+
+В этом случае пример окружения BestBudget:
+
+```dotenv
+OIDC_ISSUER=https://auth.example.com/application/o/bestbudget/
+OIDC_CLIENT_ID=bestbudget
+# Set OIDC_CLIENT_SECRET through your deployment's secret store.
+OIDC_SCOPES=openid profile email groups
+OIDC_ALLOW_SIGNUP=false
+OIDC_GROUPS_CLAIM=groups
+OIDC_USER_GROUP=app-bestbudget-users
+OIDC_ADMIN_GROUP=app-bestbudget-admins
+```
+
+Сохраните реальные Client ID и Client Secret из provider; не используйте пример как готовый секрет.
+Если используете стандартный mapping `profile`, отдельный scope `groups` не нужен: задайте `OIDC_SCOPES=openid profile email`.
+`OIDC_ALLOW_SIGNUP=false` сохраняет требование приглашения для нового аккаунта даже при наличии разрешённой группы.
+Для уже привязанного аккаунта приглашение не требуется. Сначала проверьте вход отдельным пользователем и повышение/понижение
+его системной роли, затем включайте mapping для остальных. [Документация OAuth2 provider](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/).
+
+### Обновление с beta.3 и кандидата PR #10
+
+PR #10 (`617d71e263160ecd5fb8fde558d779bc080fe36f`) не добавлял миграций: он использовал существующее `users.role`.
+Его цепочка заканчивается `0007_statement_import`; в beta.3 уже есть `0008_user_locale` и `0009_recipient_last_seen_locale`.
+В переносе сохранены SQL, имена и timestamps журнала Drizzle; новой миграции для ролей нет.
+
+- С beta.3 мигратор не выполняет SQL повторно: все записи уже есть в `drizzle.__drizzle_migrations`.
+- С кандидата PR #10 применяются только существующие `0008–0009`: добавляются настройки языка, для старых профилей
+  без явного выбора сохраняется русский язык фоновых сообщений. Роли, OIDC `sub`, локальные пароли, сессии и финансовые данные не меняются.
+- Повторный запуск безопасен благодаря журналу Drizzle. Не удаляйте его и не добавляйте вручную записи о неприменённых миграциях.
+
+Интеграционный тест `tests/integration/oidc-upgrade.test.ts` использует production-мигратор и исторические SQL-hash/timestamps
+обеих версий; проверяет обновление заполненной БД, сохранение данных и повторный запуск. Перед реальным обновлением сохраните
+бэкап и прежние секреты шифрования. ENV и Helm-формат mapping совместимы с кандидатом.
+
 ## Безопасность и восстановление доступа
 
 - Публичная регистрация выключена по умолчанию — новые пользователи приходят по приглашениям.
