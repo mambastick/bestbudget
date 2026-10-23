@@ -1,4 +1,9 @@
-import { inject } from "vitest"
+import { afterEach, beforeEach, inject, vi } from "vitest"
+import { testNow } from "./clock"
+
+// Freeze wall time before fixture hooks; keep I/O timers real for PostgreSQL.
+beforeEach(() => vi.useFakeTimers({ toFake: ["Date"], now: testNow }))
+afterEach(() => vi.useRealTimers())
 
 process.env.DATABASE_URL = inject("databaseUrl")
 process.env.APP_URL = "http://localhost:3000"

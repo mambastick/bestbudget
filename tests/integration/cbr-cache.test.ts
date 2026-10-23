@@ -136,4 +136,24 @@ describe("persistent CBR publication cache", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(await getDb().select().from(exchangeRateFetches).where(and(eq(exchangeRateFetches.currency, "GBP"), eq(exchangeRateFetches.toDate, "2026-01-05")))).toHaveLength(1)
   })
+  it("expires future negative coverage across the Moscow New Year boundary", async () => {
+    const now = new Date("2026-12-31T20:30:00Z")
+    vi.setSystemTime(now)
+    fetchMock.mockImplementation(async (url: string) => url.includes("XML_daily") ? daily("2027-01-02") : history(url))
+    const needs = [{ currency: "USD", date: "2027-01-01" }]
+    expect(await loadRates(needs)).toEqual([])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(await getDb().select().from(exchangeRateFetches).where(eq(exchangeRateFetches.currency, "USD")))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ toDate: "2026-12-31", expiresAt: null }),
+        expect.objectContaining({ fromDate: "2027-01-01", toDate: "2027-01-01", expiresAt: new Date(now.getTime() + 3_600_000) }),
+      ]))
+    vi.setSystemTime(new Date(now.getTime() + 30 * 60_000))
+    expect(await loadRates(needs)).toEqual([])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    vi.setSystemTime(new Date(now.getTime() + 61 * 60_000))
+    fetchMock.mockImplementation(async () => daily("2027-01-01"))
+    expect(selectRate(await loadRates(needs), "USD", "2027-01-01")?.date).toBe("2027-01-01")
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
 })
