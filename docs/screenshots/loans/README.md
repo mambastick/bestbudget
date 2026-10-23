@@ -13,7 +13,7 @@
 Воспроизведение (порты 3200/54330 должны быть свободны):
 
 ```bash
-TMPDIR=/var/tmp/codex-golodn1y/bestbudget-loans \
+TMPDIR="${TMPDIR:-/tmp}" \
 PLAYWRIGHT_CHROMIUM_EXECUTABLE=/opt/brave-bin/brave \
 E2E_OUTPUT_DIR=work/playwright \
 npx -y pnpm@10.27.0 test:e2e e2e/loans.spec.ts

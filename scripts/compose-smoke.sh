@@ -2,7 +2,7 @@
 # Build once, then deploy from an isolated directory containing only compose.yaml and .env.
 set -euo pipefail
 ROOT=$(cd "$(dirname -- "$0")/.." && pwd)
-TASK_TMP=${TMPDIR:-/var/tmp/codex-golodn1y/bestbudget-backups-v2}
+TASK_TMP=${TMPDIR:-/tmp}
 mkdir -p "$TASK_TMP"
 TEST_DIR=$(mktemp -d "$TASK_TMP/compose-smoke.XXXXXX")
 export COMPOSE_PROJECT_NAME="bestbudget-smoke-$$"
