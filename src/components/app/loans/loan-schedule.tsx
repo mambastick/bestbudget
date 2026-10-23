@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations, useLocale } from "next-intl"
+
 import { useOperations } from "@/components/app/operations/operations-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -23,25 +25,27 @@ export function LoanSchedule({
   loanId?: string
   closed?: boolean
 }) {
+  const t = useTranslations("loans")
+  const locale = useLocale()
   const ops = useOperations()
   const label = (r: Row) =>
     r.kind === "prepayment"
-      ? "Досрочно"
+      ? t("status.prepayment")
       : r.kind === "reconciliation"
-        ? "Сверка"
+        ? t("status.reconciliation")
         : r.status === "posted"
-          ? "Оплачен"
+          ? t("status.paid")
           : r.status === "skipped"
-            ? "Сверен"
+            ? t("status.reconciled")
             : closed
-              ? "Закрыт"
+              ? t("status.closed")
               : r.date < today
-                ? "Просрочен"
-                : "План"
+                ? t("status.overdue")
+                : t("status.planned")
   const action = (r: Row) =>
     loanId && !closed && r.kind === "scheduled" && (!r.status || r.status === "planned") ? (
       <Button size="sm" variant="outline" onClick={() => ops.openLoan(loanId, r.date)}>
-        Подтвердить
+        {t("actions.confirm")}
       </Button>
     ) : null
   return (
@@ -50,24 +54,24 @@ export function LoanSchedule({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>№ / дата</TableHead>
-              <TableHead>Платёж</TableHead>
-              <TableHead>Проценты</TableHead>
-              <TableHead>Тело</TableHead>
-              <TableHead>Остаток</TableHead>
-              <TableHead>Статус</TableHead>
+              <TableHead>{t("schedule.numberDate")}</TableHead>
+              <TableHead>{t("schedule.payment")}</TableHead>
+              <TableHead>{t("schedule.interest")}</TableHead>
+              <TableHead>{t("schedule.principal")}</TableHead>
+              <TableHead>{t("schedule.balance")}</TableHead>
+              <TableHead>{t("schedule.status")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.map((r, i) => (
               <TableRow key={`${r.date}:${r.kind}:${i}`}>
                 <TableCell>
-                  {r.n} · {formatDateFull(r.date)}
+                  {r.n} · {formatDateFull(r.date, locale)}
                 </TableCell>
-                <TableCell>{formatMoney(r.payment, currency)}</TableCell>
-                <TableCell>{formatMoney(r.interest, currency)}</TableCell>
-                <TableCell>{formatMoney(r.principal, currency)}</TableCell>
-                <TableCell>{formatMoney(r.balance, currency)}</TableCell>
+                <TableCell>{formatMoney(r.payment, currency, { locale })}</TableCell>
+                <TableCell>{formatMoney(r.interest, currency, { locale })}</TableCell>
+                <TableCell>{formatMoney(r.principal, currency, { locale })}</TableCell>
+                <TableCell>{formatMoney(r.balance, currency, { locale })}</TableCell>
                 <TableCell>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="outline">{label(r)}</Badge>
@@ -84,20 +88,20 @@ export function LoanSchedule({
           <li key={`${r.date}:${r.kind}:${i}`} className="min-w-0 rounded-xl border p-3">
             <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
               <span>
-                {r.n} · {formatDateFull(r.date)}
+                {r.n} · {formatDateFull(r.date, locale)}
               </span>
               <Badge variant="outline">{label(r)}</Badge>
             </div>
             <dl className="my-3 grid grid-cols-2 gap-2 text-xs">
               {[
-                ["Платёж", r.payment],
-                ["Проценты", r.interest],
-                ["Тело", r.principal],
-                ["Остаток", r.balance],
+                [t("schedule.payment"), r.payment],
+                [t("schedule.interest"), r.interest],
+                [t("schedule.principal"), r.principal],
+                [t("schedule.balance"), r.balance],
               ].map(([title, value]) => (
                 <div key={title} className="min-w-0">
                   <dt className="text-muted-foreground">{title}</dt>
-                  <dd className="mt-1 font-medium break-words">{formatMoney(value as number, currency)}</dd>
+                  <dd className="mt-1 font-medium break-words">{formatMoney(value as number, currency, { locale })}</dd>
                 </div>
               ))}
             </dl>

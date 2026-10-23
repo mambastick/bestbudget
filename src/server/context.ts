@@ -11,6 +11,7 @@ export interface HouseholdCtx {
   role: HouseholdRole
   timezone: string
   currency: string
+  locale?: string
 }
 
 export function assertCan(ctx: Pick<HouseholdCtx, "role">, permission: Permission) {

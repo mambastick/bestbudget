@@ -1,5 +1,8 @@
 "use client"
 
+import { useTranslations, useLocale } from "next-intl"
+
+import { LocalizedError, errorMessage } from "@/i18n/errors"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Line, LineChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts"
@@ -22,10 +25,6 @@ import type { getLoan } from "@/server/services/loans"
 import { LoanSchedule } from "./loan-schedule"
 
 type Detail = Awaited<ReturnType<typeof getLoan>>
-const modeOptions = [
-  { value: "reduce_term" as const, label: "Уменьшить срок" },
-  { value: "reduce_payment" as const, label: "Уменьшить платёж" },
-]
 
 function eventsFor(d: Detail): LoanEventInput[] {
   return d.events.map((e) =>
@@ -38,6 +37,8 @@ function eventsFor(d: Detail): LoanEventInput[] {
 }
 
 export function LoanDetail({ data: d, today, canManage }: { data: Detail; today: string; canManage: boolean }) {
+  const t = useTranslations("loans")
+  const locale = useLocale()
   const [eventType, setEventType] = useState<LoanEventInput["type"] | null>(null)
   const { run, pending } = useAction()
   const router = useRouter()
@@ -45,71 +46,84 @@ export function LoanDetail({ data: d, today, canManage }: { data: Detail; today:
   return (
     <div className="grid min-w-0 grid-cols-1 gap-5">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Stat label="Остаток долга" value={formatMoney(d.debt, d.currency)} />
+        <Stat label={t("summary.balance")} value={formatMoney(d.debt, d.currency, { locale })} />
         <Stat
-          label="Следующий платёж"
-          value={d.next ? formatMoney(d.next.payment, d.currency) : "Нет"}
-          note={d.next ? formatDateFull(d.next.date) : undefined}
+          label={t("summary.nextPayment")}
+          value={d.next ? formatMoney(d.next.payment, d.currency, { locale }) : t("summary.none")}
+          note={d.next ? formatDateFull(d.next.date, locale) : undefined}
         />
         <Stat
-          label="Переплата с начала учёта"
-          value={formatMoney(d.paidInterest + d.futureInterest, d.currency)}
-          note={`Выплачено процентов ${formatMoney(d.paidInterest, d.currency)}`}
+          label={t("summary.totalInterest")}
+          value={formatMoney(d.paidInterest + d.futureInterest, d.currency, { locale })}
+          note={t("detail.paidInterest", { amount: formatMoney(d.paidInterest, d.currency, { locale }) })}
         />
       </div>
       <p className="text-sm text-muted-foreground">
-        {d.loan.lender} · ставка{" "}
-        {Number(d.events.filter((e) => e.type === "rate_change").at(-1)?.annualRate ?? d.loan.annualRate).toLocaleString("ru-RU", {
-          maximumFractionDigits: 6,
+        {t("detail.terms", {
+          lender: d.loan.lender,
+          rate: Number(d.events.filter((e) => e.type === "rate_change").at(-1)?.annualRate ?? d.loan.annualRate).toLocaleString(locale, {
+            maximumFractionDigits: 6,
+          }),
+          payoff: d.payoffDate ? formatDateFull(d.payoffDate, locale) : "—",
+          status: d.loan.status,
+          trackingDate: formatDateFull(d.loan.trackingDate, locale),
         })}
-        % · погашение {d.payoffDate ? formatDateFull(d.payoffDate) : "—"} · {active ? "активен" : "закрыт"}. Начало учёта:{" "}
-        {formatDateFull(d.loan.trackingDate)}.
       </p>
       {active && canManage ? (
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => setEventType("prepayment")}>Досрочное погашение</Button>
+          <Button onClick={() => setEventType("prepayment")}>{t("detail.prepay")}</Button>
           <Button variant="outline" onClick={() => setEventType("rate_change")}>
-            Изменить ставку
+            {t("detail.changeRate")}
           </Button>
           <Button variant="outline" onClick={() => setEventType("reconciliation")}>
-            Сверить остаток
+            {t("detail.reconcile")}
           </Button>
           <ConfirmDialog
             trigger={
               <Button variant="outline" disabled={pending}>
-                Закрыть кредит
+                {t("detail.close")}
               </Button>
             }
-            title="Закрыть кредит?"
-            description="Закрыть можно после погашения основного долга и процентов. Подтверждённые платежи и счёт останутся в истории."
-            confirmLabel="Закрыть"
+            title={t("detail.closeTitle")}
+            description={t("detail.closeDescription")}
+            confirmLabel={t("detail.closeConfirm")}
             destructive={false}
-            onConfirm={() => run(() => closeLoanAction(d.loan.id, d.loan.version), { success: "Кредит закрыт" })}
+            onConfirm={() => run(() => closeLoanAction(d.loan.id, d.loan.version), { success: t("detail.closed") })}
           />
         </div>
       ) : null}
       <Card>
         <CardHeader>
           <CardTitle>
-            <h2>Остаток долга по графику</h2>
+            <h2>{t("detail.balanceChart")}</h2>
           </CardTitle>
         </CardHeader>
         <CardContent className="min-w-0">
           <div className="h-64 min-w-0 w-full">
-            <ChartContainer config={{ balance: { label: "Основной долг", color: "var(--chart-1)" } }} className="aspect-auto h-64 w-full">
+            <ChartContainer
+              config={{ balance: { label: t("detail.principal"), color: "var(--chart-1)" } }}
+              className="aspect-auto h-64 w-full"
+            >
               <LineChart
                 data={[{ date: d.loan.trackingDate, balance: d.loan.trackingBalance }, ...d.rows]}
                 margin={{ left: 0, right: 10, top: 10, bottom: 0 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="date" tickFormatter={(date) => formatMonth(String(date))} minTickGap={60} fontSize={11} />
-                <YAxis width={80} tickFormatter={(v: number) => formatMoneyCompact(v, d.currency)} fontSize={11} />
+                <XAxis dataKey="date" tickFormatter={(date) => formatMonth(String(date), locale)} minTickGap={60} fontSize={11} />
+                <YAxis width={80} tickFormatter={(v: number) => formatMoneyCompact(v, d.currency, locale)} fontSize={11} />
                 <Tooltip
                   contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8 }}
-                  formatter={(v) => formatMoney(Number(v), d.currency)}
-                  labelFormatter={(v) => formatDateFull(String(v))}
+                  formatter={(v) => formatMoney(Number(v), d.currency, { locale })}
+                  labelFormatter={(v) => formatDateFull(String(v), locale)}
                 />
-                <Line dataKey="balance" name="Долг" stroke="var(--chart-1)" strokeWidth={2} dot={false} isAnimationActive={false} />
+                <Line
+                  dataKey="balance"
+                  name={t("detail.debt")}
+                  stroke="var(--chart-1)"
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                />
               </LineChart>
             </ChartContainer>
           </div>
@@ -120,19 +134,19 @@ export function LoanDetail({ data: d, today, canManage }: { data: Detail; today:
         <Card>
           <CardHeader>
             <CardTitle>
-              <h2>События кредита</h2>
+              <h2>{t("detail.events")}</h2>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="grid grid-cols-1 gap-2 text-sm">
               {d.events.map((e) => (
                 <li key={e.id} className="break-words">
-                  {formatDateFull(e.date)} ·{" "}
+                  {formatDateFull(e.date, locale)} ·{" "}
                   {e.type === "rate_change"
-                    ? `Ставка ${Number(e.annualRate).toLocaleString("ru-RU", { maximumFractionDigits: 6 })}%`
+                    ? t("event.rateDescription", { rate: Number(e.annualRate).toLocaleString(locale, { maximumFractionDigits: 6 }) })
                     : e.type === "reconciliation"
-                      ? `Сверен долг ${formatMoney(e.balance!, d.currency)}`
-                      : `Досрочно ${formatMoney(e.amount!, d.currency)} · ${e.mode === "reduce_term" ? "уменьшить срок" : "уменьшить платёж"}`}
+                      ? t("event.reconciledDescription", { amount: formatMoney(e.balance!, d.currency, { locale }) })
+                      : t("event.prepaymentDescription", { amount: formatMoney(e.amount!, d.currency, { locale }), mode: e.mode! })}
                 </li>
               ))}
             </ul>
@@ -140,20 +154,20 @@ export function LoanDetail({ data: d, today, canManage }: { data: Detail; today:
         </Card>
       ) : null}
       <section className="min-w-0">
-        <h2 className="mb-3 text-lg font-semibold">График погашения</h2>
+        <h2 className="mb-3 text-lg font-semibold">{t("detail.schedule")}</h2>
         <LoanSchedule rows={d.rows} currency={d.currency} today={today} loanId={d.loan.id} closed={!active} />
       </section>
       {canManage ? (
         <ConfirmDialog
           trigger={
             <Button variant="outline" className="justify-self-start text-destructive">
-              Удалить кредит
+              {t("detail.delete")}
             </Button>
           }
-          title="Удалить кредит?"
-          description="Удаление доступно только без подтверждённых платежей. Кредит, начальный долг и его планы будут удалены."
+          title={t("detail.deleteTitle")}
+          description={t("detail.deleteDescription")}
           onConfirm={() =>
-            run(() => deleteLoanAction(d.loan.id, d.loan.version), { success: "Кредит удалён", onSuccess: () => router.push("/loans") })
+            run(() => deleteLoanAction(d.loan.id, d.loan.version), { success: t("detail.deleted"), onSuccess: () => router.push("/loans") })
           }
         />
       ) : null}
@@ -179,50 +193,52 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
 }
 
 function EventForm({ type, data: d, today, onClose }: { type: LoanEventInput["type"]; data: Detail; today: string; onClose: () => void }) {
+  const t = useTranslations("loans")
+  const modeOptions = [
+    { value: "reduce_term" as const, label: t("prepayment.reduce_term") },
+    { value: "reduce_payment" as const, label: t("prepayment.reduce_payment") },
+  ]
+
   const [date, setDate] = useState(today)
   const [amount, setAmount] = useState("")
   const [rate, setRate] = useState("")
   const [mode, setMode] = useState<PrepaymentMode>("reduce_term")
   const [error, setError] = useState("")
   const { pending, run } = useAction()
-  const title = type === "prepayment" ? "Досрочное погашение" : type === "rate_change" ? "Изменить ставку" : "Сверить остаток"
+  const title = type === "prepayment" ? t("detail.prepay") : type === "rate_change" ? t("detail.changeRate") : t("detail.reconcile")
   function submit(e: React.FormEvent) {
     e.preventDefault()
     const value = parseMoney(amount, d.currency)
-    if (type !== "rate_change" && (value === null || (type === "prepayment" && value === 0))) return setError("Укажите корректную сумму")
+    if (type !== "rate_change" && (value === null || (type === "prepayment" && value === 0))) return setError(t("event.invalidAmount"))
     const event: LoanEventInput =
       type === "rate_change"
         ? { type, date, annualRate: rate.replace(",", ".") }
         : type === "reconciliation"
           ? { type, date, balance: value! }
           : { type, date, amount: value!, mode }
-    run(() => addLoanEventAction(d.loan.id, d.loan.version, event), { success: "График пересчитан", onSuccess: onClose, onError: setError })
+    run(() => addLoanEventAction(d.loan.id, d.loan.version, event), { success: t("event.updated"), onSuccess: onClose, onError: setError })
   }
   return (
     <form className="grid grid-cols-1 gap-4" onSubmit={submit}>
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>
-          {type === "prepayment"
-            ? "Это совершённое погашение тела долга со счёта оплаты. Сначала подтвердите предыдущие платежи. Проценты до этой даты останутся в следующем платеже."
-            : type === "reconciliation"
-              ? "Введите только основной долг из банка. Неподтверждённые платежи до этой даты будут сверены, разница изменит остаток долга без дохода или расхода."
-              : "Новая ставка действует после указанной даты; будущие планы будут пересчитаны."}
+          {type === "prepayment" ? t("event.prepaymentHint") : type === "reconciliation" ? t("event.reconcileHint") : t("event.rateHint")}
         </DialogDescription>
       </DialogHeader>
       <Field>
-        <FieldLabel htmlFor="loan-event-date">Дата события</FieldLabel>
+        <FieldLabel htmlFor="loan-event-date">{t("event.date")}</FieldLabel>
         <DateField id="loan-event-date" value={date} onChange={(v) => v && setDate(v)} today={today} />
       </Field>
       {type === "rate_change" ? (
         <Field>
-          <FieldLabel htmlFor="loan-event-rate">Новая ставка, %</FieldLabel>
+          <FieldLabel htmlFor="loan-event-rate">{t("event.rate")}</FieldLabel>
           <Input id="loan-event-rate" required inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} />
         </Field>
       ) : (
         <Field>
           <FieldLabel htmlFor="loan-event-amount">
-            {type === "reconciliation" ? "Остаток основного долга" : "Сумма досрочного погашения"}
+            {type === "reconciliation" ? t("event.principalBalance") : t("event.prepaymentAmount")}
           </FieldLabel>
           <MoneyInput id="loan-event-amount" currency={d.currency} value={amount} onChange={setAmount} />
         </Field>
@@ -235,10 +251,10 @@ function EventForm({ type, data: d, today, onClose }: { type: LoanEventInput["ty
       ) : null}
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
-          Отмена
+          {t("actions.cancel")}
         </Button>
         <Button type="submit" disabled={pending}>
-          Сохранить
+          {t("actions.save")}
         </Button>
       </DialogFooter>
     </form>
@@ -246,12 +262,19 @@ function EventForm({ type, data: d, today, onClose }: { type: LoanEventInput["ty
 }
 
 function PrepaymentSimulator({ data: d, today }: { data: Detail; today: string }) {
+  const t = useTranslations("loans")
+  const locale = useLocale()
+  const modeOptions = [
+    { value: "reduce_term" as const, label: t("prepayment.reduce_term") },
+    { value: "reduce_payment" as const, label: t("prepayment.reduce_payment") },
+  ]
+
   const [amount, setAmount] = useState("")
   const [date, setDate] = useState(d.events.at(-1)?.date === today ? addDays(today, 1) : today)
   const value = parseMoney(amount, d.currency)
   const baselineInterest = d.rows.reduce((s, r) => s + r.interest, 0)
   const results = modeOptions.map(({ value: mode, label }) => {
-    if (!value) return { mode, label, error: "Введите сумму для сравнения" }
+    if (!value) return { mode, label, error: t("simulator.enterAmount") }
     try {
       const rows = calculateLoanSchedule(d.loan, [...eventsFor(d), { type: "prepayment", date, amount: value, mode }], d.posted)
       const next = rows.find((r) => r.kind === "scheduled" && r.date > date)
@@ -263,27 +286,29 @@ function PrepaymentSimulator({ data: d, today }: { data: Detail; today: string }
         next: next?.payment ?? 0,
       }
     } catch (e) {
-      return { mode, label, error: e instanceof Error ? e.message : "Проверьте параметры" }
+      return {
+        mode,
+        label,
+        error: e instanceof LocalizedError ? errorMessage(e.messageKey, e.params, locale) : t("simulator.checkParameters"),
+      }
     }
   })
   return (
     <Card>
       <CardHeader>
         <CardTitle>
-          <h2>Симулятор досрочки</h2>
+          <h2>{t("simulator.title")}</h2>
         </CardTitle>
       </CardHeader>
       <CardContent className="grid grid-cols-1 gap-4">
-        <p className="text-sm text-muted-foreground">
-          Сравнение без сохранения, с учётом уже внесённых событий. Предстоящие платежи считаются выполненными по графику.
-        </p>
+        <p className="text-sm text-muted-foreground">{t("simulator.description")}</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field>
-            <FieldLabel htmlFor="loan-sim-amount">Сумма досрочки</FieldLabel>
+            <FieldLabel htmlFor="loan-sim-amount">{t("simulator.amount")}</FieldLabel>
             <MoneyInput id="loan-sim-amount" currency={d.currency} value={amount} onChange={setAmount} />
           </Field>
           <Field>
-            <FieldLabel htmlFor="loan-sim-date">Дата досрочки</FieldLabel>
+            <FieldLabel htmlFor="loan-sim-date">{t("simulator.date")}</FieldLabel>
             <DateField id="loan-sim-date" value={date} onChange={(v) => v && setDate(v)} today={today} />
           </Field>
         </div>
@@ -296,16 +321,16 @@ function PrepaymentSimulator({ data: d, today }: { data: Detail; today: string }
               ) : (
                 <dl className="mt-2 grid grid-cols-1 gap-2">
                   <div>
-                    <dt className="text-xs text-muted-foreground">Экономия процентов</dt>
-                    <dd>{formatMoney(r.saving!, d.currency)}</dd>
+                    <dt className="text-xs text-muted-foreground">{t("simulator.saving")}</dt>
+                    <dd>{formatMoney(r.saving!, d.currency, { locale })}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-muted-foreground">Новый срок погашения</dt>
-                    <dd>{r.payoff ? formatDateFull(r.payoff) : "Долг погашен"}</dd>
+                    <dt className="text-xs text-muted-foreground">{t("simulator.payoff")}</dt>
+                    <dd>{r.payoff ? formatDateFull(r.payoff, locale) : t("simulator.repaid")}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-muted-foreground">Следующий платёж</dt>
-                    <dd>{formatMoney(r.next!, d.currency)}</dd>
+                    <dt className="text-xs text-muted-foreground">{t("summary.nextPayment")}</dt>
+                    <dd>{formatMoney(r.next!, d.currency, { locale })}</dd>
                   </div>
                 </dl>
               )}

@@ -14,6 +14,11 @@ export const translatedPaths = [
   "src/app/(app)/admin", "src/components/app/admin", "src/domain/notifications.ts",
   "src/server/notifications", "src/server/jobs/notifications.ts", "src/app/actions/notifications.ts",
   "src/server/services/notification-settings.ts", "src/lib/mail.ts",
+  // Accounts, loans, savings goals and statement import.
+  "src/app/(app)/accounts", "src/app/(app)/loans", "src/app/(app)/goals", "src/app/(app)/transactions/import",
+  "src/components/app/accounts-view.tsx", "src/components/app/loans", "src/components/app/goals", "src/components/app/import",
+  "src/domain/defaults.ts", "src/domain/loan.ts", "src/domain/goals.ts", "src/domain/import",
+  "src/server/services/imports.ts", "src/server/services/loans.ts", "src/server/services/goals.ts",
 ] as const
 
 // Language autonyms remain readable even when the surrounding interface uses another language.

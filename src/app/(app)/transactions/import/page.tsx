@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server"
 import type { Metadata } from "next"
 import { ImportWizard } from "@/components/app/import/import-wizard"
 import { ImportPreview } from "@/components/app/import/import-preview"
@@ -8,9 +9,13 @@ import { requireHousehold } from "@/server/session"
 import { listAccounts, listCategories } from "@/server/services/catalog"
 import { getImport, listImportProfiles, listImports, reconcileBalances } from "@/server/services/imports"
 
-export const metadata: Metadata = { title: "Импорт выписки" }
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("import")
+  return { title: t("page.title") }
+}
 
 export default async function ImportPage({ searchParams }: { searchParams: Promise<{ batch?: string }> }) {
+  const t = await getTranslations("import")
   const ctx = await requireHousehold()
   const { batch: batchId } = await searchParams
   const [accounts, categories, profiles, history] = await Promise.all([
@@ -22,13 +27,13 @@ export default async function ImportPage({ searchParams }: { searchParams: Promi
   const current = batchId ? await getImport(ctx, batchId) : null
   return (
     <div className="grid min-w-0 grid-cols-1 gap-6">
-      <PageHeader title="Импорт выписки" description="CSV и XLSX · до 10 МБ и 50 000 строк" />
+      <PageHeader title={t("page.title")} description={t("page.description")} />
       <NavTabs
         active="import"
         tabs={[
-          { key: "list", label: "Операции", href: "/transactions" },
-          { key: "rules", label: "Регулярные", href: "/transactions?tab=rules" },
-          { key: "import", label: "Импорт", href: "/transactions/import" },
+          { key: "list", label: t("nav.transactions"), href: "/transactions" },
+          { key: "rules", label: t("nav.recurring"), href: "/transactions?tab=rules" },
+          { key: "import", label: t("nav.import"), href: "/transactions/import" },
         ]}
       />
       {current ? (

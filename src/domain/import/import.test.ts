@@ -1,3 +1,4 @@
+import { importMessage, translateImportMessage } from "./messages"
 import { describe, expect, it } from "vitest"
 import { decodeCsv, detectDelimiter, parseCsv } from "./csv"
 import { normalizeRow, parseAmount, parseDate } from "./normalize"
@@ -51,7 +52,7 @@ describe("statement normalization", () => {
       assumePosted: true,
     })
     expect(normalizeRow(["2026-10-20", "", "1 234,56", "Shop"], m, "custom", "2").amountMinorSigned).toBe(-123456)
-    expect(normalizeRow(["2026-10-20", "0", "", "Shop"], m, "custom", "2").errors).toContain("Нулевая сумма не создаёт операцию")
+    expect(normalizeRow(["2026-10-20", "0", "", "Shop"], m, "custom", "2").errors).toContain(importMessage("zeroAmount"))
     expect(normalizeRow(["2026-10-20", "100", "100", "Shop"], m, "custom", "2").errors.length).toBeGreaterThan(0)
     const direction = mappingSchema.parse({
       columns: { date: 0, amount: 1, direction: 2, description: 3 },
@@ -66,7 +67,7 @@ describe("statement normalization", () => {
     expect(parseDate("01/02/2026", "mdy")).toBe("2026-01-02")
     expect(() => parseDate("01/02/26", "dmy")).toThrow()
     expect(() => parseDate("31.02.2026", "dmy")).toThrow()
-    expect(() => parseDate({ number: "45000" }, "iso")).toThrow(/не помечено/)
+    expect(() => parseDate({ number: "45000" }, "iso")).toThrow(importMessage("excelDate"))
     expect(parseDate({ date: "2026-10-20T12:00:00" }, "dmy")).toBe("2026-10-20")
     const h = ["Дата операции", "Дата платежа", "Сумма платежа", "Валюта платежа", "Описание", "Статус"]
     const row = normalizeRow(
@@ -82,13 +83,13 @@ describe("statement normalization", () => {
       amountMinorSigned: -45000,
       status: "posted",
     })
-    expect(row.warnings).toContainEqual(expect.stringMatching(/Экспериментальный/))
+    expect(row.warnings).toContainEqual(importMessage("experimental"))
   })
   it("detects only known headers, independently of order/case/BOM", () => {
     expect(detectProfile(["\ufeff DATE ", "CURRENCY", "account", " description ", "amount"])).toBe("bestbudget-v1")
     expect(profileMapping("bestbudget-v1", ["currency", "date", "account", "amount", "description"]).columns.amount).toBe(3)
     expect(detectProfile(["Сбер", "Дата", "Сумма"])).toBe("custom")
-    expect(() => profileMapping("bestbudget-v1", ["date", " DATE "])).toThrow(/Повторяющийся/)
+    expect(() => profileMapping("bestbudget-v1", ["date", " DATE "])).toThrow(importMessage("duplicateHeader", { header: "date" }))
   })
   it("retains pending/rejected/unknown rows without converting them to facts", () => {
     for (const status of ["pending", "rejected", "weird"]) {
@@ -96,8 +97,8 @@ describe("statement normalization", () => {
       expect(row.status).toBe(status === "weird" ? "unknown" : status)
       expect(row.warnings).not.toHaveLength(0)
       expect(row.errors).toHaveLength(0)
-      if (status === "pending") expect(row.warnings).toContain("Операция ещё не проведена банком — импортируйте позже")
-      if (status === "rejected") expect(row.warnings).toContain("Операция отклонена банком — строка будет пропущена")
+      if (status === "pending") expect(row.warnings).toContain(importMessage("pending"))
+      if (status === "rejected") expect(row.warnings).toContain(importMessage("rejected"))
     }
   })
 })
@@ -138,7 +139,10 @@ describe("identity, categories and transfers", () => {
       maxAmount: 50000,
       priority: 100,
     }
-    expect(suggestCategory(normalized(), [rule], cats)).toEqual({ categoryId: "custom", source: "Правило v2 (приоритет 100)" })
+    expect(suggestCategory(normalized(), [rule], cats)).toEqual({
+      categoryId: "custom",
+      source: importMessage("rule", { version: 2, priority: 100 }),
+    })
     expect(suggestCategory(normalized(), [], cats).categoryId).toBe("food")
     expect(suggestCategory({ ...normalized(), mcc: null, bankCategory: "Прочее" }, [], cats).categoryId).toBe("custom")
     expect(suggestCategory({ ...normalized(), mcc: null }, [], cats).categoryId).toBeNull()
@@ -153,5 +157,23 @@ describe("identity, categories and transfers", () => {
     expect(isTransferPair(a, { ...b, normalized: { ...b.normalized, currency: "USD" } })).toBe(false)
     expect(isTransferPair(a, { ...b, normalized: normalized("20.00", "2026-10-25") })).toBe(false)
     expect(isTransferPair(a, { ...b, normalized: { ...b.normalized, status: "pending" } })).toBe(false)
+  })
+})
+
+describe("persisted import messages", () => {
+  it("renders message codes in the selected language, including candidate dates and user data", () => {
+    const candidate = importMessage("planned", { date: "2026-10-20", title: "Оплата школы" })
+    expect(translateImportMessage(candidate, "en")).toBe("Confirm planned: Oct 20 · Оплата школы")
+    expect(translateImportMessage(candidate, "ru")).toBe("Подтвердить плановую: 20 окт. · Оплата школы")
+    expect(translateImportMessage(importMessage("accountRequired", { name: "" }), "en")).toBe("Match an account: no account specified")
+    expect(translateImportMessage(importMessage("pending"), "en")).toContain("not posted")
+  })
+  it("recognises old draft messages without translating bank descriptions", () => {
+    expect(translateImportMessage("Уже есть: 2026-10-20 · Оплата школы", "en")).toBe("Already exists: Oct 20 · Оплата школы")
+    expect(translateImportMessage("Валюта строки USD не совпадает со счётом RUB", "en")).toBe(
+      "Row currency USD does not match account currency RUB",
+    )
+    expect(translateImportMessage("Оплата школы", "en")).toBe("Оплата школы")
+    expect(translateImportMessage('bb-import:{"code":"unknown","params":{}}', "en")).toContain("unknown")
   })
 })

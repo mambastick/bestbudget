@@ -1,3 +1,5 @@
+import bankData from "./bank-data.json"
+import { importMessage } from "./messages"
 import { z } from "zod"
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024
@@ -5,8 +7,8 @@ export const MAX_ROWS = 50_000
 export const MAX_COLUMNS = 100
 export const PROFILE_VERSION = 1
 
-export const PENDING_ROW_MESSAGE = "Операция ещё не проведена банком — импортируйте позже"
-export const REJECTED_ROW_MESSAGE = "Операция отклонена банком — строка будет пропущена"
+export const PENDING_ROW_MESSAGE = importMessage("pending")
+export const REJECTED_ROW_MESSAGE = importMessage("rejected")
 
 export const columnFields = [
   "account",
@@ -52,14 +54,11 @@ export const mappingSchema = z
     dateFormat: z.enum(["iso", "dmy", "mdy"]).default("iso"),
     decimal: z.enum([".", ","]).default("."),
     currency: z.string().max(3).default("RUB"),
-    incomeValue: z.string().trim().min(1).max(60).default("приход"),
-    expenseValue: z.string().trim().min(1).max(60).default("расход"),
+    incomeValue: z.string().trim().min(1).max(60).default(bankData.markers.income),
+    expenseValue: z.string().trim().min(1).max(60).default(bankData.markers.expense),
     assumePosted: z.boolean().default(false),
   })
-  .refine(
-    (m) => m.amountMode !== "direction" || m.incomeValue.toLocaleLowerCase() !== m.expenseValue.toLocaleLowerCase(),
-    "Значения прихода и расхода должны различаться",
-  )
+  .refine((m) => m.amountMode !== "direction" || m.incomeValue.toLowerCase() !== m.expenseValue.toLowerCase(), importMessage("directions"))
 export type ColumnMapping = z.output<typeof mappingSchema>
 
 export const fileOptionsSchema = z.object({

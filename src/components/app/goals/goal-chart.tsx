@@ -1,15 +1,11 @@
 "use client"
 
+import { useTranslations, useLocale } from "next-intl"
+
 import { CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from "recharts"
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip } from "@/components/ui/chart"
-import { formatDateFull } from "@/lib/dates"
+import { formatDateFull, formatMonth } from "@/lib/dates"
 import { formatMoney, formatMoneyCompact } from "@/lib/money"
-
-const config = {
-  actual: { label: "Накоплено", color: "var(--chart-1)" },
-  forecast: { label: "При текущем темпе", color: "var(--chart-3)" },
-  planned: { label: "По плановым операциям", color: "var(--chart-4)" },
-}
 
 export function GoalChart({
   data,
@@ -20,20 +16,28 @@ export function GoalChart({
   currency: string
   target: number | null
 }) {
+  const t = useTranslations("goals")
+  const locale = useLocale()
+  const config = {
+    actual: { label: t("chart.actual"), color: "var(--chart-1)" },
+    forecast: { label: t("chart.forecast"), color: "var(--chart-3)" },
+    planned: { label: t("chart.planned"), color: "var(--chart-4)" },
+  }
+
   return (
     <ChartContainer config={config} className="h-72 w-full min-w-0 aspect-auto">
       <LineChart data={data} margin={{ top: 10, right: 8, left: 0 }}>
         <CartesianGrid vertical={false} strokeOpacity={0.5} />
         <XAxis
           dataKey="date"
-          tickFormatter={(v: string) => v.slice(5, 7) + "." + v.slice(2, 4)}
+          tickFormatter={(v: string) => formatMonth(v, locale)}
           tickLine={false}
           axisLine={false}
           minTickGap={30}
           tick={{ fontSize: 11 }}
         />
         <YAxis
-          tickFormatter={(v: number) => formatMoneyCompact(v, currency)}
+          tickFormatter={(v: number) => formatMoneyCompact(v, currency, locale)}
           tickLine={false}
           axisLine={false}
           width={80}
@@ -44,12 +48,12 @@ export function GoalChart({
           content={({ active, label, payload }) =>
             active ? (
               <div className="max-w-64 rounded-lg border bg-popover p-3 text-xs shadow-md">
-                <p>{formatDateFull(String(label))}</p>
+                <p>{formatDateFull(String(label), locale)}</p>
                 {payload
                   ?.filter((p) => typeof p.value === "number")
                   .map((p) => (
                     <p key={String(p.dataKey)} className="mt-1" style={{ color: p.color }}>
-                      {config[p.dataKey as keyof typeof config]?.label}: {formatMoney(Number(p.value), currency)}
+                      {config[p.dataKey as keyof typeof config]?.label}: {formatMoney(Number(p.value), currency, { locale })}
                     </p>
                   ))}
               </div>

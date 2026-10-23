@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server"
 import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import { FxWarnings } from "@/components/app/fx-warnings"
@@ -10,9 +11,13 @@ import { requireHousehold } from "@/server/session"
 import { listAccounts } from "@/server/services/catalog"
 import { getGoalDetail } from "@/server/services/goals"
 
-export const metadata: Metadata = { title: "Цель" }
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("goals")
+  return { title: t("page.detailTitle") }
+}
 
 export default async function GoalPage({ params }: { params: Promise<{ id: string }> }) {
+  const t = await getTranslations("goals")
   const ctx = await requireHousehold()
   const { id } = await params
   const detail = await getGoalDetail(ctx, id).catch((e: unknown) => {
@@ -24,10 +29,10 @@ export default async function GoalPage({ params }: { params: Promise<{ id: strin
     <div className="grid grid-cols-1 gap-6">
       <PageHeader
         title={detail.goal.name}
-        description="План накоплений семьи"
+        description={t("page.detailDescription")}
         actions={
           <LinkButton href="/goals" variant="outline">
-            Все цели
+            {t("page.all")}
           </LinkButton>
         }
       />

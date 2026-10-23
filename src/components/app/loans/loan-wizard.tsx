@@ -1,5 +1,8 @@
 "use client"
 
+import { useTranslations, useLocale } from "next-intl"
+
+import { LocalizedError, errorMessage } from "@/i18n/errors"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { createLoanAction } from "@/app/actions/loans"
@@ -20,10 +23,12 @@ import type { LoanInput } from "@/server/services/loans"
 import { LoanSchedule } from "./loan-schedule"
 
 export function LoanWizard() {
+  const t = useTranslations("loans")
+  const locale = useLocale()
   const { today, accounts, currency: baseCurrency } = useCatalog()
   const usable = accounts.filter((a) => !a.archived && a.kind !== "loan")
   const [mode, setMode] = useState<"new" | "existing">("existing")
-  const [name, setName] = useState("Ипотека")
+  const [name, setName] = useState(t("kind.mortgage"))
   const [lender, setLender] = useState("")
   const [kind, setKind] = useState<keyof typeof LOAN_KIND_LABELS>("mortgage")
   const [accountId, setAccountId] = useState(usable[0]?.id ?? "")
@@ -50,11 +55,10 @@ export function LoanWizard() {
     try {
       const debt = parseMoney(balance, currency)
       const original = mode === "existing" && principal ? parseMoney(principal, currency) : debt
-      if (!debt || !original || original < debt || !name.trim() || !lender.trim() || !accountId)
-        throw new Error("Укажите название, банк, счёт и корректные суммы")
+      if (!debt || !original || original < debt || !name.trim() || !lender.trim() || !accountId) throw new Error(t("wizard.invalid"))
       const annualRate = rate.replace(",", ".")
       const monthlyPayment = mode === "existing" && termMode === "payment" ? parseMoney(payment, currency) : null
-      if (mode === "existing" && termMode === "payment" && !monthlyPayment) throw new Error("Укажите ежемесячный платёж")
+      if (mode === "existing" && termMode === "payment" && !monthlyPayment) throw new Error(t("wizard.paymentRequired"))
       const termMonths = monthlyPayment ? termForPayment(debt, annualRate, monthlyPayment) : Number(months)
       const input: LoanInput = {
         name,
@@ -73,12 +77,18 @@ export function LoanWizard() {
         interestMethod,
         paymentAccountId: accountId,
       }
-      if (input.startDate > trackingDate || trackingDate > today) throw new Error("Проверьте даты кредита и начала учёта")
+      if (input.startDate > trackingDate || trackingDate > today) throw new Error(t("wizard.invalidDates"))
       const rows = calculateLoanSchedule({ ...input, termMonths })
       setError("")
       setPreview({ input, rows })
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Проверьте параметры кредита")
+      setError(
+        err instanceof LocalizedError
+          ? errorMessage(err.messageKey, err.params, locale)
+          : err instanceof Error
+            ? err.message
+            : t("wizard.checkParameters"),
+      )
     }
   }
 
@@ -88,42 +98,40 @@ export function LoanWizard() {
         <Card>
           <CardHeader>
             <CardTitle>
-              <h2>Предпросмотр графика</h2>
+              <h2>{t("wizard.preview")}</h2>
             </CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-3 text-sm">
             <p>
-              {name} · {lender} · {rate}% · {currency}
+              {name} · {lender} · {Number(rate.replace(",", ".")).toLocaleString(locale, { maximumFractionDigits: 6 })}% · {currency}
             </p>
             <p>
-              Первый платёж: <strong>{formatMoney(preview.rows[0]!.payment, currency)}</strong>. Проценты за оставшийся срок:{" "}
-              <strong>
-                {formatMoney(
+              {t.rich("wizard.previewAmounts", {
+                first: formatMoney(preview.rows[0]!.payment, currency, { locale }),
+                interest: formatMoney(
                   preview.rows.reduce((s, r) => s + r.interest, 0),
                   currency,
-                )}
-              </strong>
-              .
+                  { locale },
+                ),
+                strong: (chunks) => <strong>{chunks}</strong>,
+              })}
             </p>
-            <p className="text-muted-foreground">
-              Расчёт без страховок и комиссий. Сверяйте разбивку с банком. Для дневных методов аннуитет рассчитан по r/12, последний платёж
-              уточняется по фактическим дням.
-            </p>
+            <p className="text-muted-foreground">{t("wizard.calculationHint")}</p>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => setPreview(null)}>
-                Назад к параметрам
+                {t("wizard.back")}
               </Button>
               <Button
                 disabled={pending}
                 onClick={() =>
                   run(() => createLoanAction(preview.input), {
-                    success: "Кредит создан",
+                    success: t("wizard.created"),
                     onSuccess: (r) => router.push(`/loans/${r.id}`),
                     onError: setError,
                   })
                 }
               >
-                Сохранить кредит
+                {t("wizard.save")}
               </Button>
             </div>
             {error ? (
@@ -142,33 +150,33 @@ export function LoanWizard() {
       <Segmented
         value={mode}
         onChange={setMode}
-        aria-label="Начало учёта кредита"
+        aria-label={t("wizard.trackingMode")}
         options={[
-          { value: "new", label: "Новый кредит" },
-          { value: "existing", label: "Уже выплачиваю" },
+          { value: "new", label: t("page.new") },
+          { value: "existing", label: t("wizard.existing") },
         ]}
       />
       <Card>
         <CardHeader>
           <CardTitle>
-            <h2>Параметры кредита</h2>
+            <h2>{t("wizard.parameters")}</h2>
           </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Field>
-            <FieldLabel htmlFor="loan-name">Название</FieldLabel>
+            <FieldLabel htmlFor="loan-name">{t("wizard.name")}</FieldLabel>
             <Input id="loan-name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} />
           </Field>
           <Field>
-            <FieldLabel htmlFor="loan-lender">Банк</FieldLabel>
+            <FieldLabel htmlFor="loan-lender">{t("wizard.lender")}</FieldLabel>
             <Input id="loan-lender" value={lender} onChange={(e) => setLender(e.target.value)} required maxLength={120} />
           </Field>
           <Field>
-            <FieldLabel htmlFor="loan-kind">Вид кредита</FieldLabel>
+            <FieldLabel htmlFor="loan-kind">{t("wizard.kind")}</FieldLabel>
             <Select
               value={kind}
               onValueChange={(v) => v && setKind(v as typeof kind)}
-              items={Object.entries(LOAN_KIND_LABELS).map(([value, label]) => ({ value, label }))}
+              items={Object.entries(LOAN_KIND_LABELS).map(([value, label]) => ({ value, label: t(label) }))}
             >
               <SelectTrigger id="loan-kind" className="w-full">
                 <SelectValue />
@@ -176,14 +184,14 @@ export function LoanWizard() {
               <SelectContent>
                 {Object.entries(LOAN_KIND_LABELS).map(([value, label]) => (
                   <SelectItem key={value} value={value}>
-                    {label}
+                    {t(label)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
           <Field>
-            <FieldLabel htmlFor="loan-account">Счёт оплаты</FieldLabel>
+            <FieldLabel htmlFor="loan-account">{t("wizard.account")}</FieldLabel>
             <Select
               value={accountId}
               onValueChange={(v) => v && setAccountId(v)}
@@ -200,37 +208,35 @@ export function LoanWizard() {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">Валюта кредита — {currency}, как у счёта оплаты.</p>
+            <p className="text-xs text-muted-foreground">{t("wizard.currencyHint", { currency })}</p>
           </Field>
           <Field>
-            <FieldLabel htmlFor="loan-balance">{mode === "new" ? "Сумма кредита" : "Текущий остаток долга"}</FieldLabel>
+            <FieldLabel htmlFor="loan-balance">{mode === "new" ? t("wizard.amount") : t("wizard.currentBalance")}</FieldLabel>
             <MoneyInput id="loan-balance" currency={currency} value={balance} onChange={setBalance} />
           </Field>
           {mode === "existing" ? (
             <Field>
-              <FieldLabel htmlFor="loan-principal">Исходная сумма (необязательно)</FieldLabel>
+              <FieldLabel htmlFor="loan-principal">{t("wizard.originalAmount")}</FieldLabel>
               <MoneyInput id="loan-principal" currency={currency} value={principal} onChange={setPrincipal} />
-              <p className="text-xs text-muted-foreground">
-                Если неизвестна, используем текущий остаток. Проценты до начала учёта не включены в переплату.
-              </p>
+              <p className="text-xs text-muted-foreground">{t("wizard.originalHint")}</p>
             </Field>
           ) : null}
           <Field>
-            <FieldLabel htmlFor="loan-rate">Ставка, % годовых</FieldLabel>
+            <FieldLabel htmlFor="loan-rate">{t("wizard.rate")}</FieldLabel>
             <Input id="loan-rate" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} required />
           </Field>
           <Field>
-            <FieldLabel htmlFor="loan-tracking">{mode === "new" ? "Дата выдачи" : "Остаток на дату"}</FieldLabel>
+            <FieldLabel htmlFor="loan-tracking">{mode === "new" ? t("wizard.issued") : t("wizard.balanceDate")}</FieldLabel>
             <DateField id="loan-tracking" value={trackingDate} onChange={(d) => d && setTrackingDate(d)} today={today} />
           </Field>
           {mode === "existing" ? (
             <Field>
-              <FieldLabel htmlFor="loan-start">Дата начала кредита</FieldLabel>
+              <FieldLabel htmlFor="loan-start">{t("wizard.startDate")}</FieldLabel>
               <DateField id="loan-start" value={startDate} onChange={(d) => d && setStartDate(d)} today={today} />
             </Field>
           ) : null}
           <Field>
-            <FieldLabel htmlFor="loan-first">Дата следующего платежа</FieldLabel>
+            <FieldLabel htmlFor="loan-first">{t("wizard.nextDate")}</FieldLabel>
             <DateField
               id="loan-first"
               value={firstPayment}
@@ -244,7 +250,7 @@ export function LoanWizard() {
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="loan-day">День платежа, 1–31</FieldLabel>
+            <FieldLabel htmlFor="loan-day">{t("wizard.paymentDay")}</FieldLabel>
             <Input
               id="loan-day"
               type="number"
@@ -254,10 +260,10 @@ export function LoanWizard() {
               onChange={(e) => setPaymentDay(e.target.value)}
               required
             />
-            <p className="text-xs text-muted-foreground">В коротком месяце — последний день.</p>
+            <p className="text-xs text-muted-foreground">{t("wizard.shortMonth")}</p>
           </Field>
           <Field>
-            <FieldLabel>График</FieldLabel>
+            <FieldLabel>{t("wizard.schedule")}</FieldLabel>
             <Segmented
               size="sm"
               value={scheduleType}
@@ -266,71 +272,68 @@ export function LoanWizard() {
                 setTermMode("term")
               }}
               options={[
-                { value: "annuity", label: "Аннуитет" },
-                { value: "differentiated", label: "Дифференцированный" },
+                { value: "annuity", label: t("wizard.annuity") },
+                { value: "differentiated", label: t("wizard.equalPrincipal") },
               ]}
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="loan-method">Начисление процентов</FieldLabel>
+            <FieldLabel htmlFor="loan-method">{t("wizard.interestMethod")}</FieldLabel>
             <Select
               value={interestMethod}
               onValueChange={(v) => v && setInterestMethod(v as typeof interestMethod)}
               items={[
-                { value: "monthly", label: "Ежемесячно (r/12)" },
-                { value: "daily_365", label: "По дням / 365" },
-                { value: "daily_actual", label: "По дням / 365 или 366" },
+                { value: "monthly", label: t("wizard.monthly") },
+                { value: "daily_365", label: t("wizard.daily365") },
+                { value: "daily_actual", label: t("wizard.dailyActual") },
               ]}
             >
               <SelectTrigger id="loan-method" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="monthly">Ежемесячно (r/12)</SelectItem>
-                <SelectItem value="daily_365">По дням / 365</SelectItem>
-                <SelectItem value="daily_actual">По дням / 365 или 366</SelectItem>
+                <SelectItem value="monthly">{t("wizard.monthly")}</SelectItem>
+                <SelectItem value="daily_365">{t("wizard.daily365")}</SelectItem>
+                <SelectItem value="daily_actual">{t("wizard.dailyActual")}</SelectItem>
               </SelectContent>
             </Select>
           </Field>
           {mode === "existing" && scheduleType === "annuity" ? (
             <Field>
-              <FieldLabel>Известен</FieldLabel>
+              <FieldLabel>{t("wizard.known")}</FieldLabel>
               <Segmented
                 value={termMode}
                 onChange={setTermMode}
                 size="sm"
                 options={[
-                  { value: "term", label: "Оставшийся срок" },
-                  { value: "payment", label: "Платёж" },
+                  { value: "term", label: t("wizard.remainingTerm") },
+                  { value: "payment", label: t("schedule.payment") },
                 ]}
               />
             </Field>
           ) : null}
           {mode === "existing" && termMode === "payment" ? (
             <Field>
-              <FieldLabel htmlFor="loan-payment">Ежемесячный платёж</FieldLabel>
+              <FieldLabel htmlFor="loan-payment">{t("wizard.monthlyPayment")}</FieldLabel>
               <MoneyInput id="loan-payment" currency={currency} value={payment} onChange={setPayment} />
-              <p className="text-xs text-muted-foreground">Оставшийся срок оценивается по месячной ставке; итог виден в предпросмотре.</p>
+              <p className="text-xs text-muted-foreground">{t("wizard.termHint")}</p>
             </Field>
           ) : (
             <Field>
-              <FieldLabel htmlFor="loan-months">{mode === "new" ? "Срок, месяцев" : "Осталось месяцев"}</FieldLabel>
+              <FieldLabel htmlFor="loan-months">{mode === "new" ? t("wizard.months") : t("wizard.monthsLeft")}</FieldLabel>
               <Input id="loan-months" type="number" min={1} max={600} required value={months} onChange={(e) => setMonths(e.target.value)} />
             </Field>
           )}
         </CardContent>
       </Card>
-      <p className="text-sm text-muted-foreground">
-        Начальный долг создаётся на отдельном счёте-обязательстве. Выдача денег и покупка не создаются автоматически. Старые регулярные
-        расходы по этому кредиту нужно остановить, чтобы не дублировать платёж.
-      </p>
+      <p className="text-sm text-muted-foreground">{t("wizard.ledgerHint")}</p>
       {error ? (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       ) : null}
       <Button type="submit" className="justify-self-start">
-        Предпросмотр графика
+        {t("wizard.preview")}
       </Button>
     </form>
   )

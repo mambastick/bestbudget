@@ -1,4 +1,5 @@
 import "server-only"
+import { assetTranslator } from "@/i18n/assets"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { z } from "zod"
 import { getDb, type DbOrTx } from "@/db"
@@ -197,7 +198,13 @@ export async function transferToGoal(
     if (isoDate.parse(raw.date) > todayIn(ctx.timezone)) throw new AppError("goal.futureTransfer")
     return createTransaction(
       ctx,
-      { ...raw, type: "transfer", status: "posted", toAccountId: goal.accountId, title: `На цель: ${goal.name}` },
+      {
+        ...raw,
+        type: "transfer",
+        status: "posted",
+        toAccountId: goal.accountId,
+        title: assetTranslator("goals", ctx.locale)("generated.transfer", { name: goal.name }),
+      },
       tx,
     )
   })
@@ -240,7 +247,7 @@ async function goalData(ctx: HouseholdCtx) {
     const a = selectRate(rates, from, date)
     const b = selectRate(rates, to, date)
     if (!a || !b) {
-      warnings.add(`Нет курса ${!a ? from : to}. Прогресс и прогноз цели неполные.`)
+      warnings.add(assetTranslator("goals", ctx.locale)("warnings.missingRate", { currency: !a ? from : to }))
       return null
     }
     return convertMinor(amount, from, to, a.rateToRub, b.rateToRub)
@@ -376,7 +383,12 @@ async function summaries(ctx: HouseholdCtx) {
         ? [g.currency, d.finance.accountMap.get(g.accountId)!.currency]
             .map((c) => selectRate(d.rates, c, d.today))
             .filter((r) => r && diffDays(d.today, r.date) > 7)
-            .map((r) => `${r!.currency}: курс на ${formatDateFull(r!.date)}`)
+            .map((r) =>
+              assetTranslator("goals", ctx.locale)("warnings.rateDate", {
+                currency: r!.currency,
+                date: formatDateFull(r!.date, ctx.locale),
+              }),
+            )
         : []
     const rule = d.rules.find((r) => r.goalId === g.id) ?? null
     return {
@@ -432,7 +444,7 @@ export async function getGoalDetail(ctx: HouseholdCtx, id: string) {
             id: date,
             date,
             amount: sumMoney([d.snapshot(date).get(id) ?? 0, -(d.snapshot(addDays(date, -1)).get(id) ?? 0)]),
-            comment: "Изменение распределённого остатка счёта",
+            comment: assetTranslator("goals", ctx.locale)("history.allocationChange"),
           }))
   const chart: { date: string; actual: number | null; forecast: number | null; planned: number | null }[] = [0, 1, 2, 3].map((i) => {
     const date = i === 3 ? d.today : addMonths(from, i)
@@ -518,7 +530,7 @@ export async function automateGoal(ctx: HouseholdCtx, id: string, raw: { account
       {
         rule: {
           type: "transfer",
-          title: `На цель: ${g.name}`,
+          title: assetTranslator("goals", ctx.locale)("generated.transfer", { name: g.name }),
           amount,
           toAmount: source.currency === g.accountCurrency ? undefined : toAmount,
           accountId: source.id,

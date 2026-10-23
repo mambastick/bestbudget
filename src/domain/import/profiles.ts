@@ -1,10 +1,12 @@
+import bankData from "./bank-data.json"
+import { importMessage } from "./messages"
 import { mappingSchema, type ColumnMapping } from "./types"
 
 export const PROFILES = [
-  { id: "bestbudget-v1", name: "BestBudget CSV v1", experimental: false },
-  { id: "bestbudget-export", name: "Экспорт BestBudget", experimental: false },
-  { id: "tbank-csv-legacy-candidate", name: "Т-Банк CSV — экспериментальный, проверьте предпросмотр", experimental: true },
-  { id: "custom", name: "Мастер колонок (в том числе Альфа / Сбер)", experimental: false },
+  { id: "bestbudget-v1", name: "profiles.bestbudget", experimental: false },
+  { id: "bestbudget-export", name: "profiles.export", experimental: false },
+  { id: "tbank-csv-legacy-candidate", name: "profiles.tbank", experimental: true },
+  { id: "custom", name: "profiles.custom", experimental: false },
 ]
 export const normalizeHeader = (s: string) =>
   s
@@ -31,36 +33,8 @@ const universal = {
   card: "card_hint",
   counterparty: "counterparty_hint",
 } as const
-const exported = {
-  date: "Дата",
-  type: "Тип",
-  status: "Статус",
-  title: "Название",
-  bankCategory: "Категория",
-  account: "Счёт",
-  toAccount: "Счёт зачисления",
-  amount: "Сумма",
-  currency: "Валюта",
-  toAmount: "Зачислено",
-  toCurrency: "Валюта зачисления",
-  description: "Описание",
-  externalId: "ID операции",
-} as const
-const tbank = {
-  date: "Дата операции",
-  bookingDate: "Дата платежа",
-  card: "Номер карты",
-  status: "Статус",
-  amount: "Сумма платежа",
-  currency: "Валюта платежа",
-  originalAmount: "Сумма операции",
-  originalCurrency: "Валюта операции",
-  bankCategory: "Категория",
-  mcc: "MCC",
-  description: "Описание",
-  cashback: "Кэшбэк",
-  bonuses: "Бонусы (включая кэшбэк)",
-} as const
+const exported = bankData.exported
+const tbank = bankData.tbank
 
 export function profileMapping(id: string, headers: string[]): ColumnMapping {
   const aliases: Partial<Record<keyof ColumnMapping["columns"], string>> =
@@ -68,7 +42,7 @@ export function profileMapping(id: string, headers: string[]): ColumnMapping {
   const columns: ColumnMapping["columns"] = {}
   for (const [field, alias] of Object.entries(aliases)) {
     const matches = headers.map((h, i) => (normalizeHeader(h) === normalizeHeader(alias) ? i : -1)).filter((i) => i >= 0)
-    if (matches.length > 1) throw new Error(`Повторяющийся заголовок: ${alias}`)
+    if (matches.length > 1) throw new Error(importMessage("duplicateHeader", { header: alias }))
     if (matches[0] !== undefined) columns[field as keyof typeof columns] = matches[0]
   }
   return mappingSchema.parse({
@@ -82,7 +56,7 @@ export function profileMapping(id: string, headers: string[]): ColumnMapping {
 export function detectProfile(headers: string[]): string {
   const has = (names: string[]) => names.every((name) => headers.some((h) => normalizeHeader(h) === normalizeHeader(name)))
   if (has(["account", "date", "amount", "currency", "description"])) return "bestbudget-v1"
-  if (has(Object.values(exported).filter((name) => name !== "ID операции"))) return "bestbudget-export"
-  if (has(Object.values(tbank).filter((name) => !["Кэшбэк", "Бонусы (включая кэшбэк)"].includes(name)))) return "tbank-csv-legacy-candidate"
+  if (has(Object.values(exported).filter((name) => name !== exported.externalId))) return "bestbudget-export"
+  if (has(Object.values(tbank).filter((name) => ![tbank.cashback, tbank.bonuses].includes(name)))) return "tbank-csv-legacy-candidate"
   return "custom"
 }

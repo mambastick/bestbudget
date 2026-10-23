@@ -1,3 +1,5 @@
+import bankData from "./bank-data.json"
+import { importMessage } from "./messages"
 import { CURRENCIES, currencyExponent } from "@/lib/currencies"
 import { isIsoDate } from "@/lib/dates"
 import { PENDING_ROW_MESSAGE, REJECTED_ROW_MESSAGE, type ColumnField, type ColumnMapping, type IncomingRow } from "./types"
@@ -8,43 +10,42 @@ export const cellText = (cell: StatementCell | undefined): string =>
 export const normalizeDescription = (s: string) => s.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase()
 
 export function parseAmount(value: string, currency: string, decimal: "." | ","): number {
-  if (!Object.hasOwn(CURRENCIES, currency)) throw new Error("Валюта не поддерживается; укажите ISO-код")
+  if (!Object.hasOwn(CURRENCIES, currency)) throw new Error(importMessage("unsupportedCurrency"))
   const s = value
     .replace(/[ \u00a0\u202f\u2009]/g, "")
     .replace(/\u2212/g, "-")
     .trim()
   const exponent = currencyExponent(currency)
   const separator = decimal === "." ? "\\." : ","
-  if (!new RegExp(`^[+-]?\\d+(?:${separator}\\d{1,${Math.max(1, exponent)}})?$`).test(s))
-    throw new Error("Некорректная сумма или десятичный разделитель")
+  if (!new RegExp(`^[+-]?\\d+(?:${separator}\\d{1,${Math.max(1, exponent)}})?$`).test(s)) throw new Error(importMessage("invalidAmount"))
   const [whole = "0", fraction = ""] = s.replace(/^[+-]/, "").split(decimal)
-  if (fraction.length > exponent) throw new Error("Слишком много знаков после разделителя")
+  if (fraction.length > exponent) throw new Error(importMessage("amountPrecision"))
   const minor = BigInt(whole) * 10n ** BigInt(exponent) + BigInt(fraction.padEnd(exponent, "0") || "0")
-  if (minor > 100_000_000_000_000n) throw new Error("Слишком большая сумма")
+  if (minor > 100_000_000_000_000n) throw new Error(importMessage("amountTooLarge"))
   return Number(minor) * (s.startsWith("-") ? -1 : 1)
 }
 
 export function parseDate(value: StatementCell, format: ColumnMapping["dateFormat"]): string {
   if (typeof value !== "string") {
     if ("date" in value && isIsoDate(value.date.slice(0, 10))) return value.date.slice(0, 10)
-    throw new Error("Число Excel не помечено как дата. Задайте формат даты в книге.")
+    throw new Error(importMessage("excelDate"))
   }
   const text = value.trim()
   let date: string
   if (format === "iso") {
-    if (!/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/.test(text)) throw new Error("Ожидается дата YYYY-MM-DD")
+    if (!/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/.test(text)) throw new Error(importMessage("isoDate"))
     date = text.slice(0, 10)
     const time = text.slice(11).split(":")
     if (time.length > 1 && (Number(time[0]) > 23 || Number(time[1]) > 59 || Number(time[2] ?? 0) > 59))
-      throw new Error("Некорректное время")
+      throw new Error(importMessage("invalidTime"))
   } else {
     const match = /^(\d{2})[./](\d{2})[./](\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(text)
-    if (!match) throw new Error("Ожидается дата с четырёхзначным годом")
+    if (!match) throw new Error(importMessage("fullYear"))
     const [, a, b, year, hour, minute, second] = match
-    if (hour && (Number(hour) > 23 || Number(minute) > 59 || Number(second ?? 0) > 59)) throw new Error("Некорректное время")
+    if (hour && (Number(hour) > 23 || Number(minute) > 59 || Number(second ?? 0) > 59)) throw new Error(importMessage("invalidTime"))
     date = `${year}-${format === "mdy" ? a : b}-${format === "mdy" ? b : a}`
   }
-  if (!isIsoDate(date) || date < "1900-01-01" || date > "9998-12-31") throw new Error("Некорректная дата")
+  if (!isIsoDate(date) || date < "1900-01-01" || date > "9998-12-31") throw new Error(importMessage("invalidDate"))
   return date
 }
 
@@ -87,12 +88,12 @@ export function normalizeRow(cells: StatementCell[], mapping: ColumnMapping, pro
     title: nullable("title"),
   }
   if (["bestbudget-v1", "bestbudget-export", "tbank-csv-legacy-candidate"].includes(profile) && !get("currency"))
-    row.errors.push("Валюта движения обязательна в каждой строке этого профиля")
+    row.errors.push(importMessage("requiredCurrency"))
   const attempt = <T>(fn: () => T): T | null => {
     try {
       return fn()
     } catch (e) {
-      row.errors.push(e instanceof Error ? e.message : "Ошибка строки")
+      row.errors.push(e instanceof Error ? e.message : importMessage("rowError"))
       return null
     }
   }
@@ -108,27 +109,39 @@ export function normalizeRow(cells: StatementCell[], mapping: ColumnMapping, pro
       const income = get("income") ? money("income") : 0
       const expense = get("expense") ? money("expense") : 0
       if (income < 0 || expense < 0 || (income && expense) || (!get("income") && !get("expense")))
-        throw new Error("Приход и расход: заполните только одну неотрицательную сумму")
+        throw new Error(importMessage("separateAmounts"))
       return income - expense
     }
     const direction = normalizeDescription(get("direction"))
     if (![normalizeDescription(mapping.incomeValue), normalizeDescription(mapping.expenseValue)].includes(direction))
-      throw new Error("Неизвестное направление операции")
+      throw new Error(importMessage("unknownDirection"))
     const absolute = money("amount")
-    if (absolute < 0) throw new Error("Для направления нужна сумма без знака")
+    if (absolute < 0) throw new Error(importMessage("unsignedAmount"))
     return absolute * (direction === normalizeDescription(mapping.incomeValue) ? 1 : -1)
   })
-  if (row.amountMinorSigned === 0) row.errors.push("Нулевая сумма не создаёт операцию")
+  if (row.amountMinorSigned === 0) row.errors.push(importMessage("zeroAmount"))
   if (get("originalAmount")) row.originalAmountMinorSigned = attempt(() => money("originalAmount", row.originalCurrency ?? ""))
   if (get("balance")) row.balanceAfterMinor = attempt(() => money("balance"))
   if (get("toAmount")) row.toAmount = attempt(() => money("toAmount", row.toCurrency ?? ""))
-  if (row.mcc && !/^\d{4}$/.test(row.mcc)) row.errors.push("MCC должен содержать четыре цифры")
+  if (row.mcc && !/^\d{4}$/.test(row.mcc)) row.errors.push(importMessage("invalidMcc"))
   const status = normalizeDescription(get("status"))
   if (profile === "bestbudget-export") {
     row.status =
-      status === "выполнена" ? "posted" : status === "запланирована" ? "pending" : status === "пропущена" ? "rejected" : "unknown"
+      status === bankData.markers.posted
+        ? "posted"
+        : status === bankData.markers.planned
+          ? "pending"
+          : status === bankData.markers.skipped
+            ? "rejected"
+            : "unknown"
     row.exportStatus =
-      status === "выполнена" ? "posted" : status === "запланирована" ? "planned" : status === "пропущена" ? "skipped" : null
+      status === bankData.markers.posted
+        ? "posted"
+        : status === bankData.markers.planned
+          ? "planned"
+          : status === bankData.markers.skipped
+            ? "skipped"
+            : null
     // Reverse the single quote added by our CSV-injection escaping, only for our own export.
     row.descriptionRaw = row.descriptionRaw.replace(/^'(?='*[=+\-@\t\r])/, "")
     row.descriptionNormalized = normalizeDescription(row.descriptionRaw)
@@ -136,12 +149,19 @@ export function normalizeRow(cells: StatementCell[], mapping: ColumnMapping, pro
     row.accountHint = row.accountHint?.replace(/^'(?='*[=+\-@\t\r])/, "") ?? null
     row.toAccountHint = row.toAccountHint?.replace(/^'(?='*[=+\-@\t\r])/, "") ?? null
     row.bankCategory = row.bankCategory?.replace(/^'(?='*[=+\-@\t\r])/, "") ?? null
-    if (row.typeHint === "Перевод" && row.amountMinorSigned !== null) row.amountMinorSigned = -Math.abs(row.amountMinorSigned)
-    if (!["Расход", "Доход", "Перевод"].includes(row.typeHint ?? "")) row.errors.push("Неизвестный тип операции экспорта")
-    if (row.typeHint === "Расход" && (row.amountMinorSigned ?? 0) >= 0) row.errors.push("Расход должен быть отрицательным")
-    if (row.typeHint === "Доход" && (row.amountMinorSigned ?? 0) <= 0) row.errors.push("Доход должен быть положительным")
-    if (row.typeHint === "Перевод" && row.currency === row.toCurrency && row.toAmount !== Math.abs(row.amountMinorSigned ?? 0))
-      row.errors.push("В одной валюте суммы списания и зачисления должны совпадать")
+    if (row.typeHint === bankData.markers.transfer && row.amountMinorSigned !== null)
+      row.amountMinorSigned = -Math.abs(row.amountMinorSigned)
+    if (![bankData.markers.expenseType, bankData.markers.incomeType, bankData.markers.transfer].includes(row.typeHint ?? ""))
+      row.errors.push(importMessage("unknownExportType"))
+    if (row.typeHint === bankData.markers.expenseType && (row.amountMinorSigned ?? 0) >= 0)
+      row.errors.push(importMessage("negativeExpense"))
+    if (row.typeHint === bankData.markers.incomeType && (row.amountMinorSigned ?? 0) <= 0) row.errors.push(importMessage("positiveIncome"))
+    if (
+      row.typeHint === bankData.markers.transfer &&
+      row.currency === row.toCurrency &&
+      row.toAmount !== Math.abs(row.amountMinorSigned ?? 0)
+    )
+      row.errors.push(importMessage("sameCurrencyTransfer"))
   } else if (profile === "tbank-csv-legacy-candidate") row.status = status === "ok" && !!row.bookingDateRaw ? "posted" : "unknown"
   else
     row.status =
@@ -153,16 +173,14 @@ export function normalizeRow(cells: StatementCell[], mapping: ColumnMapping, pro
             ? "rejected"
             : "unknown"
   if (row.exportStatus && row.exportStatus !== "posted")
-    row.warnings.push(
-      `Экспорт BestBudget: сохранить статус «${row.exportStatus === "planned" ? "запланирована" : "пропущена"}», без записи в факт`,
-    )
+    row.warnings.push(importMessage(row.exportStatus === "planned" ? "exportPlanned" : "exportSkipped"))
   else if (row.status === "pending") row.warnings.push(PENDING_ROW_MESSAGE)
   else if (row.status === "rejected") row.warnings.push(REJECTED_ROW_MESSAGE)
-  else if (row.status !== "posted") row.warnings.push("Статус не подтверждает проводку: строка доступна только для пропуска")
-  if (profile.startsWith("tbank")) row.warnings.push("Экспериментальный профиль: проверьте знак, статус и дату проводки")
-  if (row.descriptionRaw.length > 1000) row.errors.push("Описание длиннее 1000 символов")
-  if (row.title && row.title.length > 120) row.errors.push("Название длиннее 120 символов")
-  if (!Object.hasOwn(CURRENCIES, currency)) row.errors.push("Валюта не поддерживается; автоматической конвертации нет")
+  else if (row.status !== "posted") row.warnings.push(importMessage("unknownStatus"))
+  if (profile.startsWith("tbank")) row.warnings.push(importMessage("experimental"))
+  if (row.descriptionRaw.length > 1000) row.errors.push(importMessage("longDescription"))
+  if (row.title && row.title.length > 120) row.errors.push(importMessage("longTitle"))
+  if (!Object.hasOwn(CURRENCIES, currency)) row.errors.push(importMessage("noConversion"))
   row.errors = [...new Set(row.errors)]
   if (row.errors.length || row.warnings.length) row.confidence = "review"
   return row

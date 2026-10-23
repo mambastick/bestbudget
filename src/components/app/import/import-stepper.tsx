@@ -1,14 +1,14 @@
+import { useTranslations } from "next-intl"
 import { Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-const steps = ["Файл", "Настройка", "Проверка", "Готово"]
-
 export function ImportStepper({ step }: { step: number }) {
+  const t = useTranslations("import")
+  const steps = [t("steps.file"), t("steps.setup"), t("steps.review"), t("actions.done")]
+
   return (
-    <nav aria-label="Этапы импорта">
-      <p className="text-sm font-medium text-primary sm:hidden">
-        Шаг {step} из 4 · {steps[step - 1]}
-      </p>
+    <nav aria-label={t("steps.label")}>
+      <p className="text-sm font-medium text-primary sm:hidden">{t("steps.current", { step, label: steps[step - 1]! })}</p>
       <ol className="hidden items-center gap-3 sm:flex">
         {steps.map((label, index) => (
           <li

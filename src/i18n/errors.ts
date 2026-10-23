@@ -1,3 +1,4 @@
+import { translateImportMessage } from "@/domain/import/messages"
 import { createTranslator } from "use-intl/core"
 import type { z } from "zod"
 import enZod from "zod/v4/locales/en.js"
@@ -20,6 +21,7 @@ export function errorMessage(key: ErrorKey, params: ErrorParams = {}, locale = "
 /** Localize issue metadata at the response boundary; never mutate Zod's process-wide configuration. */
 export function zodIssueMessage(issue: z.core.$ZodIssue, locale: string): string {
   const t = errorTranslator(locale)
+  if (issue.message.startsWith("bb-import:")) return translateImportMessage(issue.message, locale)
   const key = issue.message as ErrorKey
   if (t.has(key)) return t(key)
   if (issue.code === "invalid_type") return t("validation.invalidType")

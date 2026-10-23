@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations, useLocale } from "next-intl"
+
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Check, ChevronDown, Info } from "lucide-react"
@@ -27,8 +29,9 @@ import type { importBatches, importRows } from "@/db/schema"
 import { canImportRow, PENDING_ROW_MESSAGE, REJECTED_ROW_MESSAGE, type RowDecision } from "@/domain/import/types"
 import type { ActionResult } from "@/server/errors"
 import { formatMoney } from "@/lib/money"
-import { formatDateFull, formatDayShort, isIsoDate } from "@/lib/dates"
-import { plural } from "@/lib/plural"
+import { formatDateFull, formatDayShort } from "@/lib/dates"
+import { importMessageData, translateImportMessage } from "@/domain/import/messages"
+import bankData from "@/domain/import/bank-data.json"
 import { cn } from "@/lib/utils"
 import { ImportSelect } from "./import-select"
 import { ImportStepper } from "./import-stepper"
@@ -38,23 +41,14 @@ type Row = typeof importRows.$inferSelect
 type Batch = typeof importBatches.$inferSelect
 type Category = { id: string; name: string; kind: string }
 type Filter = "all" | "new" | "duplicate" | "transfer" | "planned" | "pending" | "rejected" | "error"
-const filters: { value: Filter; label: string }[] = [
-  { value: "all", label: "Все" },
-  { value: "new", label: "Новые" },
-  { value: "duplicate", label: "Дубли" },
-  { value: "transfer", label: "Переводы" },
-  { value: "planned", label: "Плановые" },
-  { value: "pending", label: "Ожидают" },
-  { value: "rejected", label: "Отклонены" },
-  { value: "error", label: "Ошибки" },
-]
+
 function rowKind(row: Row): Filter {
   const n = row.normalized
   if (!n.errors.length && !n.exportStatus && (n.status === "pending" || n.status === "rejected")) return n.status
   if (!canImportRow(row.normalized)) return "error"
   if (row.proposal.candidates.some((c) => c.kind === "duplicate" || c.kind === "manual")) return "duplicate"
   if (row.proposal.candidates.some((c) => c.kind === "planned")) return "planned"
-  if (row.normalized.typeHint === "Перевод" || row.proposal.candidates.some((c) => c.kind === "transfer")) return "transfer"
+  if (row.normalized.typeHint === bankData.markers.transfer || row.proposal.candidates.some((c) => c.kind === "transfer")) return "transfer"
   return "new"
 }
 function defaultChoice(row: Row): RowDecision {
@@ -65,25 +59,30 @@ function defaultChoice(row: Row): RowDecision {
     candidateIndex: row.decision === "confirm" ? row.proposal.candidates.findIndex((c) => c.kind === "planned") : undefined,
   }
 }
-const localizeDates = (text: string) => text.replace(/\d{4}-\d{2}-\d{2}/g, (date) => (isIsoDate(date) ? formatDayShort(date) : date))
-function decisionOptions(row: Row) {
-  const options = [{ value: "skip:", label: "Пропустить" }]
+function decisionOptions(row: Row, t: ReturnType<typeof useTranslations>, locale: string) {
+  const options = [{ value: "skip:", label: t("actions.skip") }]
   if (!canImportRow(row.normalized)) return options
-  options.push({ value: "create:", label: row.normalized.typeHint === "Перевод" ? "Создать перевод из экспорта" : "Создать операцию" })
+  options.push({
+    value: "create:",
+    label: row.normalized.typeHint === bankData.markers.transfer ? t("actions.createExportTransfer") : t("actions.createTransaction"),
+  })
   row.proposal.candidates.forEach((c, i) => {
-    if (c.kind === "planned") options.push({ value: `confirm:${i}`, label: localizeDates(c.label) })
-    if (c.kind === "transfer") options.push({ value: `transfer:${i}`, label: localizeDates(c.label) })
+    const label = translateImportMessage(c.label, locale)
+    if (c.kind === "planned") options.push({ value: `confirm:${i}`, label })
+    if (c.kind === "transfer") options.push({ value: `transfer:${i}`, label })
     if ((c.kind === "manual" || c.kind === "duplicate") && c.transactionId)
-      options.push({ value: `link:${i}`, label: `Связать: ${localizeDates(c.label)}` })
+      options.push({ value: `link:${i}`, label: t("actions.link", { label }) })
   })
   return options
 }
 function Amount({ row }: { row: Row }) {
+  const t = useTranslations("import")
+  const locale = useLocale()
   const n = row.normalized
-  let amount = "Проверьте сумму"
+  let amount = t("preview.invalidAmount")
   if (n.amountMinorSigned !== null) {
     try {
-      amount = formatMoney(n.amountMinorSigned, n.currency, { sign: true })
+      amount = formatMoney(n.amountMinorSigned, n.currency, { locale, sign: true })
     } catch {
       /* Invalid currencies remain visible as errors. */
     }
@@ -114,6 +113,19 @@ export function ImportPreview({
   accounts: { id: string; name: string }[]
   reconciliation: { accountId: string; currency: string; matches: boolean; expected: number; actual: number }[]
 }) {
+  const t = useTranslations("import")
+  const locale = useLocale()
+  const filters: { value: Filter; label: string }[] = [
+    { value: "all", label: t("filters.all") },
+    { value: "new", label: t("filters.new") },
+    { value: "duplicate", label: t("filters.duplicate") },
+    { value: "transfer", label: t("filters.transfer") },
+    { value: "planned", label: t("filters.planned") },
+    { value: "pending", label: t("filters.pending") },
+    { value: "rejected", label: t("filters.rejected") },
+    { value: "error", label: t("filters.error") },
+  ]
+
   const router = useRouter()
   const [changes, setChanges] = useState<Record<string, RowDecision>>({})
   const [filter, setFilter] = useState<Filter>("all")
@@ -153,7 +165,7 @@ export function ImportPreview({
       (r) =>
         canImportRow(r.normalized) &&
         choiceFor(r).decision === "create" &&
-        r.normalized.typeHint !== "Перевод" &&
+        r.normalized.typeHint !== bankData.markers.transfer &&
         Math.sign(r.normalized.amountMinorSigned ?? 0) === Math.sign(row.normalized.amountMinorSigned ?? 0) &&
         r.normalized.descriptionNormalized.includes(row.normalized.descriptionNormalized),
     )
@@ -164,10 +176,10 @@ export function ImportPreview({
     if (categoryId !== "none" && canRemember(row)) {
       const count = similarRows(row).length
       const category = categories.find((c) => c.id === categoryId)
-      toast(
-        `Применить «${category?.name}» к ${count} ${plural(count, "строке", "строкам", "строкам")} «${row.normalized.descriptionNormalized}» и запомнить?`,
-        { duration: 10000, action: { label: "Применить", onClick: () => setSimilar({ row, categoryId }) } },
-      )
+      toast(t("similar.prompt", { category: category?.name ?? "", count, description: row.normalized.descriptionNormalized }), {
+        duration: 10000,
+        action: { label: t("actions.apply"), onClick: () => setSimilar({ row, categoryId }) },
+      })
     }
   }
   const applySimilar = () => {
@@ -180,7 +192,7 @@ export function ImportPreview({
       ),
     }))
     setSimilar(null)
-    toast.success("Категория применена. Правило сохранится вместе с импортом.")
+    toast.success(t("preview.categoryApplied"))
   }
   const bulk = (decision: "skip" | "create") => {
     setChanges((old) => ({
@@ -212,20 +224,20 @@ export function ImportPreview({
     if (
       choice.decision === "transfer" ||
       candidate?.transactionType === "transfer" ||
-      n.typeHint === "Перевод" ||
+      n.typeHint === bankData.markers.transfer ||
       n.amountMinorSigned === null
     )
       continue
-    const t = totals.get(n.currency) ?? { income: 0n, expense: 0n }
-    if (n.amountMinorSigned > 0) t.income += BigInt(n.amountMinorSigned)
-    else t.expense -= BigInt(n.amountMinorSigned)
-    totals.set(n.currency, t)
+    const total = totals.get(n.currency) ?? { income: 0n, expense: 0n }
+    if (n.amountMinorSigned > 0) total.income += BigInt(n.amountMinorSigned)
+    else total.expense -= BigInt(n.amountMinorSigned)
+    totals.set(n.currency, total)
   }
   const display = (n: bigint, currency: string) =>
-    n > BigInt(Number.MAX_SAFE_INTEGER) ? "Сумма слишком велика" : formatMoney(Number(n), currency)
+    n > BigInt(Number.MAX_SAFE_INTEGER) ? t("preview.amountTooLarge") : formatMoney(Number(n), currency, { locale })
   const balanceMismatch = reconciliation.some((r) => !r.matches)
   const missing = rows.filter(
-    (r) => choiceFor(r).decision === "create" && r.normalized.typeHint !== "Перевод" && !choiceFor(r).categoryId,
+    (r) => choiceFor(r).decision === "create" && r.normalized.typeHint !== bankData.markers.transfer && !choiceFor(r).categoryId,
   ).length
   const commit = async () => {
     setBusy(true)
@@ -244,7 +256,7 @@ export function ImportPreview({
       }
       router.refresh()
     } catch {
-      setError("Ответ не получен. Откройте эту партию снова: повторное подтверждение безопасно.")
+      setError(t("preview.noResponse"))
     } finally {
       setBusy(false)
     }
@@ -260,26 +272,30 @@ export function ImportPreview({
       setBusy(false)
     }
   }
-  const accountName = (row: Row) => accounts.find((a) => a.id === row.accountId)?.name ?? row.normalized.accountHint ?? "Счёт не выбран"
+  const accountName = (row: Row) =>
+    accounts.find((a) => a.id === row.accountId)?.name ?? row.normalized.accountHint ?? t("preview.noAccount")
   const status = (row: Row) => {
     const kind = rowKind(row),
       choice = choiceFor(row)
     const candidate = row.proposal.candidates[choice.candidateIndex ?? -1] ?? row.proposal.candidates.find((c) => c.kind === kind)
-    if (kind === "pending") return "Ожидает"
-    if (kind === "rejected") return "Отклонена"
-    if (kind === "error") return row.normalized.errors.some((e) => e.includes("кредит")) ? "Кредит · исключён" : "Ошибка"
-    if (choice.decision === "link") return "Уже есть · связать"
-    if (choice.decision === "skip") return kind === "duplicate" ? "Дубль · пропуск" : "Пропущена"
+    if (kind === "pending") return t("status.pending")
+    if (kind === "rejected") return t("status.rejected")
+    if (kind === "error")
+      return row.normalized.errors.some((e) => ["loanPayment", "loanAccount"].includes(importMessageData(e)?.code ?? ""))
+        ? t("status.loanExcluded")
+        : t("status.error")
+    if (choice.decision === "link") return t("status.link")
+    if (choice.decision === "skip") return kind === "duplicate" ? t("status.skipDuplicate") : t("status.skipped")
     if (choice.decision === "confirm")
-      return `Плановая · ${localizeDates(candidate?.label ?? "выберите платёж").replace(/^Подтвердить плановую: .*? · /, "")}`
-    if (choice.decision === "transfer" || row.normalized.typeHint === "Перевод") {
+      return t("status.planned", { label: candidate ? translateImportMessage(candidate.label, locale) : t("status.choosePayment") })
+    if (choice.decision === "transfer" || row.normalized.typeHint === bankData.markers.transfer) {
       const other = rows.find((r) => r.rowIndex === candidate?.rowIndex)
-      return other ? `Перевод → ${accountName(other)}` : "Перевод"
+      return other ? t("status.transferTo", { account: accountName(other) }) : t("status.transfer")
     }
-    if (kind === "duplicate") return "Дубль · создать"
-    if (kind === "transfer") return "Новая · возможен перевод"
-    if (kind === "planned") return "Новая · есть плановая"
-    return "Новая"
+    if (kind === "duplicate") return t("status.createDuplicate")
+    if (kind === "transfer") return t("status.possibleTransfer")
+    if (kind === "planned") return t("status.possiblePlanned")
+    return t("status.new")
   }
   const displayedCategory = (row: Row) => {
     const choice = choiceFor(row)
@@ -287,7 +303,7 @@ export function ImportPreview({
     return choice.decision === "confirm" && candidate && "categoryId" in candidate ? candidate.categoryId : choice.categoryId
   }
   const categoryOptions = (row: Row) => [
-    { value: "none", label: "Без категории" },
+    { value: "none", label: t("preview.noCategory") },
     ...categories
       .filter((c) => c.kind === ((row.normalized.amountMinorSigned ?? 0) < 0 ? "expense" : "income"))
       .map((c) => ({ value: c.id, label: c.name })),
@@ -295,11 +311,11 @@ export function ImportPreview({
   const categorySelect = (row: Row, compact = false) => (
     <ImportSelect
       compact={compact}
-      label={`Категория: ${row.normalized.descriptionRaw || row.rowLocator}`}
+      label={t("row.categoryLabel", { description: row.normalized.descriptionRaw || row.rowLocator })}
       value={displayedCategory(row) ?? "none"}
       onChange={(id) => changeCategory(row, id)}
       options={categoryOptions(row)}
-      disabled={choiceFor(row).decision !== "create" || row.normalized.typeHint === "Перевод"}
+      disabled={choiceFor(row).decision !== "create" || row.normalized.typeHint === bankData.markers.transfer}
     />
   )
   const remember = (row: Row) => {
@@ -308,14 +324,26 @@ export function ImportPreview({
   }
   const rowMenu = (row: Row) => {
     const kind = rowKind(row)
-    if (kind === "pending" || kind === "rejected") return (
-      <Tooltip>
-        <TooltipTrigger render={<Button variant="ghost" size="sm" className="h-auto px-1 py-1" aria-label={`Решение: ${row.normalized.descriptionRaw || row.rowLocator}`} />}>
-          <Badge variant="secondary" className="text-muted-foreground">{status(row)}</Badge>
-        </TooltipTrigger>
-        <TooltipContent>{kind === "pending" ? PENDING_ROW_MESSAGE : REJECTED_ROW_MESSAGE}</TooltipContent>
-      </Tooltip>
-    )
+    if (kind === "pending" || kind === "rejected")
+      return (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-auto px-1 py-1"
+                aria-label={t("row.decisionLabel", { description: row.normalized.descriptionRaw || row.rowLocator })}
+              />
+            }
+          >
+            <Badge variant="secondary" className="text-muted-foreground">
+              {status(row)}
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>{translateImportMessage(kind === "pending" ? PENDING_ROW_MESSAGE : REJECTED_ROW_MESSAGE, locale)}</TooltipContent>
+        </Tooltip>
+      )
     return (
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -324,7 +352,7 @@ export function ImportPreview({
               variant="ghost"
               size="sm"
               className="h-auto max-w-full justify-start px-1 py-1 text-left"
-              aria-label={`Решение: ${row.normalized.descriptionRaw || row.rowLocator}`}
+              aria-label={t("row.decisionLabel", { description: row.normalized.descriptionRaw || row.rowLocator })}
             />
           }
         >
@@ -340,7 +368,7 @@ export function ImportPreview({
           </Badge>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-72 max-w-[calc(100vw-2rem)]">
-          {decisionOptions(row).map((o) => (
+          {decisionOptions(row, t, locale).map((o) => (
             <DropdownMenuItem key={o.value} onClick={() => setDecision(row, o.value)}>
               {o.value === `${choiceFor(row).decision}:${choiceFor(row).candidateIndex ?? ""}` ? <Check className="size-3" /> : null}
               {o.label}
@@ -349,13 +377,13 @@ export function ImportPreview({
           {canRemember(row) && choiceFor(row).decision === "create" && choiceFor(row).categoryId ? (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => remember(row)}>Запомнить для похожих…</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => remember(row)}>{t("preview.remember")}</DropdownMenuItem>
             </>
           ) : null}
           {choiceFor(row).decision === "create" && rowKind(row) === "duplicate" ? (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setEditing(row)}>Подтвердить отдельную покупку…</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setEditing(row)}>{t("preview.separatePurchase")}</DropdownMenuItem>
             </>
           ) : null}
         </DropdownMenuContent>
@@ -365,16 +393,25 @@ export function ImportPreview({
   const issues = (row: Row) => {
     const kind = rowKind(row)
     const bankNotice = kind === "pending" ? [PENDING_ROW_MESSAGE] : kind === "rejected" ? [REJECTED_ROW_MESSAGE] : []
-    return [...new Set([...row.normalized.errors, ...row.normalized.warnings, ...bankNotice])].map(localizeDates)
+    return [
+      ...new Set([
+        ...row.normalized.errors,
+        ...row.normalized.warnings,
+        ...(row.proposal.categorySource ? [row.proposal.categorySource] : []),
+        ...bankNotice,
+      ]),
+    ].map((message) => translateImportMessage(message, locale))
   }
-  const warnings = batch.warnings.filter((w) => !w.startsWith("Дата учёта"))
+  const warnings = batch.warnings
+    .filter((w) => importMessageData(w)?.code !== "effectiveDate")
+    .map((w) => translateImportMessage(w, locale))
   const transferCount = new Set(
     rows
       .filter(
         (r) =>
           r.transactionId &&
           (r.decision === "transfer" ||
-            r.normalized.typeHint === "Перевод" ||
+            r.normalized.typeHint === bankData.markers.transfer ||
             r.proposal.candidates.some((c) => c.transactionId === r.transactionId && c.transactionType === "transfer")),
       )
       .map((r) => r.transactionId),
@@ -383,13 +420,13 @@ export function ImportPreview({
     return (
       <>
         <ImportStepper step={4} />
-        <Section title={batch.status === "committed" ? "Готово" : "Импорт отменён"} description="Результат импорта сохранён в истории.">
+        <Section title={batch.status === "committed" ? t("actions.done") : t("result.undone")} description={t("result.description")}>
           <div className="mb-5 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:grid-cols-4">
             {[
-              ["Создано", batch.counters.created],
-              ["Плановых подтверждено", batch.counters.confirmed],
-              ["Переводов", transferCount],
-              ["Строк пропущено", batch.counters.skipped],
+              [t("result.created"), batch.counters.created],
+              [t("result.confirmed"), batch.counters.confirmed],
+              [t("result.transfers"), transferCount],
+              [t("result.skipped"), batch.counters.skipped],
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg bg-muted/50 p-3">
                 <p className="text-2xl font-semibold tabular-nums">{value}</p>
@@ -398,21 +435,21 @@ export function ImportPreview({
             ))}
           </div>
           {batch.counters.linked ? (
-            <p className="mb-4 text-sm text-muted-foreground">Связано с существующими операциями: {batch.counters.linked}</p>
+            <p className="mb-4 text-sm text-muted-foreground">{t("result.linked", { count: batch.counters.linked })}</p>
           ) : null}
           <div className="flex flex-wrap gap-2">
-            <LinkButton href="/transactions">Открыть операции</LinkButton>
+            <LinkButton href="/transactions">{t("result.openTransactions")}</LinkButton>
             <LinkButton variant="outline" href="/transactions/import">
-              Новый импорт
+              {t("result.newImport")}
             </LinkButton>
             {batch.status === "committed" ? (
               <ConfirmDialog
-                title="Отменить импорт?"
-                description="Созданные операции удалятся, плановые вернутся к прежним суммам и датам. Изменённые или связанные с другой партией операции заблокируют отмену целиком."
-                confirmLabel="Отменить импорт"
+                title={t("undo.title")}
+                description={t("undo.description")}
+                confirmLabel={t("undo.confirm")}
                 trigger={
                   <Button disabled={busy} variant="outline">
-                    Отменить импорт
+                    {t("undo.confirm")}
                   </Button>
                 }
                 onConfirm={() => void undo()}
@@ -431,8 +468,13 @@ export function ImportPreview({
     <>
       <ImportStepper step={3} />
       <Section
-        title="Проверка операций"
-        description={`${rows.length} ${plural(rows.length, "строка", "строки", "строк")} · ${batch.periodFrom ? formatDateFull(batch.periodFrom) : "Период не определён"}${batch.periodTo && batch.periodTo !== batch.periodFrom ? ` — ${formatDateFull(batch.periodTo)}` : ""}`}
+        title={t("preview.title")}
+        description={t("preview.period", {
+          count: rows.length,
+          from: batch.periodFrom ? formatDateFull(batch.periodFrom, locale) : t("preview.unknownPeriod"),
+          to: batch.periodTo && batch.periodTo !== batch.periodFrom ? formatDateFull(batch.periodTo, locale) : "",
+          range: batch.periodTo && batch.periodTo !== batch.periodFrom ? "yes" : "no",
+        })}
       >
         <div className="grid min-w-0 grid-cols-1 gap-4">
           {warnings.map((w, i) => (
@@ -442,44 +484,34 @@ export function ImportPreview({
           ))}
           <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl bg-muted/40 p-3">
             <div className="grid gap-2">
-              <p className="text-xs text-muted-foreground">
-                К записи · {operationKeys.size} {plural(operationKeys.size, "операция", "операции", "операций")}
-              </p>
+              <p className="text-xs text-muted-foreground">{t("preview.toRecord", { count: operationKeys.size })}</p>
               <div className="flex flex-wrap gap-x-6 gap-y-2">
                 {totals.size ? (
-                  [...totals].map(([currency, t]) => (
+                  [...totals].map(([currency, total]) => (
                     <div key={currency} className="flex flex-wrap gap-x-4 gap-y-1 text-sm tabular-nums">
                       <span>
-                        Приход <strong className="ml-1 text-emerald-700 dark:text-emerald-400">{display(t.income, currency)}</strong>
+                        {t("fields.income")}
+                        <strong className="ml-1 text-emerald-700 dark:text-emerald-400">{display(total.income, currency)}</strong>
                       </span>
                       <span>
-                        Расход <strong className="ml-1">{display(t.expense, currency)}</strong>
+                        {t("fields.expense")}
+                        <strong className="ml-1">{display(total.expense, currency)}</strong>
                       </span>
                     </div>
                   ))
                 ) : (
-                  <span className="text-sm">Нет выбранных доходов и расходов</span>
+                  <span className="text-sm">{t("preview.noTotals")}</span>
                 )}
               </div>
             </div>
             <Popover>
-              <PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Как считаются итоги и даты" />}>
+              <PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("preview.totalsHelp")} />}>
                 <Info className="size-4" />
               </PopoverTrigger>
               <PopoverContent align="end" className="max-w-[calc(100vw-2rem)] text-xs leading-relaxed">
-                <p>
-                  Итоги включают выбранные новые и подтверждаемые операции. Пропуски, связи с существующими операциями и выбранные переводы
-                  не увеличивают приход и расход.
-                </p>
-                <p>
-                  Дата учёта — дата проводки, если она есть, иначе дата операции. Начальный остаток счёта должен относиться к началу
-                  периода.
-                </p>
-                <p>
-                  {reconciliation.length
-                    ? "Остатки проверяются между последовательными строками файла."
-                    : "Для сверки нужно два последовательных остатка по счёту. В этом файле их недостаточно."}
-                </p>
+                <p>{t("preview.totalsHint")}</p>
+                <p>{t("preview.dateHint")}</p>
+                <p>{reconciliation.length ? t("preview.balancesHint") : t("preview.noBalances")}</p>
               </PopoverContent>
             </Popover>
           </div>
@@ -492,22 +524,26 @@ export function ImportPreview({
                     .slice(0, 10)
                     .map((r, i) => (
                       <p key={i} className="text-destructive">
-                        {accounts.find((a) => a.id === r.accountId)?.name}: ожидается {formatMoney(r.expected, r.currency)}, в файле{" "}
-                        {formatMoney(r.actual, r.currency)}
+                        {t("preview.balanceDifference", {
+                          account: accounts.find((a) => a.id === r.accountId)?.name ?? "",
+                          expected: formatMoney(r.expected, r.currency, { locale }),
+                          actual: formatMoney(r.actual, r.currency, { locale }),
+                        })}
                       </p>
                     ))}
                   <Label className="flex items-start gap-2">
-                    <Checkbox checked={acknowledged} onCheckedChange={(v) => setAcknowledged(v === true)} />Я проверил расхождение остатков
+                    <Checkbox checked={acknowledged} onCheckedChange={(v) => setAcknowledged(v === true)} />
+                    {t("preview.acknowledge")}
                   </Label>
                 </div>
               ) : (
                 <p className="flex items-center gap-1 text-muted-foreground">
-                  <Check className="size-4" /> Остатки сходятся
+                  <Check className="size-4" /> {t("preview.balancesMatch")}
                 </p>
               )}
             </div>
           ) : null}
-          <div className="flex flex-wrap gap-1" role="group" aria-label="Фильтр строк">
+          <div className="flex flex-wrap gap-1" role="group" aria-label={t("preview.filters")}>
             {filters.map((f) => (
               <Button
                 key={f.value}
@@ -530,27 +566,27 @@ export function ImportPreview({
           {selected.size ? (
             <div
               role="toolbar"
-              aria-label="Действия с выбранными строками"
+              aria-label={t("preview.bulkActions")}
               className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/50 p-2"
             >
-              <span className="mr-auto text-xs">Выбрано: {selected.size}</span>
+              <span className="mr-auto text-xs">{t("preview.selected", { count: selected.size })}</span>
               <Button variant="outline" size="sm" onClick={() => setBulkCategory(true)}>
-                Категория…
+                {t("preview.bulkCategory")}
               </Button>
               <Button variant="outline" size="sm" onClick={() => bulk("skip")}>
-                Пропустить
+                {t("actions.skip")}
               </Button>
               <Button variant="outline" size="sm" onClick={() => bulk("create")}>
-                Создать
+                {t("actions.create")}
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
-                Снять выбор
+                {t("preview.clearSelection")}
               </Button>
             </div>
           ) : null}
           <div className="flex items-center gap-2 text-xs text-muted-foreground xl:hidden">
             <Checkbox
-              aria-label="Выбрать показанные строки"
+              aria-label={t("preview.selectVisible")}
               checked={!!visible.length && visible.every((r) => selected.has(r.id))}
               onCheckedChange={(v) =>
                 setSelected((old) => {
@@ -563,12 +599,12 @@ export function ImportPreview({
                 })
               }
             />
-            Выбрать показанные
+            {t("preview.selectShown")}
           </div>
           <div className="min-w-0">
             <div className="hidden grid-cols-[1.5rem_4rem_minmax(0,1fr)_8.5rem_9rem_10rem] items-center gap-2 border-b pb-2 text-xs text-muted-foreground xl:grid">
               <Checkbox
-                aria-label="Выбрать показанные строки"
+                aria-label={t("preview.selectVisible")}
                 checked={!!visible.length && visible.every((r) => selected.has(r.id))}
                 onCheckedChange={(v) =>
                   setSelected((old) => {
@@ -581,11 +617,11 @@ export function ImportPreview({
                   })
                 }
               />
-              <span>Дата</span>
-              <span>Описание</span>
-              <span className="text-right">Сумма</span>
-              <span>Категория</span>
-              <span>Статус · решение</span>
+              <span>{t("preview.date")}</span>
+              <span>{t("preview.description")}</span>
+              <span className="text-right">{t("preview.amount")}</span>
+              <span>{t("preview.category")}</span>
+              <span>{t("preview.decisionStatus")}</span>
             </div>
             <ul className="divide-y">
               {visible.map((row) => (
@@ -599,19 +635,19 @@ export function ImportPreview({
                 >
                   <Checkbox
                     className="mt-1 xl:mt-0"
-                    aria-label={`Выбрать: ${row.normalized.descriptionRaw || row.rowLocator}`}
+                    aria-label={t("row.selectLabel", { description: row.normalized.descriptionRaw || row.rowLocator })}
                     checked={selected.has(row.id)}
                     onCheckedChange={(v) => toggle(row.id, v === true)}
                   />
                   <span
                     className="hidden text-xs text-muted-foreground xl:block"
-                    title={row.normalized.effectiveDate ? formatDateFull(row.normalized.effectiveDate) : undefined}
+                    title={row.normalized.effectiveDate ? formatDateFull(row.normalized.effectiveDate, locale) : undefined}
                   >
-                    {row.normalized.effectiveDate ? formatDayShort(row.normalized.effectiveDate) : "—"}
+                    {row.normalized.effectiveDate ? formatDayShort(row.normalized.effectiveDate, locale) : "—"}
                   </span>
                   <div className="hidden min-w-0 xl:block">
                     <p className="truncate text-sm" title={row.normalized.descriptionRaw}>
-                      {row.normalized.descriptionRaw || "Без описания"}
+                      {row.normalized.descriptionRaw || t("preview.noDescription")}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
                       {row.normalized.mcc ? `MCC ${row.normalized.mcc} · ` : ""}
@@ -630,7 +666,7 @@ export function ImportPreview({
                           render={
                             <button
                               type="button"
-                              aria-label={`Подробности: ${row.normalized.descriptionRaw}`}
+                              aria-label={t("row.detailsLabel", { description: row.normalized.descriptionRaw })}
                               className={cn("shrink-0", rowKind(row) === "error" ? "text-destructive" : "text-muted-foreground")}
                             />
                           }
@@ -647,16 +683,20 @@ export function ImportPreview({
                     type="button"
                     onClick={() => setEditing(row)}
                     className="grid min-w-0 gap-1 text-left xl:hidden"
-                    aria-label={`Изменить: ${row.normalized.descriptionRaw || row.rowLocator}`}
+                    aria-label={t("row.editLabel", { description: row.normalized.descriptionRaw || row.rowLocator })}
                   >
                     <span className="flex min-w-0 items-start justify-between gap-2">
-                      <span className="min-w-0 truncate text-sm font-medium">{row.normalized.descriptionRaw || "Без описания"}</span>
+                      <span className="min-w-0 truncate text-sm font-medium">
+                        {row.normalized.descriptionRaw || t("preview.noDescription")}
+                      </span>
                       <Amount row={row} />
                     </span>
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                      <span>{row.normalized.effectiveDate ? formatDayShort(row.normalized.effectiveDate) : "Ошибка даты"}</span>
+                      <span>
+                        {row.normalized.effectiveDate ? formatDayShort(row.normalized.effectiveDate, locale) : t("preview.invalidDate")}
+                      </span>
                       <span className="max-w-32 truncate rounded bg-muted px-1.5 py-0.5">
-                        {categories.find((c) => c.id === displayedCategory(row))?.name ?? "Без категории"}
+                        {categories.find((c) => c.id === displayedCategory(row))?.name ?? t("preview.noCategory")}
                       </span>
                       <span
                         className={cn(
@@ -673,21 +713,17 @@ export function ImportPreview({
                 </li>
               ))}
             </ul>
-            {!filtered.length ? <p className="py-8 text-center text-sm text-muted-foreground">В этом фильтре строк нет</p> : null}
+            {!filtered.length ? <p className="py-8 text-center text-sm text-muted-foreground">{t("preview.empty")}</p> : null}
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>
-              Показано {visible.length} из {filtered.length}
-            </span>
+            <span>{t("preview.showing", { visible: visible.length, total: filtered.length })}</span>
             {visible.length < filtered.length ? (
               <Button variant="outline" size="sm" onClick={() => setLimit(limit + 100)}>
-                Показать ещё 100
+                {t("preview.more")}
               </Button>
             ) : null}
           </div>
-          {missing ? (
-            <p className="text-sm text-destructive">Без категории: {missing}. Выберите категорию или пропустите эти строки.</p>
-          ) : null}
+          {missing ? <p className="text-sm text-destructive">{t("preview.missingCategory", { count: missing })}</p> : null}
           {error ? (
             <p role="alert" className="break-words text-sm text-destructive">
               {error}
@@ -696,20 +732,20 @@ export function ImportPreview({
           <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
             <CategoryRuleEditor categories={categories} />
             <ConfirmDialog
-              title="Импортировать операции?"
-              description="Выбранные операции будут записаны. Дубли и пропущенные строки не создают операций."
-              confirmLabel="Записать операции"
+              title={t("commit.title")}
+              description={t("commit.description")}
+              confirmLabel={t("commit.confirm")}
               destructive={false}
               trigger={
                 <Button className="w-full sm:w-auto" disabled={busy || missing > 0 || (balanceMismatch && !acknowledged)}>
-                  Импортировать {operationKeys.size} {plural(operationKeys.size, "операцию", "операции", "операций")}
+                  {t("commit.transactions", { count: operationKeys.size })}
                 </Button>
               }
               onConfirm={() => void commit()}
             />
           </div>
           <LinkButton variant="ghost" href="/transactions/import" className="justify-self-start">
-            Вернуться к файлу
+            {t("preview.back")}
           </LinkButton>
         </div>
       </Section>
@@ -721,9 +757,9 @@ export function ImportPreview({
       >
         <SheetContent side="bottom" className="max-h-[90dvh] overflow-y-auto rounded-t-2xl pb-[env(safe-area-inset-bottom)]">
           <SheetHeader>
-            <SheetTitle className="break-words pr-8">{editing?.normalized.descriptionRaw || "Строка выписки"}</SheetTitle>
+            <SheetTitle className="break-words pr-8">{editing?.normalized.descriptionRaw || t("row.title")}</SheetTitle>
             <SheetDescription>
-              {editing?.normalized.effectiveDate ? formatDateFull(editing.normalized.effectiveDate) : "Дата не распознана"}
+              {editing?.normalized.effectiveDate ? formatDateFull(editing.normalized.effectiveDate, locale) : t("row.unknownDate")}
               {editing ? ` · ${accountName(editing)}` : ""}
             </SheetDescription>
           </SheetHeader>
@@ -731,8 +767,8 @@ export function ImportPreview({
             <div className="grid gap-4 px-4 pb-6">
               <Amount row={editing} />
               <div className="grid gap-2">
-                <p className="text-sm font-medium">Решение</p>
-                {decisionOptions(editing).map((o) => (
+                <p className="text-sm font-medium">{t("row.decision")}</p>
+                {decisionOptions(editing, t, locale).map((o) => (
                   <Button
                     key={o.value}
                     variant={
@@ -752,12 +788,12 @@ export function ImportPreview({
                     checked={choiceFor(editing).allowDuplicate ?? false}
                     onCheckedChange={(v) => update(editing, { allowDuplicate: v === true })}
                   />
-                  Это отдельная покупка: создать несмотря на совпадение
+                  {t("row.allowDuplicate")}
                 </Label>
               ) : null}
               {canRemember(editing) && choiceFor(editing).decision === "create" && choiceFor(editing).categoryId ? (
                 <Button variant="outline" onClick={() => remember(editing)}>
-                  Запомнить для похожих…
+                  {t("preview.remember")}
                 </Button>
               ) : null}
               {issues(editing).map((issue, i) => (
@@ -769,9 +805,9 @@ export function ImportPreview({
                 </p>
               ))}
               {editing.normalized.bankCategory ? (
-                <p className="text-xs text-muted-foreground">Категория банка: {editing.normalized.bankCategory}</p>
+                <p className="text-xs text-muted-foreground">{t("row.bankCategory", { category: editing.normalized.bankCategory })}</p>
               ) : null}
-              <Button onClick={() => setEditing(null)}>Готово</Button>
+              <Button onClick={() => setEditing(null)}>{t("actions.done")}</Button>
             </div>
           ) : null}
         </SheetContent>
@@ -784,35 +820,38 @@ export function ImportPreview({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Применить к похожим строкам?</DialogTitle>
+            <DialogTitle>{t("similar.title")}</DialogTitle>
             <DialogDescription>
-              Категория «{categories.find((c) => c.id === similar?.categoryId)?.name}» для {similar ? similarRows(similar.row).length : 0}{" "}
-              строк с описанием «{similar?.row.normalized.descriptionNormalized}». Правило для следующих импортов сохранится при
-              подтверждении партии.
+              {t("similar.description", {
+                category: categories.find((c) => c.id === similar?.categoryId)?.name ?? "",
+                count: similar ? similarRows(similar.row).length : 0,
+                description: similar?.row.normalized.descriptionNormalized ?? "",
+              })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSimilar(null)}>
-              Только эта строка
+              {t("similar.onlyThis")}
             </Button>
-            <Button onClick={applySimilar}>Применить и запомнить</Button>
+            <Button onClick={applySimilar}>{t("similar.apply")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={bulkCategory} onOpenChange={setBulkCategory}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Категория выбранных строк</DialogTitle>
-            <DialogDescription>
-              Применится к новым операциям подходящего типа. Дубли, переводы и плановые сохранят свои решения.
-            </DialogDescription>
+            <DialogTitle>{t("bulk.title")}</DialogTitle>
+            <DialogDescription>{t("bulk.description")}</DialogDescription>
           </DialogHeader>
           <ImportSelect
-            label="Общая категория"
+            label={t("bulk.category")}
             value="none"
             options={[
-              { value: "none", label: "Выберите категорию" },
-              ...categories.map((c) => ({ value: c.id, label: `${c.kind === "income" ? "Доход" : "Расход"} · ${c.name}` })),
+              { value: "none", label: t("bulk.chooseCategory") },
+              ...categories.map((c) => ({
+                value: c.id,
+                label: `${c.kind === "income" ? t("category.income") : t("fields.expense")} · ${c.name}`,
+              })),
             ]}
             onChange={(id) => {
               const category = categories.find((c) => c.id === id)
@@ -825,7 +864,7 @@ export function ImportPreview({
                       (r) =>
                         selected.has(r.id) &&
                         choiceFor(r).decision === "create" &&
-                        r.normalized.typeHint !== "Перевод" &&
+                        r.normalized.typeHint !== bankData.markers.transfer &&
                         category.kind === ((r.normalized.amountMinorSigned ?? 0) < 0 ? "expense" : "income"),
                     )
                     .map((r) => [r.id, { ...choiceFor(r), categoryId: id, remember: false }]),
