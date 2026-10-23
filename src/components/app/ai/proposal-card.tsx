@@ -9,22 +9,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { LinkButton } from "@/components/app/link-button"
 import { useAction } from "@/hooks/use-action"
 import { can, type HouseholdRole } from "@/domain/permissions"
-import { proposalChanges, proposalCurrency, proposalIsCreation } from "@/domain/ai/description"
+import { proposalChanges, proposalCurrency, proposalIsCreation, PROPOSAL_MONEY_FIELDS as MONEY_FIELDS } from "@/domain/ai/description"
 import type { ProposalItem } from "@/domain/ai/types"
 import { formatMoney } from "@/lib/money"
 import type { aiProposals } from "@/db/schema"
 
 export type ProposalView = Pick<typeof aiProposals.$inferSelect, "id" | "title" | "status" | "items" | "messageId"> & { expired: boolean }
-const MONEY_FIELDS = new Set([
-  "amount",
-  "targetAmount",
-  "openingBalance",
-  "creditLimit",
-  "allocatedAmount",
-  "toAmount",
-  "minAmount",
-  "maxAmount",
-])
 export function ProposalCard({
   proposal,
   role,

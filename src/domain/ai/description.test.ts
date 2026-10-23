@@ -32,3 +32,14 @@ it("shows creations without before values and hides unchanged financial/date con
     }),
   ).toEqual([{ field: "categoryId", before: "old", after: "new" }])
 })
+
+it("shows equal numeric amounts when their currency changed", () => {
+  const item = {
+    operation: "update" as const,
+    currency: "RUB",
+    beforeCurrency: "USD",
+    before: { amount: 10000 },
+    after: { amount: 10000 },
+  }
+  expect(proposalChanges(item)).toEqual([{ field: "amount", before: 10000, after: 10000 }])
+})
