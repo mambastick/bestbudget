@@ -25,7 +25,7 @@ export function AnimatedMoney({
   const resolved = tone === "auto" ? (value > 0 ? "income" : value < 0 ? "expense" : "neutral") : tone
   const exponent = currencyExponent(currency)
   const scale = 10 ** exponent
-  const parts = new Intl.NumberFormat(locale, { style: "currency", currency }).formatToParts(1234.5)
+  const parts = new Intl.NumberFormat(locale, { style: "currency", currency, currencyDisplay: "narrowSymbol" }).formatToParts(1234.5)
   const firstNumber = parts.findIndex((part) => part.type === "integer")
   const lastNumber = parts.findLastIndex((part) => part.type === "integer" || part.type === "fraction")
   const prefix = parts.slice(0, firstNumber).map((part) => part.value).join("")

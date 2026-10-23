@@ -54,7 +54,6 @@ const exportedEn = {
 const isEnglishExport = (headers: string[]) =>
   [exportedEn.type, exportedEn.title, exportedEn.toAccount].every((name) => headers.some((h) => normalizeHeader(h) === normalizeHeader(name)))
 
-
 export function profileMapping(id: string, headers: string[]): ColumnMapping {
   const exportAliases = isEnglishExport(headers) ? exportedEn : exported
   const aliases: Partial<Record<keyof ColumnMapping["columns"], string>> =

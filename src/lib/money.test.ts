@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatMoney, formatMoneyCompact, formatMoneyShort, minorToInput, parseMoney } from "./money"
+import { formatMoney, formatMoneyCompact, formatMoneyShort, formatMoneyShortWithCurrency, minorToInput, parseMoney } from "./money"
 import { currencySymbol } from "./currencies"
 import { addMonths, todayIn } from "./dates"
 
@@ -102,5 +102,21 @@ describe("narrow currency symbols", () => {
     expect(plain(formatMoneyCompact(450_000_000, "RUB", "ru"))).toBe("4,5 млн")
     expect(formatMoneyShort(1_250_000, "USD", "en")).toBe("12.5K")
     expect(formatMoneyShort(1_250_000, "USD", "ru")).toBe("12,5к")
+  })
+})
+
+describe("formatMoneyShortWithCurrency", () => {
+  it.each([
+    ["RUB", -650_000, "−6,5 тыс. ₽", "−₽6.5K"],
+    ["USD", 120_000, "1,2 тыс. $", "$1.2K"],
+    ["RUB", 71_678_964, "717 тыс. ₽", "₽717K"],
+    ["EUR", -120_000_000, "−1,2 млн €", "−€1.2M"],
+    ["JPY", 1200, "1,2 тыс. ¥", "¥1.2K"],
+    ["BHD", 1_200_000, "1,2 тыс. BHD", "BHD 1.2K"],
+    ["RUB", 0, "0 ₽", "₽0"],
+    ["USD", -1234, "−12 $", "−$12"],
+  ] as const)("formats %s %s with localized symbols, signs and currency exponents", (currency, minor, ru, en) => {
+    expect(formatMoneyShortWithCurrency(minor, currency, "ru").replace(/\s/g, " ")).toBe(ru)
+    expect(formatMoneyShortWithCurrency(minor, currency, "en").replace(/\s/g, " ")).toBe(en)
   })
 })

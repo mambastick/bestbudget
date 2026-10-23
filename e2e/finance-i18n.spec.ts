@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { mkdir, writeFile } from "node:fs/promises"
-import { expect, test, type Page } from "@playwright/test"
-import { E2E_ENV } from "../playwright.config"
+import { expect, test, type Page } from "./fixtures"
+import { BROWSER_TIMEZONE, E2E_ENV } from "../playwright.config"
 
 const demo = { name: "Finance Demo", email: "finance-i18n@e2e.test", password: "finance-demo-password-1" }
 const screenshotDir = "docs/screenshots/i18n/finance"
@@ -44,6 +44,7 @@ test("finance: ru/en seeded views, responsive themes, English transactions, recu
   page.on("pageerror", (error) => errors.push(error.message))
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()) })
   await page.goto("/login")
+  expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(BROWSER_TIMEZONE)
   await page.getByLabel("E-mail").fill(demo.email)
   await page.getByLabel("Пароль", { exact: true }).fill(demo.password)
   await page.getByRole("button", { name: "Войти", exact: true }).click()
@@ -74,10 +75,25 @@ test("finance: ru/en seeded views, responsive themes, English transactions, recu
             await expect.poll(() => period.evaluate((element) => element.parentElement!.scrollWidth - element.parentElement!.clientWidth)).toBeLessThanOrEqual(0)
             if (width === 375) await expect(page.getByRole("columnheader")).toHaveCount(0)
           }
+          if (width === 1280 && (route === "/dashboard" || route === "/analytics")) {
+            const chart = page.locator('[data-slot="chart"]').first()
+            await chart.hover({ position: { x: 150, y: 80 } })
+            const tooltip = chart.locator(".recharts-tooltip-wrapper")
+            await expect(tooltip).toBeVisible()
+            await expect(tooltip).toContainText("₽")
+            await expect(tooltip).not.toContainText("RUB")
+            await page.mouse.move(0, 0)
+          }
           audit.push({ locale, theme, width, route })
           const slug = route.replaceAll(/[/?=]/g, "-")
           await page.screenshot({ path: testInfo.outputPath(`${locale}-${theme}-${width}${slug}.png`), fullPage: true, animations: "disabled" })
           if (route === "/calendar") {
+            // Every displayed short amount includes its currency, including forecast balances.
+            await expect(page.locator('button[title]').filter({ hasText: locale === "ru" ? /тыс\./ : /K/ }).first()).toContainText("₽")
+            if (locale === "en") {
+              await expect(page.getByRole("main").last().locator(".tabular").filter({ hasText: /RUB/ })).toHaveCount(0)
+              await expect(page.locator('span[title="Forecast closing balance"]').first()).toContainText(/₽/)
+            }
             await expect(page.getByText(locale === "ru" ? "пн" : "Mon", { exact: true }).first()).toBeVisible()
             await page.getByRole("radio", { name: locale === "ru" ? "Список" : "List", exact: true }).click()
             await fits(page)
@@ -87,7 +103,7 @@ test("finance: ru/en seeded views, responsive themes, English transactions, recu
           }
           if (locale === "en" && width === 1280 && theme === "light" && route === "/dashboard") {
             const balance = page.getByTestId("actual-balance").locator("span[aria-label]").first()
-            await expect(balance).toHaveAttribute("aria-label", /RUB/)
+            await expect(balance).toHaveAttribute("aria-label", /₽/)
             await expect(balance).toHaveText((await balance.getAttribute("aria-label"))!)
             await page.screenshot({ path: `${screenshotDir}/dashboard-en-desktop-light.png`, fullPage: true, animations: "disabled" })
           }
@@ -134,7 +150,7 @@ test("finance: ru/en seeded views, responsive themes, English transactions, recu
   await dialog.getByLabel("Actual amount", { exact: true }).fill("15.67")
   await dialog.getByRole("button", { name: "Confirm", exact: true }).click()
   await expect(dialog).toBeHidden()
-  await expect(row).toContainText("RUB 15.67")
+  await expect(row).toContainText("₽15.67")
   await expect(row).not.toContainText("planned")
 
   await page.getByRole("button", { name: "Transaction", exact: true }).first().click()

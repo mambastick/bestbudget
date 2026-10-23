@@ -14,8 +14,7 @@ import { Segmented } from "@/components/app/segmented"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { formatDateFull, formatDay, formatWeekday, weekday, type IsoDate } from "@/lib/dates"
-import { currencySymbol } from "@/lib/currencies"
-import { formatMoney, formatMoneyShort } from "@/lib/money"
+import { formatMoney, formatMoneyShortWithCurrency } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
 export interface CalendarDay {
@@ -234,7 +233,7 @@ function DayCell({
             className={cn("tabular hidden truncate pt-1 text-[10px] sm:block", negative ? "font-semibold text-destructive" : "text-muted-foreground/80")}
             title={t("forecastEndOfDay")}
           >
-            {formatMoneyShort(day.balance, currency, locale)}
+            {formatMoneyShortWithCurrency(day.balance, currency, locale)}
           </span>
         ) : null}
       </div>
@@ -251,7 +250,7 @@ function DayCell({
           ))}
         </div>
       ) : null}
-      {negative ? <span className="mt-auto truncate text-[10px] font-semibold text-destructive tabular sm:hidden">{formatMoneyShort(day.balance, currency, locale)}</span> : null}
+      {negative ? <span className="mt-auto truncate text-[10px] font-semibold text-destructive tabular sm:hidden">{formatMoneyShortWithCurrency(day.balance, currency, locale)}</span> : null}
 
       {/* Larger screens: event chips, like meetings in a calendar. */}
       <div className="hidden min-w-0 flex-col gap-0.5 sm:flex">
@@ -282,7 +281,7 @@ function EventChip({ entry: e, overdue, onOpen }: { entry: CalendarEntry; overdu
     <button
       type="button"
       onClick={onOpen}
-      title={`${e.title}: ${sign}${formatMoneyShort(e.amount, e.currency, locale)} ${currencySymbol(e.currency, locale)}${planned ? t("plannedSuffix") : ""}`}
+      title={`${e.title}: ${sign}${formatMoneyShortWithCurrency(e.amount, e.currency, locale)}${planned ? t("plannedSuffix") : ""}`}
       className={cn(
         "flex min-w-0 flex-col rounded-[5px] border-l-[3px] px-1.5 py-0.5 text-left text-[11px] leading-tight transition-[filter] hover:brightness-95 dark:hover:brightness-125",
         planned && "border border-l-[3px] border-dashed",
@@ -297,7 +296,7 @@ function EventChip({ entry: e, overdue, onOpen }: { entry: CalendarEntry; overdu
       <span className={cn("truncate font-medium", planned && "text-foreground/80")}>{e.title}</span>
       <span className={cn("tabular truncate", e.type === "income" ? "text-income" : "text-foreground/70")}>
         {sign}
-        {formatMoneyShort(e.amount, e.currency, locale)} {currencySymbol(e.currency, locale)}
+        {formatMoneyShortWithCurrency(e.amount, e.currency, locale)}
       </span>
     </button>
   )
