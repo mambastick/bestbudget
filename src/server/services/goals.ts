@@ -3,7 +3,7 @@ import { assetTranslator } from "@/i18n/assets"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { z } from "zod"
 import { getDb, type DbOrTx } from "@/db"
-import { financialAccounts, goalContributions, goals, recurringRules } from "@/db/schema"
+import { financialAccounts, goalContributions, goals, recurringRules, type Goal } from "@/db/schema"
 import { allocateGoals, automaticGoalSchedule, emergencyTarget, goalMetrics, safeMoney, sumMoney } from "@/domain/goals"
 import { CURRENCY_CODES } from "@/lib/currencies"
 import { addDays, addMonths, diffDays, formatDateFull, maxDate, startOfMonth, todayIn } from "@/lib/dates"
@@ -64,14 +64,14 @@ async function checkAccount(db: DbOrTx, ctx: HouseholdCtx, input: z.output<typeo
   if (account.kind !== "savings" || account.archivedAt) throw new AppError("goal.activeSavingsAccount")
 }
 
-export async function createGoal(ctx: HouseholdCtx, raw: GoalInput) {
+export async function createGoal(ctx: HouseholdCtx, raw: GoalInput, plannedId?: string) {
   assertCan(ctx, "finance.write")
   const input = goalInput.parse(raw)
   return getDb().transaction(async (tx) => {
     await checkAccount(tx, ctx, input)
     const [row] = await tx
       .insert(goals)
-      .values({ ...input, householdId: ctx.householdId })
+      .values({ ...input, ...(plannedId ? { id: z.uuid().parse(plannedId) } : {}), householdId: ctx.householdId })
       .returning()
     await audit(
       {
@@ -211,7 +211,7 @@ export async function transferToGoal(
 }
 
 /** One ledger read and batched FX loading; no per-goal network requests. */
-async function goalData(ctx: HouseholdCtx) {
+async function goalData(ctx: HouseholdCtx, additional: Goal[] = []) {
   assertCan(ctx, "finance.read")
   const db = getDb()
   const [rows, contributions, rules, finance] = await Promise.all([
@@ -224,6 +224,7 @@ async function goalData(ctx: HouseholdCtx) {
     db.select().from(recurringRules).where(eq(recurringRules.householdId, ctx.householdId)),
     loadFinance(ctx),
   ])
+  rows.push(...additional)
   const today = todayIn(ctx.timezone)
   const rates = await loadRates([
     ...[...new Set([...rows.map((g) => g.currency), ...finance.accounts.map((a) => a.currency)])].map((currency) => ({
@@ -360,8 +361,8 @@ async function goalData(ctx: HouseholdCtx) {
   }
 }
 
-async function summaries(ctx: HouseholdCtx) {
-  const d = await goalData(ctx)
+async function summaries(ctx: HouseholdCtx, additional: Goal[] = []) {
+  const d = await goalData(ctx, additional)
   const current = d.snapshot(d.today)
   const from = addMonths(d.today, -3)
   const past = d.snapshot(addDays(from, -1))
@@ -423,8 +424,8 @@ export async function listGoals(ctx: HouseholdCtx) {
 }
 export type GoalSummary = Awaited<ReturnType<typeof listGoals>>["goals"][number]
 
-export async function getGoalDetail(ctx: HouseholdCtx, id: string) {
-  const { d, result } = await summaries(ctx)
+export async function getGoalDetail(ctx: HouseholdCtx, id: string, additional: Goal[] = []) {
+  const { d, result } = await summaries(ctx, additional)
   const goal = result.find((g) => g.id === id)
   if (!goal) throw notFound("goal.notFound")
   const from = addMonths(d.today, -3)
@@ -487,10 +488,12 @@ export async function getGoalDetail(ctx: HouseholdCtx, id: string) {
   }
 }
 
-export async function previewGoalAutomation(ctx: HouseholdCtx, id: string, raw: { accountId: string; day: number; version: number }) {
+export const goalAutomationInput = z.object({ accountId: z.uuid(), day: z.number().int().min(1).max(31), version: z.number().int().positive() })
+
+export async function previewGoalAutomation(ctx: HouseholdCtx, id: string, raw: { accountId: string; day: number; version: number }, additional: Goal[] = []) {
   assertCan(ctx, "finance.write")
-  const input = z.object({ accountId: z.uuid(), day: z.number().int().min(1).max(31), version: z.number().int().positive() }).parse(raw)
-  const detail = await getGoalDetail(ctx, id)
+  const input = goalAutomationInput.parse(raw)
+  const detail = await getGoalDetail(ctx, id, additional)
   const g = detail.goal
   if (!g.accountId || g.status === "archived" || g.target === null || g.progress === null)
     throw new AppError("goal.progressRequired")
@@ -581,5 +584,34 @@ export async function stopGoalAutomation(ctx: HouseholdCtx, id: string) {
       .update(goals)
       .set({ version: sql`${goals.version} + 1` })
       .where(and(eq(goals.householdId, ctx.householdId), eq(goals.id, id)))
+  })
+}
+
+export const newAutomatedGoalInput = z.object({
+  plannedId: z.uuid(),
+  goal: goalInput,
+  automation: goalAutomationInput.omit({ version: true }),
+})
+
+/** Include the prospective goal in normal allocation math without inserting a temporary financial row. */
+export async function previewNewGoalAutomation(ctx: HouseholdCtx, raw: z.input<typeof newAutomatedGoalInput>) {
+  const input = newAutomatedGoalInput.parse(raw)
+  const id = input.plannedId
+  const prospective: Goal = { ...input.goal, id, householdId: ctx.householdId, status: "active", version: 1, createdAt: new Date(), updatedAt: new Date() }
+  const preview = await previewGoalAutomation(ctx, id, { ...input.automation, version: 1 }, [prospective])
+  return { amount: preview.amount, toAmount: preview.toAmount, startDate: preview.startDate, endDate: preview.g.targetDate, accountId: input.automation.accountId, toAccountId: input.goal.accountId, day: input.automation.day, currency: preview.currency }
+}
+
+export async function createAutomatedGoal(ctx: HouseholdCtx, raw: z.input<typeof newAutomatedGoalInput>, expected: Awaited<ReturnType<typeof previewNewGoalAutomation>>) {
+  const input = newAutomatedGoalInput.parse(raw)
+  return getDb().transaction(async (tx) => {
+    const { withDb } = await import("@/db")
+    return withDb(tx, async () => {
+      const goal = await createGoal(ctx, input.goal, input.plannedId)
+      const current = await previewGoalAutomation(ctx, goal.id, { ...input.automation, version: goal.version })
+      if (current.amount !== expected.amount || current.toAmount !== expected.toAmount || current.startDate !== expected.startDate) throw conflict()
+      await automateGoal(ctx, goal.id, { ...input.automation, version: goal.version })
+      return goal
+    })
   })
 }

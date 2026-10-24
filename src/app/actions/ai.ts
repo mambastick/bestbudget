@@ -6,7 +6,7 @@ import { runAction } from "@/server/errors"
 import { configForInput, saveAiSettings, verifyConnection, type SettingsInput } from "@/server/ai/config"
 import { listModels } from "@/server/ai/providers"
 import { saveHouseholdAi } from "@/server/ai/access"
-import { createConversation, deleteConversation } from "@/server/ai/conversations"
+import { createConversation, deleteConversation, renameConversation } from "@/server/ai/conversations"
 import { applyProposal, dismissProposal } from "@/server/ai/proposals"
 
 const refresh = () => revalidatePath("/", "layout")
@@ -59,6 +59,22 @@ export async function applyAiProposalAction(id: string, itemIds: string[]) {
 export async function dismissAiProposalAction(id: string) {
   return runAction(async () => {
     await dismissProposal(await actionHousehold(), id)
+    refresh()
+  })
+}
+
+export async function startBudgetInterviewAction() {
+  return runAction(async () => {
+    const { startBudgetInterview } = await import("@/server/ai/interview")
+    const result = await startBudgetInterview(await actionHousehold())
+    refresh()
+    return result
+  })
+}
+
+export async function renameAiConversationAction(input: Parameters<typeof renameConversation>[1]) {
+  return runAction(async () => {
+    await renameConversation(await actionHousehold(), input)
     refresh()
   })
 }

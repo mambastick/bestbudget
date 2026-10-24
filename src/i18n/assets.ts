@@ -6,7 +6,10 @@ import enGoals from "../../messages/en/goals.json"
 import ruImport from "../../messages/ru/import.json"
 import enImport from "../../messages/en/import.json"
 
-const messages = { ru: { loans: ruLoans, goals: ruGoals, import: ruImport }, en: { loans: enLoans, goals: enGoals, import: enImport } }
+import ruAi from "../../messages/ru/ai.json"
+import enAi from "../../messages/en/ai.json"
+
+const messages = { ru: { loans: ruLoans, goals: ruGoals, import: ruImport, ai: ruAi }, en: { loans: enLoans, goals: enGoals, import: enImport, ai: enAi } }
 
 /** Services and jobs receive locale from their caller instead of reading HTTP request state. */
 export function assetTranslator<N extends keyof typeof messages.en>(namespace: N, locale = "ru") {

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { test, expect, type Page } from "./fixtures"
-import postgres from "postgres"
+import { createE2eDb } from "./db"
 import { E2E_ENV } from "../playwright.config"
 
 let importOwner: { email: string; password: string }
@@ -79,7 +79,7 @@ const csv = (lines: string[]) => [header, ...lines, ""].join("\r\n")
 
 /** Only the isolated, freshly started Playwright database; never use DATABASE_URL from the shell. */
 async function seedPreviewCandidates() {
-  const db = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+  const db = createE2eDb()
   try {
     const [owner] =
       await db`select u.id, hm.household_id from users u join household_members hm on hm.user_id = u.id where u.email = ${importOwner.email} and hm.role = 'owner'`
@@ -143,7 +143,7 @@ test("30-row statement: compact preview, filters, bulk actions, similar rule, mo
   await pending.hover()
   await expect(page.locator('[data-slot="tooltip-content"]').filter({ visible: true })).toContainText("Операция ещё не проведена банком — импортируйте позже")
   await page.mouse.move(0, 0)
-  const db = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+  const db = createE2eDb()
   try {
     const [hold] = await db`select decision from import_rows where batch_id = ${new URL(page.url()).searchParams.get("batch")} and normalized->>'descriptionRaw' = 'Ожидает проводки'`
     expect(hold!.decision).toBe("skip")
@@ -212,7 +212,7 @@ test("30-row statement: compact preview, filters, bulk actions, similar rule, mo
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.screenshot({ path: "work/import-preview-desktop.png", fullPage: true })
   await commit(page, 26)
-  const ledger = postgres(E2E_ENV.DATABASE_URL, { max: 1 })
+  const ledger = createE2eDb()
   try {
     const [hold] = await ledger`select count(*)::int as n from transactions where title = 'Ожидает проводки'`
     expect(hold!.n).toBe(0)

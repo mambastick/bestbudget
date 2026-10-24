@@ -3,6 +3,7 @@ import { tool, type ToolSet } from "ai"
 import { z } from "zod"
 import type { HouseholdCtx } from "@/server/context"
 import { AppError } from "@/server/errors"
+import { getConversation } from "../conversations"
 import { requireAi } from "../access"
 
 export interface ToolContext {
@@ -35,10 +36,11 @@ export function registerTool<T>(
 }
 export async function buildTools(context: ToolContext) {
   const { view } = await requireAi(context.ctx)
+  const conversation = await getConversation(context.ctx, context.conversationId)
   const tools: ToolSet = {}
   let calls = 0
   for (const definition of toolRegistry.values()) {
-    if (definition.conversationKinds && !definition.conversationKinds.includes(context.kind ?? "chat")) continue
+    if (definition.conversationKinds && !definition.conversationKinds.includes(conversation.kind)) continue
     if (definition.detailed && view.dataLevel !== "detailed") continue
     tools[definition.name] = tool({
       description: definition.description,
@@ -49,7 +51,7 @@ export async function buildTools(context: ToolContext) {
         if (definition.detailed && access.view.dataLevel !== "detailed") throw new AppError("ai.detailedRequired")
         if (++calls > 32) throw new AppError("ai.toolLimit")
         try {
-          const result = await definition.execute(input, { ...context, ctx: access.ctx })
+          const result = await definition.execute(input, { ...context, ctx: access.ctx, kind: conversation.kind })
           if (Buffer.byteLength(JSON.stringify(result)) > 24_000)
             return { error: "result_too_large", instruction: "Narrow the period or use pagination." }
           return result

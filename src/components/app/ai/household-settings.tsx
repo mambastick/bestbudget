@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { useTranslations } from "next-intl"
+import { InterviewStart } from "./interview-start"
 import { saveHouseholdAiAction } from "@/app/actions/ai"
 import { Section } from "@/components/app/settings/section"
 import { Segmented } from "@/components/app/segmented"
@@ -30,7 +31,8 @@ export function AiHouseholdSettings({
       {!view.available ? (
         <p className="text-sm text-muted-foreground">{t("unavailable")}</p>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid grid-cols-1 gap-4">
+          {view.enabled && owner ? <InterviewStart card /> : null}
           <div className="space-y-1 break-words text-sm">
             <p>{t("provider", { provider: view.provider!.provider, model: view.provider!.model })}</p>
             <p className="text-muted-foreground">{t("destination", { url: view.provider!.baseUrl })}</p>
