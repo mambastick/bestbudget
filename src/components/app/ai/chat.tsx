@@ -365,7 +365,7 @@ export function AiChat({
             className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t px-4 py-3 text-sm text-destructive"
             data-testid="ai-error"
           >
-            <p className="min-w-0 flex-1">{t("error")}</p>
+            <p className="min-w-0 flex-1">{error?.message || t("error")}</p>
             <Button
               variant="outline"
               onClick={() => {
