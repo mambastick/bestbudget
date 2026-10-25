@@ -37,7 +37,7 @@
     "provider": "Provider",
     "baseUrl": "Base URL",
     "key": "API key / GigaChat authorization key",
-    "keyStored": "Key saved. Leave blank to keep it.",
+    "keyStored": "Key saved ••••{suffix}",
     "clearKey": "Remove saved key",
     "model": "Model",
     "loadModels": "Load models",
@@ -58,7 +58,16 @@
     "usage": "Monthly usage (UTC)",
     "tokens": "Input / output / reserved",
     "noUsage": "No requests this month.",
-    "quotaHint": "Up to {tokens} tokens are reserved only while a turn runs. Completion uses provider usage or an estimate of sent context and received output. On the next request, abandoned reservations are released 10 minutes after the turn lease expires."
+    "quotaHint": "Up to {tokens} tokens are reserved only while a turn runs. Completion uses provider usage or an estimate of sent context and received output. On the next request, abandoned reservations are released 10 minutes after the turn lease expires.",
+    "keyMissing": "No key configured",
+    "keyRemovalHint": "The key will be deleted when saved. Uncheck this option to enter a new key.",
+    "customProvider": "Other OpenAI-compatible",
+    "chooseModel": "Choose from list ({count})",
+    "searchModels": "Search models",
+    "noModels": "No models found",
+    "lastError": "Last check failure: {time}",
+    "details": "Details",
+    "noHttpStatus": "No HTTP status available"
   },
   "consent": {
     "title": "AI for your household",

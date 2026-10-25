@@ -1,6 +1,7 @@
 import type { ReviewOutput } from "@/domain/ai/review"
 import type { UIMessage } from "ai"
 import type { ProposalItem, ProviderSnapshot } from "@/domain/ai/types"
+import type { AiErrorCode } from "@/domain/ai/diagnostics"
 import { relations, sql } from "drizzle-orm"
 import type { IncomingRow, PreviewInput, RowProposal } from "@/domain/import/types"
 import {
@@ -807,6 +808,10 @@ export const aiSettings = pgTable("ai_settings", {
   provider: text("provider").notNull().default("openai"),
   baseUrl: text("base_url").notNull().default(""),
   apiKeyEncrypted: text("api_key_encrypted"),
+  apiKeyLast4: text("api_key_last4"),
+  lastErrorCode: text("last_error_code").$type<AiErrorCode>(),
+  lastErrorStatus: integer("last_error_status"),
+  lastErrorAt: timestamp("last_error_at", { withTimezone: true }),
   model: text("model").notNull().default(""),
   temperature: numeric("temperature"),
   monthlyTokenLimit: bigint("monthly_token_limit", { mode: "number" }).notNull().default(0),

@@ -1,5 +1,6 @@
 import "server-only"
 import { createHash, randomUUID } from "node:crypto"
+import { APICallError } from "ai"
 import { z } from "zod"
 import type { AiConfig } from "./config"
 
@@ -29,7 +30,7 @@ export async function gigaToken(
       },
       body: new URLSearchParams({ scope: config.gigachatScope }),
     })
-    if (!response.ok) throw new Error("GigaChatOAuthError")
+    if (!response.ok) throw new APICallError({ message: "GigaChatOAuthError", url: config.gigachatAuthUrl, requestBodyValues: {}, statusCode: response.status, responseBody: (await response.text()).slice(0, 16_384) })
     const result = z.object({ access_token: z.string().min(1), expires_at: z.number().positive() }).parse(await response.json())
     const expires = result.expires_at < 10_000_000_000 ? result.expires_at * 1000 : result.expires_at
     if (expires <= Date.now()) throw new Error("GigaChatExpiredToken")

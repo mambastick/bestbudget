@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { actionHousehold, actionSystemAdmin } from "@/server/session"
 import { runAction } from "@/server/errors"
-import { configForInput, saveAiSettings, verifyConnection, type SettingsInput } from "@/server/ai/config"
+import { recordConnectionCheck, configForInput, saveAiSettings, verifyConnection, type SettingsInput } from "@/server/ai/config"
 import { listModels } from "@/server/ai/providers"
 import { saveHouseholdAi } from "@/server/ai/access"
 import { createConversation, deleteConversation, renameConversation } from "@/server/ai/conversations"
@@ -13,21 +13,32 @@ const refresh = () => revalidatePath("/", "layout")
 export async function saveAiSettingsAction(input: SettingsInput) {
   return runAction(async () => {
     const admin = await actionSystemAdmin()
-    await saveAiSettings(admin.id, input)
-    refresh()
+    try {
+      await saveAiSettings(admin.id, input)
+    } finally {
+      refresh()
+    }
   })
 }
 export async function testAiConnectionAction(input: SettingsInput) {
   return runAction(async () => {
     await actionSystemAdmin()
-    await verifyConnection(await configForInput(input))
-    refresh()
+    try {
+      await verifyConnection(await configForInput(input))
+    } finally {
+      refresh()
+    }
   })
 }
 export async function listAiModelsAction(input: SettingsInput) {
   return runAction(async () => {
     await actionSystemAdmin()
-    return listModels(await configForInput({ ...input, enabled: false }))
+    const config = await configForInput({ ...input, enabled: false })
+    try {
+      return await recordConnectionCheck(config, () => listModels(config))
+    } finally {
+      refresh()
+    }
   })
 }
 export async function saveHouseholdAiAction(input: Parameters<typeof saveHouseholdAi>[1]) {

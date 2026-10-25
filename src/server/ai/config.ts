@@ -7,6 +7,7 @@ import { aiSettings } from "@/db/schema"
 import { PROVIDERS, type AiProvider, type ProviderSnapshot } from "@/domain/ai/types"
 import { encryptSecret, decryptSecret } from "@/lib/crypto"
 import { audit } from "@/server/audit"
+import { aiProviderError } from "./errors"
 import { AppError, conflict } from "@/server/errors"
 
 const httpUrl = z
@@ -27,7 +28,7 @@ export const settingsInput = z
     version: z.number().int().nonnegative().optional(),
     provider: z.enum([...PROVIDERS, "mock"]),
     baseUrl: httpUrl.default(""),
-    apiKey: z.string().max(4000).optional(),
+    apiKey: z.string().trim().max(4000).optional(),
     clearKey: z.boolean().default(false),
     model: z.string().trim().max(200).default(""),
     temperature: z.number().min(0).max(2).nullable().default(null),
@@ -126,9 +127,13 @@ export async function configForInput(raw: SettingsInput) {
       id: 1,
       version: row?.version ?? 0,
       updatedAt: new Date(),
+      apiKeyLast4: row?.apiKeyLast4 ?? null,
+      lastErrorCode: row?.lastErrorCode ?? null,
+      lastErrorStatus: row?.lastErrorStatus ?? null,
+      lastErrorAt: row?.lastErrorAt ?? null,
       verifiedFingerprint: null,
       temperature: input.temperature === null ? null : String(input.temperature),
-      apiKeyEncrypted: input.clearKey ? null : input.apiKey ? encryptSecret(input.apiKey) : (row?.apiKeyEncrypted ?? null),
+      apiKeyEncrypted: input.apiKey ? encryptSecret(input.apiKey) : input.clearKey ? null : (row?.apiKeyEncrypted ?? null),
     },
     {},
   )!
@@ -138,7 +143,7 @@ export async function saveAiSettings(actorId: string, raw: SettingsInput) {
   const config = await configForInput(raw)
   if (raw.version !== undefined && raw.version !== config.version) throw conflict()
   const { probeConnection } = await import("./providers")
-  if (config.enabled) await probeConnection(config)
+  if (config.enabled) await recordConnectionCheck(config, () => probeConnection(config))
   const values = {
     enabled: config.enabled,
     provider: config.provider,
@@ -146,6 +151,7 @@ export async function saveAiSettings(actorId: string, raw: SettingsInput) {
     baseUrl: config.baseUrl,
     selfHosted: config.selfHosted,
     apiKeyEncrypted: config.apiKey ? encryptSecret(config.apiKey) : null,
+    apiKeyLast4: config.apiKey ? config.apiKey.slice(-4) : null,
     temperature: config.temperature === null ? null : String(config.temperature),
     monthlyTokenLimit: config.monthlyTokenLimit,
     gigachatScope: config.gigachatScope,
@@ -174,16 +180,45 @@ export async function saveAiSettings(actorId: string, raw: SettingsInput) {
 }
 export async function verifyConnection(config: AiConfig) {
   const { probeConnection } = await import("./providers")
-  await probeConnection(config)
+  await recordConnectionCheck(config, () => probeConnection(config))
   if (config.source !== "env") return
   await getDb()
     .insert(aiSettings)
     .values({ id: 1, verifiedFingerprint: connectionFingerprint(config) })
     .onConflictDoUpdate({ target: aiSettings.id, set: { verifiedFingerprint: connectionFingerprint(config) } })
 }
+/** Store only diagnostic identity and time, never provider text or credentials. */
+export async function recordConnectionCheck<T>(config: AiConfig, check: () => Promise<T>): Promise<T> {
+  try {
+    const result = await check()
+    await getDb().update(aiSettings).set({ lastErrorCode: null, lastErrorStatus: null, lastErrorAt: null }).where(eq(aiSettings.id, 1))
+    return result
+  } catch (error) {
+    const failure = aiProviderError(error, [config.apiKey])
+    if (failure.diagnostic || failure.messageKey === "ai.noTools") {
+      const values = {
+        lastErrorCode: failure.diagnostic?.code ?? "ai.noTools" as const,
+        lastErrorStatus: failure.diagnostic?.status ?? null,
+        lastErrorAt: new Date(),
+      }
+      await getDb().insert(aiSettings).values({ id: 1, ...values }).onConflictDoUpdate({ target: aiSettings.id, set: values })
+    }
+    throw failure
+  }
+}
 export async function publicAiConfig() {
   const config = await getAiConfig()
   if (!config) return null
+  const [row] = await getDb().select().from(aiSettings).where(eq(aiSettings.id, 1))
   const { apiKey, ...safe } = config
-  return { ...safe, hasKey: Boolean(apiKey) }
+  // Legacy encrypted keys acquire their display suffix once on the server.
+  let keyLast4 = config.source === "env" ? apiKey.slice(-4) : row?.apiKeyLast4
+  if (config.source === "db" && apiKey && !keyLast4 && row?.apiKeyEncrypted) {
+    keyLast4 = apiKey.slice(-4)
+    await getDb().update(aiSettings).set({ apiKeyLast4: keyLast4 }).where(eq(aiSettings.apiKeyEncrypted, row.apiKeyEncrypted))
+  }
+  return {
+    ...safe, hasKey: Boolean(apiKey), keyLast4: keyLast4 ?? "",
+    lastError: row?.lastErrorCode ? { code: row.lastErrorCode, status: row.lastErrorStatus, at: row.lastErrorAt?.toISOString() ?? null } : null,
+  }
 }

@@ -99,6 +99,13 @@
       "when": 1792783591818,
       "tag": "0013_ai_conversation_titles",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792887475943,
+      "tag": "0014_ai_connection_diagnostics",
+      "breakpoints": true
     }
   ]
 }

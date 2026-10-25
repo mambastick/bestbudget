@@ -55,7 +55,8 @@ for (const locale of ["ru", "en"] as const) {
           const [family] = await db`select id from households where name = ${familyName}`
           await expect(page.getByTestId("ai-interview-entry")).toHaveCount(0)
           await page.goto("/admin?tab=ai")
-          await page.getByLabel("Провайдер", { exact: true }).selectOption("mock")
+          await page.getByLabel("Провайдер", { exact: true }).click()
+          await page.getByRole("option", { name: "Mock (test)", exact: true }).click()
           await page.getByLabel("Модель", { exact: true }).fill("test-budget")
           await page.getByRole("checkbox", { name: "Включить на инстансе", exact: true }).check()
           await page.getByRole("button", { name: "Сохранить", exact: true }).click()

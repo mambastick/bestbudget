@@ -13,6 +13,7 @@ import { buildTools } from "./tools"
 import { languageModel } from "./providers"
 import { beginTurn, checkpointTurn, finishTurn, type turnInput } from "./conversations"
 
+import { aiProviderError } from "./errors"
 import { TurnAccounting } from "./accounting"
 
 export function systemPrompt(ctx: HouseholdCtx) {
@@ -71,9 +72,9 @@ export async function chatResponse(
       },
       onChunk: ({ chunk }) => accounting.chunk(chunk),
       onStepFinish: ({ usage }) => accounting.complete(usage),
-      onError: async () => {
+      onError: async ({ error }) => {
         await accounting.reject()
-        errorCode = "provider_error"
+        errorCode = aiProviderError(error, [turn.config.apiKey]).messageKey
       },
       onAbort: () => {
         errorCode = "aborted"
@@ -83,9 +84,10 @@ export async function chatResponse(
       originalMessages: turn.messages,
       generateMessageId: () => turn.messageId,
       sendReasoning: false,
-      onError: () => {
-        errorCode = "provider_error"
-        return errorMessage("ai.providerError", {}, ctx.locale)
+      onError: (error) => {
+        const failure = aiProviderError(error, [turn.config.apiKey])
+        errorCode = failure.messageKey
+        return errorMessage(failure.messageKey, failure.params, ctx.locale)
       },
       consumeSseStream: consumeStream,
       onFinish: async ({ responseMessage, isAborted }) => {
@@ -104,7 +106,6 @@ export async function chatResponse(
     })
   } catch (error) {
     await finishTurn(ctx, turn, undefined, accounting.input, accounting.output, Date.now() - started, "setup_error")
-    if (error instanceof AppError) throw error
-    throw new AppError("ai.providerError")
+    throw aiProviderError(error, [turn.config.apiKey])
   }
 }
