@@ -1,24 +1,38 @@
 import "server-only"
 import { MockLanguageModelV3 } from "ai/test"
-import { simulateReadableStream, type LanguageModel } from "ai"
+import { APICallError, simulateReadableStream, type LanguageModel } from "ai"
 import { mockInterview } from "./mock-interview"
 import { mockAllowed } from "./config"
 
 /** Deterministic SDK model for isolated tests. Never contacts a provider. */
-export function mockModel(): LanguageModel {
+export function mockProviderFailure(model: string) {
+  if (!mockAllowed()) throw new Error("MockDisabled")
+  const status = /^test-error-(401|402|404|400|429|500)$/.exec(model)?.[1]
+  if (status) throw new APICallError({
+    message: "Synthetic provider error", url: "https://synthetic.invalid", requestBodyValues: {}, statusCode: Number(status),
+    responseBody: JSON.stringify({ error: { message: status === "400" ? "tools are unsupported" : "Synthetic provider rejection" } }),
+  })
+  if (model === "test-error-timeout") throw new DOMException("Timed out", "TimeoutError")
+}
+
+export function mockModel(model = "test-budget"): LanguageModel {
   if (!mockAllowed()) throw new Error("MockDisabled")
   const usage = {
     inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 },
     outputTokens: { total: 50, text: 50, reasoning: 0 },
   }
   return new MockLanguageModelV3({
-    doGenerate: async () => ({
-      content: [{ type: "tool-call", toolCallId: "probe", toolName: "connection_check", input: '{"value":"ok"}' }],
-      finishReason: { unified: "tool-calls", raw: "tool_calls" },
-      usage,
-      warnings: [],
-    }),
+    doGenerate: async () => {
+      mockProviderFailure(model)
+      return {
+        content: [{ type: "tool-call", toolCallId: "probe", toolName: "connection_check", input: '{"value":"ok"}' }],
+        finishReason: { unified: "tool-calls", raw: "tool_calls" },
+        usage,
+        warnings: [],
+      }
+    },
     doStream: async (options) => {
+      mockProviderFailure(model)
       if (options.tools?.some((t) => t.type === "function" && t.name === "submit_budget_review")) {
         const outputs = options.prompt
           .filter((m) => m.role === "tool")

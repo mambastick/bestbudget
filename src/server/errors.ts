@@ -1,3 +1,4 @@
+import type { AiDiagnostic } from "@/domain/ai/diagnostics"
 import { ZodError } from "zod"
 import { cookies, headers } from "next/headers"
 import { LOCALE_COOKIE, resolveLocale } from "@/i18n/locale"
@@ -10,6 +11,7 @@ export class AppError extends Error {
     readonly messageKey: ErrorKey,
     readonly params: ErrorParams = {},
     readonly code: "bad_request" | "forbidden" | "not_found" | "conflict" | "unauthorized" = "bad_request",
+    readonly diagnostic?: AiDiagnostic,
   ) {
     // Preserve the diagnostic message used by service callers; responses use the request locale.
     super(errorMessage(messageKey, params))
@@ -22,7 +24,7 @@ export const notFound = (key: ErrorKey = "notFound", params: ErrorParams = {}) =
 export const conflict = () =>
   new AppError("conflict", {}, "conflict")
 
-export type ActionResult<T = void> = { ok: true; data: T } | { ok: false; error: string; fieldErrors?: Record<string, string> }
+export type ActionResult<T = void> = { ok: true; data: T } | { ok: false; error: string; fieldErrors?: Record<string, string>; diagnostic?: AiDiagnostic }
 
 function isRedirectOrNotFound(err: unknown): boolean {
   const digest = (err as { digest?: unknown } | null)?.digest
@@ -55,7 +57,7 @@ export async function runAction<T>(fn: () => Promise<T>): Promise<ActionResult<T
   } catch (err) {
     if (isRedirectOrNotFound(err)) throw err
     const locale = await errorLocale()
-    if (err instanceof AppError) return { ok: false, error: errorMessage(err.messageKey, err.params, locale) }
+    if (err instanceof AppError) return { ok: false, error: errorMessage(err.messageKey, err.params, locale), ...(err.diagnostic ? { diagnostic: err.diagnostic } : {}) }
     if (err instanceof ZodError) {
       const fieldErrors: Record<string, string> = {}
       for (const issue of err.issues) {

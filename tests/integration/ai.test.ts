@@ -1,5 +1,5 @@
 import { MockLanguageModelV3 } from "ai/test"
-import { simulateReadableStream } from "ai"
+import { APICallError, simulateReadableStream } from "ai"
 import * as providers from "@/server/ai/providers"
 import { randomUUID } from "node:crypto"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -103,6 +103,22 @@ describe("AI foundation", () => {
     expect((await conversationMessages(f.ctx, f.conversation.id)).at(-1)?.parts.some((p) => p.type.startsWith("tool-"))).toBe(true)
     const [usage] = await db.select().from(aiUsage).where(eq(aiUsage.householdId, f.ctx.householdId))
     expect(usage).toMatchObject({ inputTokens: 300, outputTokens: 150, reservedTokens: 0 })
+  })
+  it.each(["ru", "en"] as const)("chat streams a localized key error without provider details (%s)", async (locale) => {
+    const f = await enabled()
+    vi.spyOn(providers, "languageModel").mockResolvedValue(new MockLanguageModelV3({
+      doStream: async () => { throw new APICallError({ message: "Hidden provider failure", statusCode: 401,
+        url: "https://synthetic.invalid", requestBodyValues: {}, responseBody: '{"error":{"message":"private-provider-body"}}' }) },
+    }))
+    const response = await chatResponse({ ...f.ctx, locale }, {
+      id: f.conversation.id, message: { id: randomUUID(), role: "user", parts: [{ type: "text", text: "test" }] },
+    })
+    const stream = await response.text()
+    expect(stream).toContain(locale === "ru" ? "Провайдер не принял ключ" : "The provider rejected the API key")
+    expect(stream).not.toContain("private-provider-body")
+    const [usage] = await db.select().from(aiUsage).where(eq(aiUsage.householdId, f.ctx.householdId))
+    expect(usage?.errorCode).toBe("ai.keyRejected")
+    expect(usage?.reservedTokens).toBe(0)
   })
   it("applies two of three items through services, tags audits and is idempotent", async () => {
     const f = await enabled(),
@@ -296,7 +312,7 @@ describe("AI foundation", () => {
     expect(row!.inputTokens).toBeGreaterThan(0)
     expect(row!.inputTokens + row!.outputTokens).toBeLessThan(AI_TURN_RESERVATION / 4)
     expect(row!.outputTokens).toBe(Buffer.byteLength("Partial response"))
-    expect(row!.errorCode).toBe("provider_error")
+    expect(row!.errorCode).toBe("ai.connectionFailed")
   })
   it("recovers expired crashed turns by TTL and keeps checkpoint estimates", async () => {
     const f = await enabled(),
