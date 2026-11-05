@@ -70,6 +70,7 @@ export async function setCategoryArchived(ctx: HouseholdCtx, id: string, archive
     .set({ archivedAt: archived ? new Date() : null, version: sql`${categories.version} + 1` })
     .where(and(eq(categories.id, uuid.parse(id)), eq(categories.householdId, ctx.householdId)))
     .returning()
+    .catch(categoryWriteError)
   if (res.length === 0) throw notFound("category.notFound")
   await audit({ action: archived ? "category.archive" : "category.restore", entityType: "category", entityId: id, householdId: ctx.householdId, actorId: ctx.userId })
 }

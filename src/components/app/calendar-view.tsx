@@ -350,7 +350,7 @@ function Section({ title, entries }: { title: string; entries: CalendarEntry[] }
   )
 }
 
-function EntryRow({ entry: e, today }: { entry: CalendarEntry; today?: IsoDate }) {
+function EntryRow({ entry: e, today, showActual = false }: { entry: CalendarEntry; today?: IsoDate; showActual?: boolean }) {
   const t = useTranslations("calendar")
   const locale = useLocale()
   const open = useOpenEntry()
@@ -377,15 +377,16 @@ function EntryRow({ entry: e, today }: { entry: CalendarEntry; today?: IsoDate }
         currency={e.currency}
         className="text-sm font-medium"
       />
-      {!e.virtual && !e.loanId ? <OperationMenu row={e} /> : e.status === "planned" ? (
+      {e.status === "planned" ? (
         <Button variant="ghost" size="icon-sm" aria-label={t("confirm")} title={t("confirmPosted")} onClick={() => open(e, "confirm")}>
           <Check />
         </Button>
-      ) : (
+      ) : showActual ? (
         <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
           {t("actual")}
         </Badge>
-      )}
+      ) : null}
+      {!e.virtual && !e.loanId ? <OperationMenu row={e} /> : null}
     </li>
   )
 }
@@ -416,7 +417,7 @@ function AgendaList({ days, byDate, today }: { days: CalendarDay[]; byDate: Map<
             </div>
             <ul className="grid grid-cols-1 gap-1 p-2">
               {byDate.get(d.date)!.map((e) => (
-                <EntryRow key={e.key} entry={e} today={today} />
+                <EntryRow key={e.key} entry={e} today={today} showActual />
               ))}
             </ul>
           </section>

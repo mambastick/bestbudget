@@ -174,6 +174,7 @@ for (const width of [1280, 375]) {
     const menuTitle = `Синтетическая покупка для меню ${width}`
     await createExpense(page, menuTitle)
     await fits(page, row(page, menuTitle))
+    await expect(row(page, menuTitle).getByText("факт", { exact: true })).toBeVisible()
     await row(page, menuTitle).getByRole("button", { name: "Действия", exact: true }).click()
     await capture(page, info, `calendar-row-${width}-light`)
     await page.getByRole("menuitem", { name: "Удалить", exact: true }).click()

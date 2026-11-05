@@ -395,6 +395,7 @@ describe("category names", () => {
     await createCategory(ctx, { ...input, kind: "income" })
     await setCategoryArchived(ctx, first.id, true)
     await createCategory(ctx, input)
+    await expect(setCategoryArchived(ctx, first.id, false)).rejects.toMatchObject({ messageKey: "category.duplicateName" })
     expect(errorMessage("category.duplicateName", {}, "ru")).toBe("Активная категория с таким названием уже существует. Выберите другое название.")
     expect(errorMessage("category.duplicateName", {}, "en")).toBe("An active category with this name already exists. Choose another name.")
   })
