@@ -1,3 +1,4 @@
+import type { Locator } from "@playwright/test"
 import { test, expect, seedDemo, withDb, type Page, type StorageState } from "./matrix"
 
 let state: StorageState
@@ -16,6 +17,26 @@ async function fits(page: Page) {
 
 async function capture(page: Page, name: string) {
   await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled" })
+}
+
+/** WCAG contrast of text against the dialog panel; a canvas resolves any CSS color space to sRGB. */
+function contrastOnDialog(text: Locator) {
+  return text.evaluate((node) => {
+    const canvas = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!
+    const luminance = (color: string) => {
+      canvas.clearRect(0, 0, 1, 1)
+      canvas.fillStyle = color
+      canvas.fillRect(0, 0, 1, 1)
+      const [r, g, b] = [...canvas.getImageData(0, 0, 1, 1).data].map((value) => {
+        const channel = value / 255
+        return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+      })
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+    }
+    const foreground = luminance(getComputedStyle(node).color)
+    const background = luminance(getComputedStyle(node.closest('[role="dialog"]')!).backgroundColor)
+    return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05)
+  })
 }
 
 /** Dialogs scroll inside themselves: the end of a long form has to be reachable on a phone. */
@@ -158,6 +179,45 @@ test("rewrites a loan without history from the start and renames its account", a
   await expect(page.getByText("250 000 ₽", { exact: true }).first()).toBeVisible()
   await fits(page)
 })
+
+for (const [width, height] of [[1280, 900], [375, 812]] as const) {
+  test(`shows the new forms and history in the dark theme, ${width}px`, async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("theme", "dark"))
+    await page.setViewportSize({ width, height })
+    await page.goto(`/loans/${consumer}`)
+    await expect(page.locator("html")).toHaveClass(/dark/)
+    const forms = [
+      ["Редактировать", "edit", async (dialog: Locator) => dialog.getByLabel("Ставка, % годовых").fill("7")],
+      ["Реструктуризация", "restructure", async () => {}],
+      ["Кредитные каникулы", "holiday", async () => {}],
+    ] as const
+    for (const [button, name, change] of forms) {
+      await page.getByRole("button", { name: button, exact: true }).click()
+      const dialog = page.getByRole("dialog")
+      await change(dialog)
+      await expect(dialog).toContainText("Что изменится")
+      await fits(page)
+      await capture(page, `${name}-dark-${width}`)
+      await captureDialogEnd(page, `${name}-dark-end-${width}`)
+      // Both the unchanged and the previous values have to read as text on the dialog, not as dark on dark.
+      for (const text of [dialog.locator("dd").first(), dialog.locator("dt").first()]) expect(await contrastOnDialog(text)).toBeGreaterThanOrEqual(4.5)
+      await dialog.getByRole("button", { name: "Отмена", exact: true }).click()
+      await expect(dialog).toBeHidden()
+    }
+    await page.getByRole("button", { name: "Кредитные каникулы", exact: true }).click()
+    await page.getByRole("dialog").getByRole("button", { name: "Сохранить", exact: true }).click()
+    await expect(page.getByRole("dialog")).toBeHidden()
+    await page.getByRole("heading", { name: "События кредита" }).scrollIntoViewIfNeeded()
+    await expect(page.getByText(/Было: ставка/)).toBeVisible()
+    await fits(page)
+    await capture(page, `history-dark-${width}`)
+    await page.getByRole("heading", { name: "График погашения" }).scrollIntoViewIfNeeded()
+    await capture(page, `schedule-dark-${width}`)
+    await page.getByRole("button", { name: "Отменить", exact: true }).click()
+    await page.getByRole("alertdialog").getByRole("button", { name: "Отменить изменение", exact: true }).click()
+    await expect(page.getByText(/Было: ставка/)).toBeHidden()
+  })
+}
 
 test("offers the same forms in English", async ({ page }) => {
   await withDb((sql) => sql`update users set locale = 'en' where id = ${ownerId}`)

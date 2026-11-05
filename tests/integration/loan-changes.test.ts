@@ -318,13 +318,17 @@ describe("holidays", () => {
     await expect(confirmTelegramPayment(f.owner.id, `pay:${stale.id}:${stale.version}`)).rejects.toThrow("заменена новым графиком")
   })
 
-  /** A loan three payments in, with the first one confirmed, so a holiday can already be running or over. */
+  /**
+   * A loan with its first payment confirmed and three more due by now, so a holiday can already be running or over.
+   * Its day never needs clamping: on the 31st, three months back from today would land between payment dates.
+   */
   async function running() {
     const today = todayIn("Europe/Moscow")
-    const first = addMonths(today, -3)
+    const lastDue = Number(today.slice(8)) > 28 ? `${today.slice(0, 8)}28` : today
+    const first = addMonths(lastDue, -3)
     const f = await fixture({ trackingDate: addDays(first, -1), firstPaymentDate: first, paymentDay: Number(first.slice(8)) })
     await confirmNext(f)
-    return f
+    return { ...f, lastDue }
   }
 
   it("does not move the ledger for capitalized interest ahead of the end date", async () => {
@@ -347,8 +351,8 @@ describe("holidays", () => {
     const f = await running()
     const before = await getLoan(f.ctx, f.loan.id)
     const dashboardBefore = await getDashboard(f.ctx, f.today)
-    const start = addMonths(f.today, -2)
-    await addLoanEvent(f.ctx, f.loan.id, before.loan.version, holiday(start, addDays(f.today, -1), { interest: "capitalize" }))
+    const start = addMonths(f.lastDue, -2)
+    await addLoanEvent(f.ctx, f.loan.id, before.loan.version, holiday(start, addDays(f.lastDue, -1), { interest: "capitalize" }))
     const d = await getLoan(f.ctx, f.loan.id)
     const capitalized = d.rows.find((r) => r.kind === "capitalization")!
     expect(d.debt).toBe(before.debt + capitalized.accrued!)
@@ -359,8 +363,8 @@ describe("holidays", () => {
     // Nothing was spent: capitalization is neither an expense nor a movement of liquid money.
     expect(dashboard.balance).toBe(dashboardBefore.balance)
     expect(dashboard.monthExpense).toBe(dashboardBefore.monthExpense)
-    expect(d.next?.date).toBe(f.today)
-    expect((await parts(f.loan.id)).filter((p) => p.status === "planned" && p.loanDueDate! < f.today)).toEqual([])
+    expect(d.next?.date).toBe(f.lastDue)
+    expect((await parts(f.loan.id)).filter((p) => p.status === "planned" && p.loanDueDate! < f.lastDue)).toEqual([])
   })
 
   it("restates capitalized interest when a prepayment lowers the balance it accrues on", async () => {
@@ -404,7 +408,7 @@ describe("holidays", () => {
 
   it("refuses to close while deferred interest is still owed, once the debt itself is repaid", async () => {
     const f = await running()
-    await addLoanEvent(f.ctx, f.loan.id, await version(f), holiday(addMonths(f.today, -2), addDays(f.today, -1)))
+    await addLoanEvent(f.ctx, f.loan.id, await version(f), holiday(addMonths(f.lastDue, -2), addDays(f.lastDue, -1)))
     await confirmNext(f)
     const { debt, loan } = await getLoan(f.ctx, f.loan.id)
     await addLoanEvent(f.ctx, f.loan.id, loan.version, { type: "prepayment", date: f.today, amount: debt, mode: "reduce_payment" })

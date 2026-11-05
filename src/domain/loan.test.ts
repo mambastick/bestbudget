@@ -504,6 +504,16 @@ describe("loan terms and holidays", () => {
       settles(rows, base.trackingBalance)
     })
 
+    it("follows a clamped payment day, so a start after a short month's payment leaves that payment due", () => {
+      const params = { ...base, trackingDate: "2024-01-01", firstPaymentDate: "2024-01-31", paymentDay: 31 }
+      const fromClampedDate = calculateLoanSchedule(params, [{ ...holiday, date: "2024-02-29", endDate: "2024-04-29" }])
+      expect(fromClampedDate.filter((r) => r.kind === "holiday").map((r) => r.date)).toEqual(["2024-02-29", "2024-03-31"])
+      expect(scheduled(fromClampedDate)[1]!.date).toBe("2024-04-30")
+      const dayLater = calculateLoanSchedule(params, [{ ...holiday, date: "2024-03-01", endDate: "2024-04-29" }])
+      expect(dayLater.filter((r) => r.kind === "holiday").map((r) => r.date)).toEqual(["2024-03-31"])
+      expect(scheduled(dayLater)[1]!.date).toBe("2024-02-29")
+    })
+
     it("rejects periods without a payment, overlaps, posted slots and same-day changes", () => {
       expect(() => calculateLoanSchedule(base, [{ ...holiday, date: "2024-04-02", endDate: "2024-04-20" }])).toThrow(LoanCalculationError)
       expect(() => calculateLoanSchedule(base, [{ ...holiday, endDate: "2025-06-30", shift: "keep_term" }])).toThrow(LoanCalculationError)
