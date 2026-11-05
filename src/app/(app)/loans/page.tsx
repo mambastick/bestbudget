@@ -55,10 +55,7 @@ export default async function LoansPage() {
                   </CardTitle>
                   <p className="text-sm text-muted-foreground break-words">
                     {d.loan.lender} ·{" "}
-                    {Number(d.events.filter((e) => e.type === "rate_change").at(-1)?.annualRate ?? d.loan.annualRate).toLocaleString(
-                      locale,
-                      { maximumFractionDigits: 6 },
-                    )}
+                    {Number(d.terms.annualRate).toLocaleString(locale, { maximumFractionDigits: 6 })}
                     %
                   </p>
                 </CardHeader>

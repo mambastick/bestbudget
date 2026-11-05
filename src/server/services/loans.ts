@@ -6,9 +6,12 @@ import { getDb, type DbOrTx } from "@/db"
 import { categories, financialAccounts, loanEvents, loans, transactions, users, type Loan, type LoanEvent } from "@/db/schema"
 import {
   calculateLoanSchedule,
+  loanEditBoundary,
   LoanCalculationError,
+  loanSnapshot,
+  loanTermsAt,
   termForPayment,
-  type LoanEventInput,
+  toLoanEventInput,
   type LoanPayment,
   type LoanScheduleRow,
 } from "@/domain/loan"
@@ -59,16 +62,20 @@ function checkedCalculation<T>(calculate: () => T): T {
 }
 
 function schedule(p: Loan, events: LoanEvent[], posted: LoanPayment[]) {
-  return checkedCalculation(() =>
-    calculateLoanSchedule(
-      p,
-      events.map((e): LoanEventInput => {
-        if (e.type === "rate_change") return { type: e.type, date: e.date, annualRate: e.annualRate! }
-        if (e.type === "reconciliation") return { type: e.type, date: e.date, balance: e.balance! }
-        return { type: e.type, date: e.date, amount: e.amount!, mode: e.mode! }
-      }),
-      posted,
-    ),
+  return checkedCalculation(() => calculateLoanSchedule(p, events.map(toLoanEventInput), posted))
+}
+
+/** Adjustments of events still in the future do not move today's balance. */
+const adjustmentDate = (e: Pick<LoanEvent, "date" | "endDate" | "type">) => (e.type === "holiday" ? e.endDate! : e.date)
+
+const hasLoanHistory = (data: Pick<Awaited<ReturnType<typeof ledger>>, "rows" | "events">) =>
+  data.events.length > 0 || data.rows.some((r) => r.status !== "planned" || r.version > 1)
+
+function ledgerDebt(loan: Loan, data: Pick<Awaited<ReturnType<typeof ledger>>, "rows" | "events">, today: string) {
+  return (
+    loan.trackingBalance -
+    data.rows.filter((r) => r.status === "posted" && r.type === "transfer").reduce((s, r) => s + r.amount, 0) -
+    data.events.filter((e) => adjustmentDate(e) <= today).reduce((s, e) => s + (e.balanceDelta ?? 0), 0)
   )
 }
 
@@ -294,15 +301,17 @@ export async function getLoan(ctx: HouseholdCtx, id: string) {
     .select()
     .from(financialAccounts)
     .where(and(eq(financialAccounts.householdId, ctx.householdId), eq(financialAccounts.id, loan.accountId)))
-  const paidPrincipal = data.rows.filter((r) => r.status === "posted" && r.type === "transfer").reduce((s, r) => s + r.amount, 0)
-  const adjustments = data.events.reduce((s, e) => s + (e.balanceDelta ?? 0), 0)
-  const debt = loan.trackingBalance - paidPrincipal - adjustments
+  const today = todayIn(ctx.timezone)
+  const debt = ledgerDebt(loan, data, today)
   const planned = schedule(loan, data.events, data.posted)
+  const eventInputs = data.events.map(toLoanEventInput)
   const rows = planned.map((r) => {
     const payment = data.rows.find((p) => p.loanDueDate === r.date && p.loanPart !== "prepayment")
     return { ...r, id: payment?.id ?? null, status: r.kind === "scheduled" ? (payment?.status ?? "planned") : "posted" }
   })
-  const futureInterest = rows.filter((r) => r.kind === "scheduled" && r.status === "planned").reduce((s, r) => s + r.interest, 0)
+  const futureInterest =
+    rows.filter((r) => r.kind === "scheduled" && r.status === "planned").reduce((s, r) => s + r.interest, 0) +
+    rows.filter((r) => r.kind === "capitalization").reduce((s, r) => s + r.accrued!, 0)
   const paidInterest = data.posted.reduce((s, p) => s + p.interest, 0)
   const next = loan.status === "active" ? (rows.find((r) => r.kind === "scheduled" && r.status === "planned") ?? null) : null
   return {
@@ -317,6 +326,9 @@ export async function getLoan(ctx: HouseholdCtx, id: string) {
     futureInterest,
     next,
     payoffDate: rows.at(-1)?.date ?? null,
+    terms: loanTermsAt(loan, eventInputs, today),
+    editBoundary: loanEditBoundary(loan.trackingDate, eventInputs, data.posted, today),
+    hasHistory: hasLoanHistory(data),
   }
 }
 
@@ -358,16 +370,63 @@ async function regenerate(db: DbOrTx, loan: Loan, from: string, today: string, l
         : undefined,
     ),
   )
+  await syncCapitalizedInterest(db, loan)
   await materialize(db, loan, today, undefined, locale)
 }
+
+/** Capitalized interest depends on the balance a holiday starts from, so it is restated after every recalculation. */
+async function syncCapitalizedInterest(db: DbOrTx, loan: Loan) {
+  const data = await ledger(db, loan)
+  const holidays = data.events.filter((e) => e.type === "holiday" && e.holidayInterest === "capitalize")
+  if (!holidays.length) return
+  const rows = schedule(loan, data.events, data.posted)
+  for (const e of holidays) {
+    const delta = 0 - (rows.find((r) => r.kind === "capitalization" && r.date === e.endDate)?.accrued ?? 0)
+    if (e.balanceDelta !== delta)
+      await db
+        .update(loanEvents)
+        .set({ balanceDelta: delta })
+        .where(and(eq(loanEvents.householdId, loan.householdId), eq(loanEvents.id, e.id)))
+  }
+}
+
+const noteInput = z.string().trim().max(200, "validation.loanNote").optional()
+const termsInput = z.object({
+  annualRate: rate,
+  nextPaymentDate: isoDate,
+  paymentDay: z.number().int().min(1).max(31),
+  termMonths: z.number().int().min(1).max(600),
+  paymentAmount: amount.nullable().optional(),
+  scheduleType: z.enum(["annuity", "differentiated"]),
+  interestMethod: z.enum(["monthly", "daily_365", "daily_actual"]),
+})
+const money = z.number().int().min(0).max(100_000_000_000_000)
 
 export const loanEventInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("prepayment"), date: isoDate, amount, mode: z.enum(["reduce_term", "reduce_payment"]) }),
   z.object({ type: z.literal("rate_change"), date: isoDate, annualRate: rate }),
-  z.object({ type: z.literal("reconciliation"), date: isoDate, balance: z.number().int().min(0).max(100_000_000_000_000) }),
+  z.object({ type: z.literal("reconciliation"), date: isoDate, balance: money }),
+  termsInput.extend({ type: z.literal("restructuring"), date: isoDate, balance: money.nullable().optional(), note: noteInput }),
+  z.object({
+    type: z.literal("holiday"),
+    date: isoDate,
+    endDate: isoDate,
+    mode: z.enum(["no_payment", "interest_only"]),
+    interest: z.enum(["deferred_spread", "deferred_end", "capitalize", "waived"]).nullable(),
+    shift: z.enum(["extend_term", "keep_term"]),
+    note: noteInput,
+  }),
 ])
+export type LoanEventRequest = z.input<typeof loanEventInput>
 
-export async function addLoanEvent(ctx: HouseholdCtx, id: string, version: number, raw: LoanEventInput) {
+/** The stored form of a holiday or new terms; shared by adding and restating an event. */
+function eventValues(input: z.output<typeof loanEventInput>) {
+  if (input.type !== "holiday") return input
+  const { mode, interest, shift, ...rest } = input
+  return { ...rest, holidayMode: mode, holidayInterest: interest, holidayShift: shift }
+}
+
+export async function addLoanEvent(ctx: HouseholdCtx, id: string, version: number, raw: LoanEventRequest) {
   assertCan(ctx, "loans.manage")
   const input = loanEventInput.parse(raw)
   z.number().int().positive().parse(version)
@@ -377,35 +436,48 @@ export async function addLoanEvent(ctx: HouseholdCtx, id: string, version: numbe
     if (loan.version !== version) throw conflict()
     if (loan.status !== "active") throw new AppError("loan.closed")
     const data = await ledger(tx, loan)
+    const isTerms = input.type === "restructuring"
+    const scheduledAhead = input.date > today
     if (
       input.date < loan.trackingDate ||
-      input.date > today ||
-      data.events.some((e) => e.date >= input.date) ||
-      data.rows.some((r) => r.status === "posted" && r.loanPart !== "prepayment" && (r.loanDueDate! > input.date || r.date > input.date))
+      (scheduledAhead && (input.type === "prepayment" || input.type === "reconciliation")) ||
+      data.events.some((e) => e.date <= today && (isTerms ? e.date > input.date : e.date >= input.date)) ||
+      data.rows.some((r) => r.status === "posted" && r.loanPart !== "prepayment" && (r.loanDueDate! > input.date || r.date > input.date)) ||
+      (input.type === "holiday" && data.rows.some((r) => r.status === "posted" && r.loanPart !== "prepayment" && r.loanDueDate! >= input.date))
     )
       throw new AppError("loan.eventOrder")
-    if (input.type === "reconciliation" && data.rows.some((r) => r.status === "planned" && r.version > 1 && r.loanDueDate! <= input.date))
+    if (data.events.some((e) => e.date === input.date && (e.type === input.type || (isTerms && e.type === "correction"))))
+      throw new AppError("loanCalculation.sameDate")
+    if (isTerms && scheduledAhead && input.balance != null) throw new AppError("loan.futureBalance")
+    const replacesUnpaid = !scheduledAhead && (input.type === "reconciliation" || isTerms)
+    if (replacesUnpaid && data.rows.some((r) => r.status === "planned" && r.version > 1 && r.loanDueDate! <= input.date))
       throw new AppError("loan.unpostedManualPayments")
-    if (input.type !== "reconciliation" && data.rows.some((r) => r.status === "planned" && r.loanDueDate! <= input.date))
+    if (
+      !scheduledAhead &&
+      !replacesUnpaid &&
+      data.rows.some((r) => r.status === "planned" && r.loanDueDate! <= input.date && !(input.type === "holiday" && r.loanDueDate === input.date))
+    )
       throw new AppError("loan.previousPayments")
-    const [account] = await tx
-      .select()
-      .from(financialAccounts)
-      .where(and(eq(financialAccounts.householdId, ctx.householdId), eq(financialAccounts.id, loan.accountId)))
-    const actualDebt =
-      -account!.openingBalance -
-      data.rows.filter((r) => r.status === "posted" && r.type === "transfer").reduce((s, r) => s + r.amount, 0) -
-      data.events.reduce((s, e) => s + (e.balanceDelta ?? 0), 0)
+    const actualDebt = ledgerDebt(loan, data, today)
+    if (input.type === "prepayment" && actualDebt <= 0) throw new AppError("loan.principalRepaid")
+    // A change in force settles the balance from the ledger; one still ahead replays from the planned balance.
+    const settledBalance = isTerms && !scheduledAhead ? (input.balance ?? actualDebt) : null
     const values =
       input.type === "prepayment"
         ? { ...input, amount: Math.min(input.amount, actualDebt) }
         : input.type === "reconciliation"
           ? { ...input, balanceDelta: actualDebt - input.balance }
-          : input
-    if (input.type === "prepayment" && actualDebt <= 0) throw new AppError("loan.principalRepaid")
+          : isTerms
+            ? { ...input, balance: settledBalance, balanceDelta: settledBalance === null ? null : actualDebt - settledBalance }
+            : input
+    const before = changeSnapshot(loan, data, input)
+    if (input.type === "holiday" || input.type === "restructuring") {
+      const candidate = input.type === "holiday" ? input : { ...input, balance: settledBalance }
+      checkedCalculation(() => calculateLoanSchedule(loan, [...data.events.map(toLoanEventInput), candidate], data.posted))
+    }
     const [event] = await tx
       .insert(loanEvents)
-      .values({ ...values, loanId: id, householdId: ctx.householdId, createdBy: ctx.userId })
+      .values({ ...eventValues(values), loanId: id, householdId: ctx.householdId, createdBy: ctx.userId })
       .returning()
     if (input.type === "prepayment")
       await tx.insert(transactions).values({
@@ -425,8 +497,8 @@ export async function addLoanEvent(ctx: HouseholdCtx, id: string, version: numbe
         updatedBy: ctx.userId,
         postedAt: new Date(),
       })
-    if (input.type === "reconciliation") {
-      // Reconciliation supersedes unconfirmed historical slots; skipped rows reserve their keys.
+    if (replacesUnpaid) {
+      // The new balance supersedes unconfirmed historical slots; skipped rows reserve their keys.
       await tx
         .update(transactions)
         .set({ status: "skipped", version: sql`${transactions.version} + 1`, updatedBy: ctx.userId })
@@ -445,11 +517,245 @@ export async function addLoanEvent(ctx: HouseholdCtx, id: string, version: numbe
       .where(and(eq(loans.householdId, ctx.householdId), eq(loans.id, id)))
       .returning()
     await regenerate(tx, updated!, input.date, today, ctx.locale)
+    await recordChange(tx, updated!, event!.id, input, before)
     await audit(
       { action: `loan.${input.type}`, entityType: "loan", entityId: id, householdId: ctx.householdId, actorId: ctx.userId, meta: values },
       tx,
     )
     return event!
+  })
+}
+
+/** The terms before a change of contract, kept with the event; ledger corrections carry none. */
+function changeSnapshot(loan: Loan, data: Awaited<ReturnType<typeof ledger>>, input: { type: LoanEvent["type"]; date: string }) {
+  if (input.type === "prepayment" || input.type === "reconciliation") return null
+  return checkedCalculation(() => loanSnapshot(loan, data.events.map(toLoanEventInput), data.posted, snapshotDate(input)))
+}
+
+/** A holiday covers the payment due on its first day, so its record looks from just before that day. */
+const snapshotDate = (e: { type: LoanEvent["type"]; date: string }) => (e.type === "holiday" ? addDays(e.date, -1) : e.date)
+
+async function recordChange(
+  db: DbOrTx,
+  loan: Loan,
+  eventId: string,
+  event: { type: LoanEvent["type"]; date: string },
+  before: ReturnType<typeof changeSnapshot>,
+) {
+  if (!before) return
+  const data = await ledger(db, loan)
+  const after = checkedCalculation(() => loanSnapshot(loan, data.events.map(toLoanEventInput), data.posted, snapshotDate(event)))
+  await db
+    .update(loanEvents)
+    .set({ terms: { before, after } })
+    .where(and(eq(loanEvents.householdId, loan.householdId), eq(loanEvents.id, eventId)))
+}
+
+export const loanUpdateInput = z.object({
+  name: z.string().trim().min(1, "validation.titleRequired").max(60),
+  lender: z.string().trim().min(1, "validation.lender").max(120),
+  kind: z.enum(["mortgage", "consumer", "car", "credit_line", "other"]),
+  principal: amount,
+  startDate: isoDate,
+  paymentAccountId: z.uuid(),
+  terms: termsInput.extend({ trackingDate: isoDate.optional(), trackingBalance: amount.optional() }).nullable().optional(),
+})
+export type LoanUpdate = z.input<typeof loanUpdateInput>
+
+/**
+ * Without history, new terms rewrite the loan as if entered correctly from the start. Once a payment or event exists,
+ * they apply after the edit boundary as a correction, so confirmed payments and prior terms stay as recorded.
+ */
+export async function updateLoan(ctx: HouseholdCtx, id: string, version: number, raw: LoanUpdate) {
+  assertCan(ctx, "loans.manage")
+  const input = loanUpdateInput.parse(raw)
+  z.number().int().positive().parse(version)
+  const today = todayIn(ctx.timezone)
+  return getDb().transaction(async (tx) => {
+    const loan = await owned(tx, ctx, id, true)
+    if (loan.version !== version) throw conflict()
+    if (loan.status !== "active") throw new AppError("loan.closed")
+    const data = await ledger(tx, loan)
+    const hasHistory = hasLoanHistory(data)
+    const trackingDate = input.terms?.trackingDate ?? loan.trackingDate
+    const trackingBalance = input.terms?.trackingBalance ?? loan.trackingBalance
+    if (hasHistory && (trackingDate !== loan.trackingDate || trackingBalance !== loan.trackingBalance))
+      throw new AppError("loan.trackingLocked")
+    if (trackingDate > today) throw new AppError("loan.futureTracking")
+    if (input.principal < trackingBalance) throw new AppError("loan.principalBelowBalance")
+    if (input.startDate > trackingDate) throw new AppError("loan.startAfterTracking")
+    const paymentAccountChanged = input.paymentAccountId !== loan.paymentAccountId
+    if (paymentAccountChanged) {
+      const accounts = await tx
+        .select()
+        .from(financialAccounts)
+        .where(
+          and(
+            eq(financialAccounts.householdId, ctx.householdId),
+            or(eq(financialAccounts.id, input.paymentAccountId), eq(financialAccounts.id, loan.accountId)),
+          ),
+        )
+      const next = accounts.find((a) => a.id === input.paymentAccountId)
+      const liability = accounts.find((a) => a.id === loan.accountId)
+      if (!next || next.archivedAt || next.kind === "loan") throw new AppError("loan.activePaymentAccount")
+      if (next.currency !== liability!.currency) throw new AppError("loan.paymentAccountCurrency")
+    }
+    await tx
+      .update(financialAccounts)
+      .set({ name: input.name, ...(input.terms && !hasHistory ? { openingBalance: -trackingBalance } : {}) })
+      .where(and(eq(financialAccounts.householdId, ctx.householdId), eq(financialAccounts.id, loan.accountId)))
+    const details = {
+      lender: input.lender,
+      kind: input.kind,
+      principal: input.principal,
+      startDate: input.startDate,
+      paymentAccountId: input.paymentAccountId,
+    }
+    const rewritten =
+      input.terms && !hasHistory
+        ? {
+            trackingDate,
+            trackingBalance,
+            annualRate: input.terms.annualRate,
+            firstPaymentDate: input.terms.nextPaymentDate,
+            paymentDay: input.terms.paymentDay,
+            termMonths: input.terms.termMonths,
+            paymentAmount: input.terms.paymentAmount ?? null,
+            scheduleType: input.terms.scheduleType,
+            interestMethod: input.terms.interestMethod,
+          }
+        : {}
+    const [updated] = await tx
+      .update(loans)
+      .set({ ...details, ...rewritten, version: loan.version + 1 })
+      .where(and(eq(loans.householdId, ctx.householdId), eq(loans.id, id)))
+      .returning()
+    const boundary = loanEditBoundary(loan.trackingDate, data.events.map(toLoanEventInput), data.posted, today)
+    // Every plan needs the new account or the rewritten terms; a correction only replaces what comes after it.
+    const earliest = trackingDate < loan.trackingDate ? trackingDate : loan.trackingDate
+    const regenerateFrom = paymentAccountChanged || !hasHistory ? earliest : addDays(boundary, 1)
+    if (input.terms && hasHistory) {
+      if (data.rows.some((r) => r.status === "planned" && r.version > 1 && r.loanDueDate! > boundary))
+        throw new AppError("loan.unpostedManualPayments")
+      const correction = {
+        annualRate: input.terms.annualRate,
+        nextPaymentDate: input.terms.nextPaymentDate,
+        paymentDay: input.terms.paymentDay,
+        termMonths: input.terms.termMonths,
+        paymentAmount: input.terms.paymentAmount ?? null,
+        scheduleType: input.terms.scheduleType,
+        interestMethod: input.terms.interestMethod,
+      }
+      const onBoundary = data.events.find((e) => e.date === boundary && (e.type === "correction" || e.type === "restructuring"))
+      // A second edit from the same point restates that change instead of stacking another one on it.
+      const others = onBoundary ? data.events.filter((e) => e.id !== onBoundary.id) : data.events
+      const candidate = { ...correction, type: "correction" as const, date: boundary, balance: onBoundary?.balance }
+      checkedCalculation(() => calculateLoanSchedule(updated!, [...others.map(toLoanEventInput), candidate], data.posted))
+      const before = onBoundary?.terms?.before ?? changeSnapshot(updated!, data, { type: "correction", date: boundary })
+      const [event] = onBoundary
+        ? await tx
+            .update(loanEvents)
+            .set(correction)
+            .where(and(eq(loanEvents.householdId, ctx.householdId), eq(loanEvents.id, onBoundary.id)))
+            .returning()
+        : await tx
+            .insert(loanEvents)
+            .values({ ...correction, type: "correction", date: boundary, loanId: id, householdId: ctx.householdId, createdBy: ctx.userId })
+            .returning()
+      await regenerate(tx, updated!, regenerateFrom, today, ctx.locale)
+      await recordChange(tx, updated!, event!.id, { type: "correction", date: boundary }, before)
+    } else if (input.terms || paymentAccountChanged) await regenerate(tx, updated!, regenerateFrom, today, ctx.locale)
+    await audit(
+      {
+        action: "loan.update",
+        entityType: "loan",
+        entityId: id,
+        householdId: ctx.householdId,
+        actorId: ctx.userId,
+        meta: { name: input.name, ...details, terms: input.terms ?? null },
+      },
+      tx,
+    )
+    return updated!
+  })
+}
+
+/** Reverts the latest change of contract while nothing has been confirmed on top of it. */
+export async function cancelLoanEvent(ctx: HouseholdCtx, id: string, version: number, eventId: string) {
+  assertCan(ctx, "loans.manage")
+  z.number().int().positive().parse(version)
+  const today = todayIn(ctx.timezone)
+  await getDb().transaction(async (tx) => {
+    const loan = await owned(tx, ctx, id, true)
+    if (loan.version !== version) throw conflict()
+    if (loan.status !== "active") throw new AppError("loan.closed")
+    const data = await ledger(tx, loan)
+    const event = data.events.find((e) => e.id === eventId)
+    if (!event) throw notFound("loan.eventNotFound")
+    if (
+      event.type === "prepayment" ||
+      event.type === "reconciliation" ||
+      data.events.some((e) => e.id !== event.id && e.date >= event.date) ||
+      data.rows.some((r) => r.status === "posted" && r.loanDueDate! > event.date)
+    )
+      throw new AppError("loan.eventCancel")
+    await tx.delete(loanEvents).where(and(eq(loanEvents.householdId, ctx.householdId), eq(loanEvents.id, eventId)))
+    // Slots this change closed come back as planned; earlier ones belong to the event that closed them.
+    const previousDate = data.events.filter((e) => e.date < event.date).at(-1)?.date ?? loan.trackingDate
+    await tx
+      .delete(transactions)
+      .where(
+        and(
+          eq(transactions.householdId, ctx.householdId),
+          eq(transactions.loanId, id),
+          eq(transactions.status, "skipped"),
+          gt(transactions.loanDueDate, previousDate),
+          lte(transactions.loanDueDate, event.date),
+        ),
+      )
+    const [updated] = await tx
+      .update(loans)
+      .set({ version: loan.version + 1 })
+      .where(and(eq(loans.householdId, ctx.householdId), eq(loans.id, id)))
+      .returning()
+    await regenerate(tx, updated!, event.date, today, ctx.locale)
+    await audit(
+      { action: "loan.event_cancel", entityType: "loan", entityId: id, householdId: ctx.householdId, actorId: ctx.userId, meta: { type: event.type, date: event.date } },
+      tx,
+    )
+  })
+}
+
+/** Moves the end of a holiday, including ending one early: payments outside the new period return to the plan. */
+export async function updateLoanHolidayEnd(ctx: HouseholdCtx, id: string, version: number, eventId: string, rawEndDate: string) {
+  assertCan(ctx, "loans.manage")
+  z.number().int().positive().parse(version)
+  const endDate = isoDate.parse(rawEndDate)
+  const today = todayIn(ctx.timezone)
+  await getDb().transaction(async (tx) => {
+    const loan = await owned(tx, ctx, id, true)
+    if (loan.version !== version) throw conflict()
+    if (loan.status !== "active") throw new AppError("loan.closed")
+    const data = await ledger(tx, loan)
+    const event = data.events.find((e) => e.id === eventId)
+    if (!event || event.type !== "holiday") throw notFound("loan.eventNotFound")
+    if (event.endDate! < today || endDate < event.date || endDate < today) throw new AppError("loan.holidayEnded")
+    const before = event.terms?.before ?? null
+    await tx
+      .update(loanEvents)
+      .set({ endDate })
+      .where(and(eq(loanEvents.householdId, ctx.householdId), eq(loanEvents.id, eventId)))
+    const [updated] = await tx
+      .update(loans)
+      .set({ version: loan.version + 1 })
+      .where(and(eq(loans.householdId, ctx.householdId), eq(loans.id, id)))
+      .returning()
+    await regenerate(tx, updated!, addDays(endDate < event.endDate! ? endDate : event.endDate!, 1), today, ctx.locale)
+    await recordChange(tx, updated!, eventId, event, before)
+    await audit(
+      { action: "loan.holiday_update", entityType: "loan", entityId: id, householdId: ctx.householdId, actorId: ctx.userId, meta: { date: event.date, from: event.endDate, to: endDate } },
+      tx,
+    )
   })
 }
 
@@ -464,7 +770,8 @@ export const loanConfirmInput = z.object({
 export async function confirmLoanPayment(ctx: HouseholdCtx, transactionId: string, raw: z.input<typeof loanConfirmInput>) {
   assertCan(ctx, "finance.write")
   const input = loanConfirmInput.parse(raw)
-  if (input.date > todayIn(ctx.timezone)) throw new AppError("loan.futureActualDate")
+  const today = todayIn(ctx.timezone)
+  if (input.date > today) throw new AppError("loan.futureActualDate")
   const db = getDb()
   const [reference] = await db
     .select()
@@ -483,7 +790,7 @@ export async function confirmLoanPayment(ctx: HouseholdCtx, transactionId: strin
       throw new AppError("loan.previousPayment")
     if (
       input.date < loan.trackingDate ||
-      data.events.some((e) => e.date > input.date) ||
+      data.events.some((e) => e.date > input.date && e.date <= today && e.date <= ref.loanDueDate!) ||
       data.rows.some((r) => r.status === "posted" && r.date > input.date)
     )
       throw new AppError("loan.actualDateOrder")
@@ -494,11 +801,7 @@ export async function confirmLoanPayment(ctx: HouseholdCtx, transactionId: strin
     if (principal === undefined || principal < 0 || principal > input.amount)
       throw new AppError("loan.paymentSplit")
     const interest = input.amount - principal
-    const debt =
-      loan.trackingBalance -
-      data.rows.filter((r) => r.status === "posted" && r.type === "transfer").reduce((s, r) => s + r.amount, 0) -
-      data.events.reduce((s, e) => s + (e.balanceDelta ?? 0), 0)
-    if (principal > debt) throw new AppError("loan.paymentExceedsBalance")
+    if (principal > ledgerDebt(loan, data, today)) throw new AppError("loan.paymentExceedsBalance")
     const allocation = { principal, interest }
     for (const part of ["principal", "interest"] as const) {
       const before = parts.find((r) => r.loanPart === part)
@@ -547,7 +850,7 @@ export async function confirmLoanPayment(ctx: HouseholdCtx, transactionId: strin
       .set({ version: loan.version + 1 })
       .where(and(eq(loans.householdId, ctx.householdId), eq(loans.id, loan.id)))
       .returning()
-    await regenerate(tx, updated!, addDays(ref.loanDueDate!, 1), todayIn(ctx.timezone), ctx.locale)
+    await regenerate(tx, updated!, addDays(ref.loanDueDate!, 1), today, ctx.locale)
     await audit(
       {
         action: "loan.payment_confirm",
@@ -569,12 +872,12 @@ export async function closeLoan(ctx: HouseholdCtx, id: string, version: number) 
     const loan = await owned(tx, ctx, id, true)
     if (loan.version !== version) throw conflict()
     const data = await ledger(tx, loan)
-    const debt =
-      loan.trackingBalance -
-      data.rows.filter((r) => r.status === "posted" && r.type === "transfer").reduce((s, r) => s + r.amount, 0) -
-      data.events.reduce((s, e) => s + (e.balanceDelta ?? 0), 0)
-    if (debt !== 0) throw new AppError("loan.debtRemaining")
-    if (data.rows.some((r) => r.status === "planned" && r.loanPart === "interest"))
+    if (ledgerDebt(loan, data, todayIn(ctx.timezone)) !== 0) throw new AppError("loan.debtRemaining")
+    const resolved = new Set(data.rows.filter((r) => r.status !== "planned").map((r) => r.loanDueDate))
+    if (
+      data.rows.some((r) => r.status === "planned" && r.loanPart === "interest") ||
+      schedule(loan, data.events, data.posted).some((r) => r.kind === "scheduled" && r.interest > 0 && !resolved.has(r.date))
+    )
       throw new AppError("loan.interestRemaining")
     await tx
       .delete(transactions)

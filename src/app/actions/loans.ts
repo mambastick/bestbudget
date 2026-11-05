@@ -23,6 +23,27 @@ export async function addLoanEventAction(id: string, version: number, input: Par
   })
 }
 
+export async function updateLoanAction(id: string, version: number, input: loans.LoanUpdate) {
+  return runAction(async () => {
+    await loans.updateLoan(await actionHousehold(), id, version, input)
+    refresh()
+  })
+}
+
+export async function cancelLoanEventAction(id: string, version: number, eventId: string) {
+  return runAction(async () => {
+    await loans.cancelLoanEvent(await actionHousehold(), id, version, eventId)
+    refresh()
+  })
+}
+
+export async function updateLoanHolidayEndAction(id: string, version: number, eventId: string, endDate: string) {
+  return runAction(async () => {
+    await loans.updateLoanHolidayEnd(await actionHousehold(), id, version, eventId, endDate)
+    refresh()
+  })
+}
+
 export async function confirmLoanPaymentAction(id: string, input: Parameters<typeof loans.confirmLoanPayment>[2]) {
   return runAction(async () => {
     await loans.confirmLoanPayment(await actionHousehold(), id, input)

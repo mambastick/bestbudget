@@ -85,7 +85,9 @@ export async function confirmTelegramPayment(userId: string, data: string) {
     .select({ householdId: transactions.householdId })
     .from(transactions)
     .where(eq(transactions.id, payment.id))
-  const ctx = row ? await resolveHouseholdCtx(userId, row.householdId) : null
+  // A plan replaced after the reminder went out, by a new schedule for instance, leaves a stale button.
+  if (!row) throw new AppError("telegram.transactionResolved")
+  const ctx = await resolveHouseholdCtx(userId, row.householdId)
   if (!ctx) throw new AppError("telegram.transactionForbidden")
   const current = await getTransaction(ctx, payment.id)
   if (current.status !== "planned") throw new AppError("telegram.transactionResolved")

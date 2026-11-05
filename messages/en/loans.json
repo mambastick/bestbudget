@@ -18,7 +18,11 @@
     "paid": "Paid",
     "reconciled": "Reconciled",
     "overdue": "Overdue",
-    "planned": "Planned"
+    "planned": "Planned",
+    "restructuring": "Restructured",
+    "holiday": "Holiday",
+    "capitalization": "Interest added to debt",
+    "accrued": "accrued {amount}"
   },
   "summary": {
     "balance": "Outstanding balance",
@@ -126,21 +130,36 @@
     "deleteDescription": "Only loans without posted payments can be deleted. The loan, opening debt and planned payments will be removed.",
     "deleted": "Loan deleted",
     "paidInterest": "Interest paid: {amount}",
-    "terms": "{lender} · rate {rate}% · payoff {payoff} · {status, select, active {active} other {closed}}. Tracking since {trackingDate}."
+    "terms": "{lender} · rate {rate}% · payoff {payoff} · {status, select, active {active} other {closed}}. Tracking since {trackingDate}.",
+    "edit": "Edit",
+    "restructure": "Restructure",
+    "holiday": "Payment holiday"
   },
   "event": {
     "invalidAmount": "Enter a valid amount",
     "updated": "Schedule updated",
     "prepaymentHint": "This records an actual principal repayment from the payment account. Confirm earlier payments first. Interest accrued up to this date stays in the next payment.",
     "reconcileHint": "Enter only the principal balance from your lender. Earlier unconfirmed payments will be reconciled. The difference adjusts the debt without creating income or expenses.",
-    "rateHint": "The new rate applies after this date. Future planned payments will be recalculated.",
+    "rateHint": "The new rate applies after the selected date and future plans are recalculated. The date can be in the future, such as a rate change agreed in the contract.",
     "date": "Event date",
     "rate": "New rate, %",
     "principalBalance": "Outstanding principal",
     "prepaymentAmount": "Prepayment amount",
     "rateDescription": "Rate {rate}%",
     "reconciledDescription": "Reconciled balance: {amount}",
-    "prepaymentDescription": "Prepayment {amount} · {mode, select, reduce_term {shorten term} other {lower payment}}"
+    "prepaymentDescription": "Prepayment {amount} · {mode, select, reduce_term {shorten term} other {lower payment}}",
+    "correctionDescription": "Terms changed",
+    "restructuringDescription": "Restructured",
+    "holidayDescription": "{mode, select, no_payment {Payment holiday} other {Interest-only holiday}} until {end}",
+    "termsLine": "rate {rate}%, next payment {payment}, payoff {end}, balance {balance}",
+    "before": "Before: {terms}",
+    "after": "After: {terms}",
+    "scheduled": "Scheduled",
+    "cancel": "Cancel",
+    "cancelTitle": "Cancel this change?",
+    "cancelDescription": "The schedule returns to the terms before this change. Payments it closed or removed become planned again.",
+    "cancelConfirm": "Cancel change",
+    "cancelled": "Change cancelled"
   },
   "simulator": {
     "enterAmount": "Enter an amount to compare",
@@ -172,5 +191,81 @@
     "namedPayment": "Loan payment: {name}",
     "prepayment": "Prepayment",
     "interestCategory": "Loan interest"
+  },
+  "terms": {
+    "next": "Next payment",
+    "calculate": "What to calculate",
+    "calculatePayment": "Payment",
+    "calculateTerm": "Term",
+    "calculateBoth": "Nothing",
+    "months": "Payments remaining",
+    "end": "End date",
+    "endHint": "The last scheduled payment on or before this date.",
+    "calculatePaymentHint": "The payment is calculated from the term and the balance.",
+    "calculateTermHint": "The term is calculated from the payment and the balance.",
+    "calculateBothHint": "Set the payment and term by hand, as in the contract. The last payment settles the balance."
+  },
+  "change": {
+    "title": "What will change",
+    "rate": "Rate",
+    "remaining": "Payments remaining",
+    "balance": "Principal",
+    "interestAhead": "Interest ahead",
+    "note": "Note (optional)"
+  },
+  "edit": {
+    "title": "Edit loan",
+    "description": "The name, lender and account change right away. New terms recalculate future payments, and the preview shows the result before you save.",
+    "principal": "Original amount",
+    "terms": "Terms and schedule",
+    "hintHistory": "Confirmed payments and past events stay as they are. New terms apply after {date}, and the previous ones remain in the history.",
+    "hintFresh": "There are no payments or events yet, so the schedule is recalculated from the tracking start.",
+    "locked": "The tracking start is fixed by history: {date}, balance {amount}. To correct the debt, reconcile the balance or restructure the loan.",
+    "saved": "Loan saved"
+  },
+  "restructure": {
+    "title": "Restructure loan",
+    "description": "New contract terms from the selected date. The schedule is rebuilt from that date, while prior terms and confirmed payments stay in the history.",
+    "date": "Change date",
+    "balance": "Principal on this date",
+    "balanceHint": "Use the amount from the new contract, including any interest added to the debt. The difference changes the debt without income or an expense.",
+    "balanceAhead": "This date is still ahead, so the debt comes from the schedule. You can set a different one once the date arrives.",
+    "unpaid": "{count, plural, one {# unconfirmed payment} other {# unconfirmed payments}} before this date will be closed, replaced by the new schedule.",
+    "saved": "Restructuring saved"
+  },
+  "holiday": {
+    "title": "Payment holiday",
+    "description": "A period with no payments or with interest only. Payments due within the period are not collected.",
+    "start": "Start",
+    "end": "End",
+    "mode": "What to pay during this period",
+    "modeNoPayment": "Nothing",
+    "modeInterestOnly": "Interest only",
+    "interest": "What happens to interest for the period",
+    "interestOption": {
+      "deferred_end": "Paid at the end of the schedule",
+      "deferred_spread": "Split across later payments",
+      "capitalize": "Added to the debt",
+      "waived": "Not charged"
+    },
+    "interestHint": {
+      "deferred_end": "Interest accumulates separately and earns no further interest. Payments resume as before, and the accumulated amount is paid at the end.",
+      "deferred_spread": "Interest accumulates separately and earns no further interest. The accumulated amount is added in equal parts to the remaining payments.",
+      "capitalize": "On the last day of the holiday, interest is added to the debt and starts earning interest itself. The payment is recalculated.",
+      "waived": "No interest is charged for the period. Interest accrued before the holiday is included in the first payment after it."
+    },
+    "shift": "How the schedule moves",
+    "shiftExtend": "Extend the term",
+    "shiftKeep": "Keep the end date",
+    "shiftExtendHint": "Remaining payments move by the length of the holiday, and the end date comes later.",
+    "shiftKeepHint": "The end date stays and the remaining payments rise. Interest deferred to the end is included in the last payment.",
+    "skipped": "Not collected: {count, plural, one {# payment} other {# payments}}, from {from} to {to}.",
+    "interestOnlySlots": "Interest only: {count, plural, one {# payment} other {# payments}}, from {from} to {to}.",
+    "accrued": "Interest for the period: {amount}.",
+    "saved": "Payment holiday saved",
+    "endEdit": "Change end date",
+    "endTitle": "End of the holiday",
+    "endHint": "To end the holiday early, pick a new date no earlier than today ({date}). Payments after it return to the schedule.",
+    "endSaved": "End of the holiday changed"
   }
 }

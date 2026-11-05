@@ -33,15 +33,23 @@ export function LoanSchedule({
       ? t("status.prepayment")
       : r.kind === "reconciliation"
         ? t("status.reconciliation")
-        : r.status === "posted"
-          ? t("status.paid")
-          : r.status === "skipped"
-            ? t("status.reconciled")
-            : closed
-              ? t("status.closed")
-              : r.date < today
-                ? t("status.overdue")
-                : t("status.planned")
+        : r.kind === "restructuring"
+          ? t("status.restructuring")
+          : r.kind === "holiday"
+            ? t("status.holiday")
+            : r.kind === "capitalization"
+              ? t("status.capitalization")
+              : r.status === "posted"
+                ? t("status.paid")
+                : r.status === "skipped"
+                  ? t("status.reconciled")
+                  : closed
+                    ? t("status.closed")
+                    : r.date < today
+                      ? t("status.overdue")
+                      : t("status.planned")
+  const accrued = (r: Row) =>
+    r.accrued ? <span className="text-xs text-muted-foreground">{t("status.accrued", { amount: formatMoney(r.accrued, currency, { locale }) })}</span> : null
   const action = (r: Row) =>
     loanId && !closed && r.kind === "scheduled" && (!r.status || r.status === "planned") ? (
       <Button size="sm" variant="outline" onClick={() => ops.openLoan(loanId, r.date)}>
@@ -75,6 +83,7 @@ export function LoanSchedule({
                 <TableCell>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="outline">{label(r)}</Badge>
+                    {accrued(r)}
                     {action(r)}
                   </div>
                 </TableCell>
@@ -92,6 +101,7 @@ export function LoanSchedule({
               </span>
               <Badge variant="outline">{label(r)}</Badge>
             </div>
+            {accrued(r)}
             <dl className="my-3 grid grid-cols-2 gap-2 text-xs">
               {[
                 [t("schedule.payment"), r.payment],

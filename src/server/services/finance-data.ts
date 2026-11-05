@@ -1,5 +1,5 @@
 import "server-only"
-import { and, eq, sql, notInArray, isNull, or, lt, ne } from "drizzle-orm"
+import { and, eq, sql, notInArray, isNotNull, isNull, or, lt, ne } from "drizzle-orm"
 import { getDb } from "@/db"
 import { financialAccounts, transactions, loanEvents, loans } from "@/db/schema"
 import { addDays, todayIn } from "@/lib/dates"
@@ -15,6 +15,8 @@ import { createConverter, loadRates } from "./exchange-rates"
 export async function loadFinance(ctx: HouseholdCtx, valuationDates: string[] = [], locale = "ru", excludeRules: string[] = []) {
   const db = getDb()
   const today = todayIn(ctx.timezone)
+  // Interest capitalized by a holiday joins the debt when the holiday ends, other adjustments on their own date.
+  const adjustmentDate = sql`case when ${loanEvents.type} = 'holiday' then ${loanEvents.endDate} else ${loanEvents.date} end`
   const [accounts, grouped, adjustments] = await Promise.all([
     db.select().from(financialAccounts).where(eq(financialAccounts.householdId, ctx.householdId)),
     db.select({
@@ -29,9 +31,9 @@ export async function loadFinance(ctx: HouseholdCtx, valuationDates: string[] = 
       count: sql<number>`count(*)::int`,
     }).from(transactions).where(and(eq(transactions.householdId, ctx.householdId), sql`${transactions.status} <> 'skipped'`, excludeRules.length ? or(ne(transactions.status, "planned"), lt(transactions.occurrenceDate, today), isNull(transactions.recurringRuleId), notInArray(transactions.recurringRuleId, excludeRules)) : undefined))
       .groupBy(transactions.accountId, transactions.toAccountId, transactions.categoryId, transactions.date, transactions.type, transactions.status),
-    db.select({ accountId: loans.accountId, date: loanEvents.date, delta: loanEvents.balanceDelta }).from(loanEvents)
+    db.select({ accountId: loans.accountId, date: sql<string>`${adjustmentDate}::text`, delta: loanEvents.balanceDelta }).from(loanEvents)
       .innerJoin(loans, and(eq(loans.householdId, loanEvents.householdId), eq(loans.id, loanEvents.loanId)))
-      .where(and(eq(loanEvents.householdId, ctx.householdId), eq(loanEvents.type, "reconciliation"))),
+      .where(and(eq(loanEvents.householdId, ctx.householdId), isNotNull(loanEvents.balanceDelta), sql`${adjustmentDate} <= ${today}::date`)),
   ])
   const accountMap = new Map(accounts.map((a) => [a.id, a]))
   const rows = grouped.map((r) => ({ ...r, amount: Number(r.amount), toAmount: Number(r.toAmount), currency: accountMap.get(r.accountId)!.currency }))

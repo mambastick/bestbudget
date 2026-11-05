@@ -46,7 +46,7 @@ Synthetic demo data, light theme. No bank credentials or real family finances.
 - **Recurring payments:** daily, weekly, monthly and yearly schedules; several salary dates; confirm the actual amount/date, skip one occurrence or edit future payments.
 - **Calendar and cash flow:** daily balance forecast, upcoming obligations and warnings about cash gaps; monthly category budgets without blocking transactions.
 - **Multiple currencies:** accounts and transfers with separate debit/credit amounts; household base-currency reports; cached Bank of Russia rates or manual rates for offline installations.
-- **Loans:** mortgages and consumer loans, annuity/differentiated schedules, principal/interest split, prepayments, rate changes, debt reconciliation and credit-card limits.
+- **Loans:** mortgages and consumer loans, annuity/differentiated schedules, principal/interest split, prepayments, editable terms, rate changes, restructuring, payment holidays, debt reconciliation and credit-card limits.
 - **Savings goals:** account allocations, manual contributions, emergency fund based on spending history, progress forecasts and recurring planned top-ups.
 - **Statement import:** CSV/XLSX column mapping, preview, duplicate checks, own transfers, planned-payment confirmation, category rules and batch undo. [Import guide](docs/import.md).
 - **Reminders:** opt-in Telegram and Web Push for payments, overdue items, cash gaps and budget overruns; quiet hours and daily digests. [Notifications](docs/notifications.md).
