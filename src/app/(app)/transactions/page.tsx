@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server"
 import { ListOrdered, Repeat } from "lucide-react"
 import type { Metadata } from "next"
+import Link from "next/link"
 import { LinkButton } from "@/components/app/link-button"
 import { EmptyState } from "@/components/app/empty-state"
 import { NavTabs } from "@/components/app/nav-tabs"
@@ -12,7 +13,7 @@ import { PageHeader } from "@/components/app/page-header"
 import { requireHousehold } from "@/server/session"
 import { ensureLoansMaterialized } from "@/server/services/loans"
 import { ensureMaterialized, listRules } from "@/server/services/recurring"
-import { listTransactions, transactionFilters } from "@/server/services/transactions"
+import { listPlannedTransactions, listTransactions, transactionFilters } from "@/server/services/transactions"
 import { todayIn } from "@/lib/dates"
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -89,7 +90,11 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
 
   const parsed = transactionFilters.safeParse(Object.fromEntries(Object.entries(sp).filter(([k, v]) => k !== "tab" && typeof v === "string" && v !== "")))
   const filters = parsed.success ? parsed.data : transactionFilters.parse({})
-  const { rows, hasMore, page } = await listTransactions(ctx, filters)
+  const [list, planned] = await Promise.all([
+    listTransactions(ctx, { ...filters, status: filters.status ?? "posted" }),
+    !filters.status && filters.page === 1 ? listPlannedTransactions(ctx, filters) : null,
+  ])
+  const { rows, hasMore, page } = list
   const filtered = Boolean(filters.q || filters.type || filters.status || filters.categoryId || filters.accountId || filters.from || filters.to)
 
   const pageHref = (p: number) => {
@@ -97,36 +102,48 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
     params.set("page", String(p))
     return `/transactions?${params}`
   }
+  const plannedParams = new URLSearchParams(Object.entries(sp).filter((e): e is [string, string] => typeof e[1] === "string"))
+  plannedParams.set("status", "planned")
+  plannedParams.delete("page")
+  const heading = filters.status === "planned" ? "plannedHeading" : filters.status === "skipped" ? "skippedHeading" : "postedHeading"
+  const pagination = page > 1 || hasMore ? (
+    <div className="flex justify-center gap-2">
+      {page > 1 ? <LinkButton variant="outline" href={pageHref(page - 1)}>{t("back")}</LinkButton> : null}
+      {hasMore ? <LinkButton variant="outline" href={pageHref(page + 1)}>{t("next")}</LinkButton> : null}
+    </div>
+  ) : null
 
   return (
     <div className="grid grid-cols-1 gap-6">
       <PageHeader title={t("title")} description={t("description")} />
       {tabs}
       <TransactionFilters />
-      {rows.length === 0 ? (
+      {planned && planned.rows.length > 0 ? (
+        <section aria-labelledby="planned-heading" className="grid min-w-0 gap-3">
+          <h2 id="planned-heading" className="text-lg font-semibold">{t("plannedHeading")}</h2>
+          <TransactionList rows={planned.rows} today={todayIn(ctx.timezone)} showNet={false} />
+          {planned.total > planned.rows.length ? (
+            <Link href={`/transactions?${plannedParams}`} className="w-fit text-sm font-medium text-primary hover:underline">
+              {t("showAllPlanned", { count: planned.total })}
+            </Link>
+          ) : null}
+        </section>
+      ) : null}
+      {rows.length === 0 && !planned?.rows.length ? (
         <EmptyState
           icon={ListOrdered}
           title={filtered ? t("noResults") : t("noTransactions")}
           description={filtered ? t("noResultsHint") : t("noTransactionsHint")}
           action={filtered ? undefined : <QuickAddButton label={t("addTransaction")} />}
         />
-      ) : (
-        <TransactionList rows={rows} today={todayIn(ctx.timezone)} />
-      )}
-      {page > 1 || hasMore ? (
-        <div className="flex justify-center gap-2">
-          {page > 1 ? (
-            <LinkButton variant="outline" href={pageHref(page - 1)}>
-              {t("back")}
-            </LinkButton>
-          ) : null}
-          {hasMore ? (
-            <LinkButton variant="outline" href={pageHref(page + 1)}>
-              {t("next")}
-            </LinkButton>
-          ) : null}
-        </div>
       ) : null}
+      {rows.length > 0 ? (
+        <section aria-labelledby="transactions-heading" className="grid min-w-0 gap-3">
+          <h2 id="transactions-heading" className="text-lg font-semibold">{t(heading)}</h2>
+          <TransactionList rows={rows} today={todayIn(ctx.timezone)} showNet={filters.status !== "planned"} />
+          {pagination}
+        </section>
+      ) : pagination}
     </div>
   )
 }

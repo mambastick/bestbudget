@@ -10,9 +10,12 @@ import {
   createTransaction,
   deleteTransaction,
   listTransactions,
+  listPlannedTransactions,
+  exportTransactions,
   skipTransaction,
   updateTransaction,
 } from "@/server/services/transactions"
+import { createLoan } from "@/server/services/loans"
 import { createGoal, listGoals } from "@/server/services/goals"
 import { getBudgets } from "@/server/services/budgets"
 import { errorMessage } from "@/i18n/errors"
@@ -398,5 +401,96 @@ describe("category names", () => {
     await expect(setCategoryArchived(ctx, first.id, false)).rejects.toMatchObject({ messageKey: "category.duplicateName" })
     expect(errorMessage("category.duplicateName", {}, "ru")).toBe("Активная категория с таким названием уже существует. Выберите другое название.")
     expect(errorMessage("category.duplicateName", {}, "en")).toBe("An active category with this name already exists. Choose another name.")
+  })
+})
+
+
+describe("planned and posted transaction lists", () => {
+  it("previews the earliest eight plans, counts all and paginates each status independently", async () => {
+    const { ctx, cat, mainAccount, owner } = await setupHousehold()
+    const dates = ["2026-10-01", "2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-12-01", "2027-01-01", "2027-02-01"]
+    await getDb().insert(transactions).values(dates.flatMap((date, i) => ([
+      { householdId: ctx.householdId, createdBy: owner.id, accountId: mainAccount, categoryId: cat("Продукты"), type: "expense" as const, status: "planned" as const, amount: 100, date, title: `Plan ${i}` },
+      { householdId: ctx.householdId, createdBy: owner.id, accountId: mainAccount, categoryId: cat("Продукты"), type: "expense" as const, status: "posted" as const, amount: 100, date, title: `Posted ${i}` },
+    ])))
+    const preview = await listPlannedTransactions(ctx, { page: 2 })
+    expect(preview.total).toBe(9)
+    expect(preview.rows.map((r) => r.date)).toEqual(dates.slice(0, 8))
+    expect((await listTransactions(ctx, { status: "posted" })).rows.map((r) => r.date)).toEqual([...dates].reverse())
+    expect((await listTransactions(ctx, { status: "planned" })).rows.map((r) => r.date)).toEqual(dates)
+    // The no-status service contract and CSV order remain unchanged.
+    const legacy = await listTransactions(ctx, {})
+    expect(legacy.rows.map((r) => r.date)).toEqual(dates.flatMap((d) => [d, d]).reverse())
+    expect((await exportTransactions(ctx, {})).map((r) => r.date)).toEqual(dates.flatMap((d) => [d, d]))
+
+    await getDb().insert(transactions).values(Array.from({ length: 51 }, (_, i) => ({
+      householdId: ctx.householdId, createdBy: owner.id, accountId: mainAccount, categoryId: cat("Продукты"),
+      type: "expense" as const, status: "planned" as const, amount: 100, date: `2027-03-${String(i % 28 + 1).padStart(2, "0")}`, title: "More plans",
+    })))
+    const first = await listTransactions(ctx, { status: "planned" })
+    const second = await listTransactions(ctx, { status: "planned", page: 2 })
+    expect(first.rows).toHaveLength(50)
+    expect(first.hasMore).toBe(true)
+    expect(second.rows).toHaveLength(10)
+    expect(second.hasMore).toBe(false)
+    expect([...first.rows, ...second.rows].map((r) => r.date)).toEqual([...first.rows, ...second.rows].map((r) => r.date).sort())
+    expect((await listTransactions(ctx, { status: "posted" })).rows).toHaveLength(9)
+    expect((await listPlannedTransactions(ctx, {})).total).toBe(60)
+  })
+
+  it("applies every filter to both lists and the count, including category search and household scope", async () => {
+    const { ctx, cat, mainAccount } = await setupHousehold()
+    const extra = await createAccount(ctx, { name: "Synthetic secondary", kind: "cash", openingBalance: 0 })
+    for (const status of ["planned", "posted"] as const) {
+      await createTransaction(ctx, { type: "expense", status, amount: 100, accountId: mainAccount, categoryId: cat("Продукты"), title: "Synthetic target", description: "Description match", date: "2026-11-02" })
+      await createTransaction(ctx, { type: "income", status, amount: 100, accountId: extra.id, categoryId: cat("Зарплата"), title: "Other", date: "2026-11-10" })
+    }
+    const foreign = await setupHousehold()
+    await createTransaction(foreign.ctx, { type: "expense", status: "planned", amount: 100, accountId: foreign.mainAccount, categoryId: foreign.cat("Продукты"), title: "Synthetic target", date: "2026-11-02" })
+    const cases = [
+      { q: "target" }, { q: "Description match" }, { q: "Продукты" }, { type: "expense" as const },
+      { categoryId: cat("Продукты") }, { accountId: mainAccount }, { from: "2026-11-01", to: "2026-11-03" },
+      { q: "Продукты", type: "expense" as const, categoryId: cat("Продукты"), accountId: mainAccount, from: "2026-11-01", to: "2026-11-03" },
+    ]
+    for (const filter of cases) {
+      const planned = await listPlannedTransactions(ctx, filter)
+      expect(planned.total).toBe(1)
+      expect(planned.rows.map((r) => r.title)).toEqual(["Synthetic target"])
+      expect((await listTransactions(ctx, { ...filter, status: "posted" })).rows.map((r) => r.title)).toEqual(["Synthetic target"])
+    }
+    for (const filter of [{ from: "2026-11-11" }, { to: "2026-11-01" }, { q: "missing" }]) {
+      expect(await listPlannedTransactions(ctx, filter)).toEqual({ rows: [], total: 0 })
+      expect((await listTransactions(ctx, { ...filter, status: "posted" })).rows).toEqual([])
+    }
+  })
+
+  it("counts a loan payment once and preserves both ledger rows in CSV", async () => {
+    const { ctx, mainAccount } = await setupHousehold()
+    await createLoan(ctx, {
+      name: "Synthetic loan", lender: "Synthetic bank", kind: "consumer", principal: 100_000_00, trackingBalance: 100_000_00,
+      annualRate: "12", trackingDate: "2026-10-31", startDate: "2026-10-31", firstPaymentDate: "2026-11-01",
+      termMonths: 12, paymentDay: 1, scheduleType: "annuity", interestMethod: "monthly", paymentAccountId: mainAccount,
+    })
+    const filter = { from: "2026-11-01", to: "2026-11-01", accountId: mainAccount, type: "expense" as const }
+    const preview = await listPlannedTransactions(ctx, filter)
+    expect(preview.total).toBe(1)
+    expect(preview.rows).toHaveLength(1)
+    expect(preview.rows[0]!.loanPrincipal).toBeGreaterThan(0)
+    expect(preview.rows[0]!.loanInterest).toBeGreaterThan(0)
+    const ledger = await exportTransactions(ctx, { from: filter.from, to: filter.to })
+    expect(ledger).toHaveLength(2)
+    expect(ledger.map((r) => r.loanPart).sort()).toEqual(["interest", "principal"])
+    expect(ledger.reduce((sum, r) => sum + r.amount, 0)).toBe(preview.rows[0]!.amount)
+  })
+
+  it("keeps skipped rows descending and excludes them from the preview", async () => {
+    const { ctx, cat, mainAccount } = await setupHousehold()
+    const [rule] = await createRules(ctx, { rule: {
+      type: "expense", title: "Synthetic skipped", amount: 100, accountId: mainAccount, categoryId: cat("Продукты"),
+      frequency: "daily", startDate: "2026-11-01", endDate: "2026-11-02",
+    } })
+    for (const row of await ruleRows(rule!.id)) await skipTransaction(ctx, row.id, row.version)
+    expect((await listTransactions(ctx, { status: "skipped" })).rows.map((r) => r.date)).toEqual(["2026-11-02", "2026-11-01"])
+    expect(await listPlannedTransactions(ctx, {})).toEqual({ rows: [], total: 0 })
   })
 })

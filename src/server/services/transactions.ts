@@ -2,7 +2,7 @@ import "server-only"
 import { createTranslator } from "use-intl/core"
 import ru from "../../../messages/ru/transactions.json"
 import en from "../../../messages/en/transactions.json"
-import { and, desc, eq, gte, ilike, inArray, lte, or, sql, type SQL } from "drizzle-orm"
+import { and, asc, count, desc, eq, gte, ilike, inArray, lte, or, sql, type SQL } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { z } from "zod"
 import { getDb, type DbOrTx } from "@/db"
@@ -292,6 +292,7 @@ export const transactionFilters = z.object({
 export type TransactionFilters = z.input<typeof transactionFilters>
 
 export const PAGE_SIZE = 50
+export const PLANNED_PREVIEW_SIZE = 8
 
 const toAccounts = alias(financialAccounts, "to_accounts")
 const authors = alias(users, "authors")
@@ -368,10 +369,24 @@ export async function listTransactions(ctx: HouseholdCtx, raw: TransactionFilter
   assertCan(ctx, "finance.read")
   const f = transactionFilters.parse(raw)
   const rows = await transactionListQuery(and(filterConditions(ctx, f), loanDisplayCondition))
-    .orderBy(desc(transactions.date), desc(transactions.createdAt))
+    .orderBy(f.status === "planned" ? asc(transactions.date) : desc(transactions.date), desc(transactions.createdAt))
     .limit(PAGE_SIZE + 1)
     .offset((f.page - 1) * PAGE_SIZE)
   return { rows: rows.slice(0, PAGE_SIZE), hasMore: rows.length > PAGE_SIZE, page: f.page }
+}
+
+/** Nearest planned display rows and their filtered total, independent of posted pagination. */
+export async function listPlannedTransactions(ctx: HouseholdCtx, raw: TransactionFilters) {
+  assertCan(ctx, "finance.read")
+  const f = transactionFilters.parse({ ...raw, status: "planned" })
+  const where = and(filterConditions(ctx, f), loanDisplayCondition)
+  const [rows, [total]] = await Promise.all([
+    transactionListQuery(where).orderBy(asc(transactions.date), desc(transactions.createdAt)).limit(PLANNED_PREVIEW_SIZE),
+    getDb().select({ count: count() }).from(transactions)
+      .leftJoin(categories, eq(categories.id, transactions.categoryId))
+      .where(where),
+  ])
+  return { rows, total: total!.count }
 }
 
 /** Upper bound for a single export; a family accumulates far fewer operations. */

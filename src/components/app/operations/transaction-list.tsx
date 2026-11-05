@@ -22,8 +22,8 @@ export type ListRow = OperationRow & {
   authorName: string | null
 }
 
-/** Operations grouped by day with a net total per day. */
-export function TransactionList({ rows, today }: { rows: ListRow[]; today: IsoDate }) {
+/** Operations grouped by day, optionally showing the posted net total. */
+export function TransactionList({ rows, today, showNet = true }: { rows: ListRow[]; today: IsoDate; showNet?: boolean }) {
   const t = useTranslations("transactions")
   const locale = useLocale()
   const groups = new Map<string, ListRow[]>()
@@ -40,7 +40,7 @@ export function TransactionList({ rows, today }: { rows: ListRow[]; today: IsoDa
               <span className="font-medium tracking-wide uppercase">
                 {date === today ? t("today") : formatDay(date, locale)} · {formatWeekday(date, locale)}
               </span>
-              {net !== 0 && items.every((i) => accounts.find((a) => a.id === i.accountId)?.currency === currency) ? <Money value={net} currency={currency} tone="neutral" className="text-xs" /> : null}
+              {showNet && net !== 0 && items.every((i) => accounts.find((a) => a.id === i.accountId)?.currency === currency) ? <Money value={net} currency={currency} tone="neutral" className="text-xs" /> : null}
             </div>
             <ul className="divide-y overflow-hidden rounded-xl border bg-card">
               {items.map((r) => (
