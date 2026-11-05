@@ -6,40 +6,33 @@ import { LocalizedError, errorMessage } from "@/i18n/errors"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Line, LineChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts"
-import { addLoanEventAction, closeLoanAction, deleteLoanAction } from "@/app/actions/loans"
+import { addLoanEventAction, cancelLoanEventAction, closeLoanAction, deleteLoanAction } from "@/app/actions/loans"
 import { ConfirmDialog } from "@/components/app/confirm-dialog"
 import { DateField } from "@/components/app/date-field"
 import { MoneyInput } from "@/components/app/money-input"
 import { Segmented } from "@/components/app/segmented"
+import { Badge } from "@/components/ui/badge"
 import { ChartContainer } from "@/components/ui/chart"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { calculateLoanSchedule, type LoanEventInput, type PrepaymentMode } from "@/domain/loan"
+import { calculateLoanSchedule, toLoanEventInput, type LoanTermsSnapshot, type PrepaymentMode } from "@/domain/loan"
 import { useAction } from "@/hooks/use-action"
 import { addDays, formatDateFull, formatMonth } from "@/lib/dates"
 import { formatMoney, formatMoneyCompact, parseMoney } from "@/lib/money"
-import type { getLoan } from "@/server/services/loans"
+import { HolidayEndForm, HolidayForm, LoanEditForm, RestructuringForm, type LoanDetailData as Detail } from "./loan-changes"
 import { LoanSchedule } from "./loan-schedule"
 
-type Detail = Awaited<ReturnType<typeof getLoan>>
-
-function eventsFor(d: Detail): LoanEventInput[] {
-  return d.events.map((e) =>
-    e.type === "prepayment"
-      ? { type: e.type, date: e.date, amount: e.amount!, mode: e.mode! }
-      : e.type === "rate_change"
-        ? { type: e.type, date: e.date, annualRate: e.annualRate! }
-        : { type: e.type, date: e.date, balance: e.balance! },
-  )
-}
+type LedgerEventType = "prepayment" | "rate_change" | "reconciliation"
+type ChangeForm = "edit" | "restructuring" | "holiday" | { holidayEnd: string }
 
 export function LoanDetail({ data: d, today, canManage }: { data: Detail; today: string; canManage: boolean }) {
   const t = useTranslations("loans")
   const locale = useLocale()
-  const [eventType, setEventType] = useState<LoanEventInput["type"] | null>(null)
+  const [eventType, setEventType] = useState<LedgerEventType | null>(null)
+  const [change, setChange] = useState<ChangeForm | null>(null)
   const { run, pending } = useAction()
   const router = useRouter()
   const active = d.loan.status === "active"
@@ -61,17 +54,24 @@ export function LoanDetail({ data: d, today, canManage }: { data: Detail; today:
       <p className="text-sm text-muted-foreground">
         {t("detail.terms", {
           lender: d.loan.lender,
-          rate: Number(d.events.filter((e) => e.type === "rate_change").at(-1)?.annualRate ?? d.loan.annualRate).toLocaleString(locale, {
-            maximumFractionDigits: 6,
-          }),
+          rate: Number(d.terms.annualRate).toLocaleString(locale, { maximumFractionDigits: 6 }),
           payoff: d.payoffDate ? formatDateFull(d.payoffDate, locale) : "—",
           status: d.loan.status,
           trackingDate: formatDateFull(d.loan.trackingDate, locale),
         })}
       </p>
       {active && canManage ? (
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap [&_button]:px-2 sm:[&_button]:px-3">
           <Button onClick={() => setEventType("prepayment")}>{t("detail.prepay")}</Button>
+          <Button variant="outline" onClick={() => setChange("edit")}>
+            {t("detail.edit")}
+          </Button>
+          <Button variant="outline" onClick={() => setChange("restructuring")}>
+            {t("detail.restructure")}
+          </Button>
+          <Button variant="outline" onClick={() => setChange("holiday")}>
+            {t("detail.holiday")}
+          </Button>
           <Button variant="outline" onClick={() => setEventType("rate_change")}>
             {t("detail.changeRate")}
           </Button>
@@ -130,29 +130,7 @@ export function LoanDetail({ data: d, today, canManage }: { data: Detail; today:
         </CardContent>
       </Card>
       {active ? <PrepaymentSimulator data={d} today={today} /> : null}
-      {d.events.length ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              <h2>{t("detail.events")}</h2>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="grid grid-cols-1 gap-2 text-sm">
-              {d.events.map((e) => (
-                <li key={e.id} className="break-words">
-                  {formatDateFull(e.date, locale)} ·{" "}
-                  {e.type === "rate_change"
-                    ? t("event.rateDescription", { rate: Number(e.annualRate).toLocaleString(locale, { maximumFractionDigits: 6 }) })
-                    : e.type === "reconciliation"
-                      ? t("event.reconciledDescription", { amount: formatMoney(e.balance!, d.currency, { locale }) })
-                      : t("event.prepaymentDescription", { amount: formatMoney(e.amount!, d.currency, { locale }), mode: e.mode! })}
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      ) : null}
+      {d.events.length ? <LoanEvents data={d} today={today} canManage={canManage && active} onChangeHoliday={setChange} /> : null}
       <section className="min-w-0">
         <h2 className="mb-3 text-lg font-semibold">{t("detail.schedule")}</h2>
         <LoanSchedule rows={d.rows} currency={d.currency} today={today} loanId={d.loan.id} closed={!active} />
@@ -176,6 +154,16 @@ export function LoanDetail({ data: d, today, canManage }: { data: Detail; today:
           {eventType ? <EventForm key={eventType} type={eventType} data={d} today={today} onClose={() => setEventType(null)} /> : null}
         </DialogContent>
       </Dialog>
+      <Dialog open={change !== null} onOpenChange={(o) => !o && setChange(null)}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+          {change === "edit" ? <LoanEditForm data={d} today={today} onClose={() => setChange(null)} /> : null}
+          {change === "restructuring" ? <RestructuringForm data={d} today={today} onClose={() => setChange(null)} /> : null}
+          {change === "holiday" ? <HolidayForm data={d} today={today} onClose={() => setChange(null)} /> : null}
+          {typeof change === "object" && change ? (
+            <HolidayEndForm data={d} eventId={change.holidayEnd} today={today} onClose={() => setChange(null)} />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -192,7 +180,104 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
   )
 }
 
-function EventForm({ type, data: d, today, onClose }: { type: LoanEventInput["type"]; data: Detail; today: string; onClose: () => void }) {
+function LoanEvents({
+  data: d,
+  today,
+  canManage,
+  onChangeHoliday,
+}: {
+  data: Detail
+  today: string
+  canManage: boolean
+  onChangeHoliday: (form: ChangeForm) => void
+}) {
+  const t = useTranslations("loans")
+  const locale = useLocale()
+  const { run } = useAction()
+  const money = (value: number | null) => (value === null ? "—" : formatMoney(value, d.currency, { locale }))
+  const percent = (value: string | number) => Number(value).toLocaleString(locale, { maximumFractionDigits: 6 })
+  const describe = (e: Detail["events"][number]) => {
+    if (e.type === "rate_change") return t("event.rateDescription", { rate: percent(e.annualRate!) })
+    if (e.type === "reconciliation") return t("event.reconciledDescription", { amount: money(e.balance) })
+    if (e.type === "prepayment") return t("event.prepaymentDescription", { amount: money(e.amount), mode: e.mode! })
+    if (e.type === "correction") return t("event.correctionDescription")
+    if (e.type === "restructuring") return t("event.restructuringDescription")
+    return [
+      t("event.holidayDescription", { mode: e.holidayMode!, end: formatDateFull(e.endDate!, locale) }),
+      ...(e.holidayInterest ? [t(`holiday.interestOption.${e.holidayInterest}`)] : []),
+      e.holidayShift === "extend_term" ? t("holiday.shiftExtend") : t("holiday.shiftKeep"),
+    ].join(" · ")
+  }
+  const termsLine = (s: LoanTermsSnapshot) =>
+    t("event.termsLine", {
+      rate: percent(s.annualRate),
+      payment: money(s.nextPayment),
+      end: s.endDate ? formatDateFull(s.endDate, locale) : "—",
+      balance: money(s.balance),
+    })
+  const canCancel = (e: Detail["events"][number]) =>
+    canManage &&
+    !d.events.some((other) => other.id !== e.id && other.date >= e.date) &&
+    e.type !== "prepayment" &&
+    e.type !== "reconciliation" &&
+    !d.posted.some((p) => p.dueDate > e.date)
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          <h2>{t("detail.events")}</h2>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ul className="grid grid-cols-1 gap-3 text-sm">
+          {d.events.map((e) => (
+            <li key={e.id} className="grid min-w-0 grid-cols-1 gap-1 break-words">
+              <div className="flex flex-wrap items-center gap-2">
+                <span>
+                  {formatDateFull(e.date, locale)} · {describe(e)}
+                </span>
+                {e.date > today ? <Badge variant="outline">{t("event.scheduled")}</Badge> : null}
+              </div>
+              {e.terms ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("event.before", { terms: termsLine(e.terms.before) })}
+                  <br />
+                  {t("event.after", { terms: termsLine(e.terms.after) })}
+                </p>
+              ) : null}
+              {e.note ? <p className="text-xs text-muted-foreground">{e.note}</p> : null}
+              {canManage && (canCancel(e) || (e.type === "holiday" && e.endDate! >= today)) ? (
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {e.type === "holiday" && e.endDate! >= today ? (
+                    <Button size="sm" variant="outline" onClick={() => onChangeHoliday({ holidayEnd: e.id })}>
+                      {t("holiday.endEdit")}
+                    </Button>
+                  ) : null}
+                  {canCancel(e) ? (
+                    <ConfirmDialog
+                      trigger={
+                        <Button size="sm" variant="outline">
+                          {t("event.cancel")}
+                        </Button>
+                      }
+                      title={t("event.cancelTitle")}
+                      description={t("event.cancelDescription")}
+                      confirmLabel={t("event.cancelConfirm")}
+                      destructive={false}
+                      onConfirm={() => run(() => cancelLoanEventAction(d.loan.id, d.loan.version, e.id), { success: t("event.cancelled") })}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  )
+}
+
+function EventForm({ type, data: d, today, onClose }: { type: LedgerEventType; data: Detail; today: string; onClose: () => void }) {
   const t = useTranslations("loans")
   const modeOptions = [
     { value: "reduce_term" as const, label: t("prepayment.reduce_term") },
@@ -210,7 +295,7 @@ function EventForm({ type, data: d, today, onClose }: { type: LoanEventInput["ty
     e.preventDefault()
     const value = parseMoney(amount, d.currency)
     if (type !== "rate_change" && (value === null || (type === "prepayment" && value === 0))) return setError(t("event.invalidAmount"))
-    const event: LoanEventInput =
+    const event =
       type === "rate_change"
         ? { type, date, annualRate: rate.replace(",", ".") }
         : type === "reconciliation"
@@ -276,7 +361,7 @@ function PrepaymentSimulator({ data: d, today }: { data: Detail; today: string }
   const results = modeOptions.map(({ value: mode, label }) => {
     if (!value) return { mode, label, error: t("simulator.enterAmount") }
     try {
-      const rows = calculateLoanSchedule(d.loan, [...eventsFor(d), { type: "prepayment", date, amount: value, mode }], d.posted)
+      const rows = calculateLoanSchedule(d.loan, [...d.events.map(toLoanEventInput), { type: "prepayment", date, amount: value, mode }], d.posted)
       const next = rows.find((r) => r.kind === "scheduled" && r.date > date)
       return {
         mode,

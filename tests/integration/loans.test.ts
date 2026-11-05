@@ -312,7 +312,7 @@ describe("loans", () => {
     expect((await getDashboard(f.ctx, f.today)).netAssets).toBe(-50_000_00 - current.posted[0]!.principal - current.paidInterest)
   })
 
-  it("changes rates, enforces versions and rejects backdated/future changes", async () => {
+  it("changes rates, enforces versions and rejects backdated changes", async () => {
     const f = await fixture()
     await confirmFirst(f)
     const d = await getLoan(f.ctx, f.loan.id)
@@ -322,7 +322,10 @@ describe("loans", () => {
       "изменены",
     )
     await expect(
-      addLoanEvent(f.ctx, f.loan.id, d.loan.version + 1, { type: "rate_change", date: addDays(f.today, 1), annualRate: "7" }),
+      addLoanEvent(f.ctx, f.loan.id, d.loan.version + 1, { type: "rate_change", date: addDays(f.today, -1), annualRate: "7" }),
+    ).rejects.toThrow()
+    await expect(
+      addLoanEvent(f.ctx, f.loan.id, d.loan.version + 1, { type: "prepayment", date: addDays(f.today, 1), amount: 100, mode: "reduce_term" }),
     ).rejects.toThrow()
   })
 

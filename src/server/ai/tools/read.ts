@@ -189,7 +189,7 @@ registerTool({
         status: data.loan.status,
         futureInterest: data.futureInterest,
         payoffDate: data.payoffDate,
-        annualRate: data.loan.annualRate,
+        annualRate: data.terms.annualRate,
         next: data.next ? { date: data.next.date, payment: data.next.payment } : null,
       })
     }

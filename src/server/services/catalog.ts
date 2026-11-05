@@ -4,6 +4,7 @@ import { z } from "zod"
 import { getDb } from "@/db"
 import { accountKind, categories, financialAccounts, goals, recurringRules, transactions, loans } from "@/db/schema"
 import { CURRENCY_CODES } from "@/lib/currencies"
+import { todayIn } from "@/lib/dates"
 import { audit, diff } from "../audit"
 import { assertCan, type HouseholdCtx } from "../context"
 import { AppError, conflict, notFound } from "../errors"
@@ -138,7 +139,7 @@ export async function listAccounts(ctx: HouseholdCtx, opts: { includeArchived?: 
       creditLimit: a.creditLimit,
       archivedAt: a.archivedAt,
       sortOrder: a.sortOrder,
-      delta: sql<string>`${balanceDelta} + coalesce((select sum(e.balance_delta) from loan_events e join loans l on l.id = e.loan_id and l.household_id = e.household_id where l.household_id = ${a.householdId} and l.account_id = ${a.id}), 0)`,
+      delta: sql<string>`${balanceDelta} + coalesce((select sum(e.balance_delta) from loan_events e join loans l on l.id = e.loan_id and l.household_id = e.household_id where l.household_id = ${a.householdId} and l.account_id = ${a.id} and (case when e.type = 'holiday' then e.end_date else e.date end) <= ${todayIn(ctx.timezone)}::date), 0)`,
       operations: sql<number>`(select count(*)::int from transactions u where u.household_id = ${a.householdId} and (u.account_id = ${a.id} or u.to_account_id = ${a.id}))`,
       currencyLocked: sql<boolean>`exists(select 1 from transactions u where u.household_id = ${a.householdId} and (u.account_id = ${a.id} or u.to_account_id = ${a.id})) or exists(select 1 from recurring_rules r where r.household_id = ${a.householdId} and (r.account_id = ${a.id} or r.to_account_id = ${a.id})) or exists(select 1 from goals g where g.household_id = ${a.householdId} and g.account_id = ${a.id})`,
     })

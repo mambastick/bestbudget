@@ -172,7 +172,7 @@
     "interestCategoryMissing": "Interest category not found",
     "paymentNotFound": "Payment not found",
     "closed": "This loan is closed",
-    "eventOrder": "Add events in order, after posted payments and no later than today",
+    "eventOrder": "Add events in order, after confirmed payments; prepayments and reconciliations cannot be future-dated",
     "unpostedManualPayments": "Post manually changed payments before the reconciliation date first",
     "previousPayments": "Post previous payments or reconcile the balance first",
     "principalRepaid": "The principal has already been repaid",
@@ -184,7 +184,15 @@
     "paymentExceedsBalance": "The principal payment exceeds the outstanding balance",
     "debtRemaining": "Repay the debt or reconcile a zero balance with the bank first",
     "interestRemaining": "Post the remaining interest first",
-    "historyExists": "This loan has posted transactions. Close it to keep its history."
+    "historyExists": "This loan has posted transactions. Close it to keep its history.",
+    "futureBalance": "A balance can only be set for today or a past date",
+    "eventCancel": "Only the latest change of terms can be cancelled, and only if no payment has been confirmed since",
+    "eventNotFound": "Event not found",
+    "trackingLocked": "The tracking start and opening balance are locked after the first payment or event: use a reconciliation or restructuring",
+    "paymentAccountCurrency": "The new payment account must use the loan currency",
+    "principalBelowBalance": "The original amount cannot be less than the tracked balance",
+    "startAfterTracking": "The issue date cannot be after the tracking start",
+    "holidayEnded": "The holiday has already ended; the new end date cannot be before today"
   },
   "recurring": {
     "monthlyOnly": "Multiple payments are supported only for monthly transactions",
@@ -260,7 +268,8 @@
     "accountAllocation": "Allocation limits are available only for account goals",
     "nonzero": "Enter a non-zero amount",
     "time": "Enter a time as HH:MM",
-    "invalidType": "Invalid value type"
+    "invalidType": "Invalid value type",
+    "loanNote": "The note can be up to 200 characters"
   },
   "loanCalculation": {
     "rate": "The rate must be between 0 and 100%, with up to 6 decimal places",
@@ -274,7 +283,13 @@
     "eventAmount": "Invalid event amount",
     "sameDate": "Only one event is allowed per date",
     "increasePayment": "The payment does not cover interest. Increase the payment or term.",
-    "exceedsBalance": "The posted payment exceeds the outstanding debt"
+    "exceedsBalance": "The posted payment exceeds the outstanding debt",
+    "holidayOverlap": "A holiday is in progress: new terms or another holiday are only possible after it ends",
+    "holidayEmpty": "No payment falls in this period, so the holiday would not change the schedule",
+    "holidayTooLong": "The holiday ends after the last payment: extend the term or shorten the period",
+    "holidayPosted": "A confirmed payment already falls within the holiday",
+    "holidayDates": "Check the holiday dates and options",
+    "termsDate": "The next payment must come after the change date and within 13 months"
   },
   "csv": {
     "encoding": "Could not read the text. Choose Windows-1251 or the correct encoding and check the headers.",

@@ -1,4 +1,5 @@
 import type { ReviewOutput } from "@/domain/ai/review"
+import type { LoanTermsSnapshot } from "@/domain/loan"
 import type { UIMessage } from "ai"
 import type { ProposalItem, ProviderSnapshot } from "@/domain/ai/types"
 import { relations, sql } from "drizzle-orm"
@@ -363,8 +364,11 @@ export const loanKind = pgEnum("loan_kind", ["mortgage", "consumer", "car", "cre
 export const loanScheduleType = pgEnum("loan_schedule_type", ["annuity", "differentiated"])
 export const loanInterestMethod = pgEnum("loan_interest_method", ["monthly", "daily_365", "daily_actual"])
 export const loanStatus = pgEnum("loan_status", ["active", "closed"])
-export const loanEventType = pgEnum("loan_event_type", ["prepayment", "rate_change", "reconciliation"])
+export const loanEventType = pgEnum("loan_event_type", ["prepayment", "rate_change", "reconciliation", "correction", "restructuring", "holiday"])
 export const loanPrepaymentMode = pgEnum("loan_prepayment_mode", ["reduce_term", "reduce_payment"])
+export const loanHolidayMode = pgEnum("loan_holiday_mode", ["no_payment", "interest_only"])
+export const loanHolidayInterest = pgEnum("loan_holiday_interest", ["deferred_spread", "deferred_end", "capitalize", "waived"])
+export const loanHolidayShift = pgEnum("loan_holiday_shift", ["extend_term", "keep_term"])
 
 export const loans = pgTable("loans", {
   id: id(),
@@ -415,21 +419,48 @@ export const loanEvents = pgTable("loan_events", {
   mode: loanPrepaymentMode("mode"),
   annualRate: numeric("annual_rate", { precision: 9, scale: 6 }),
   balance: money("balance"),
-  /** Signed ledger adjustment on reconciliation; excluded from income and expenses. */
+  /**
+   * Signed ledger adjustment, excluded from income and expenses: a reconciliation or restructuring takes effect
+   * on `date`, interest capitalized by a holiday on `endDate`.
+   */
   balanceDelta: money("balance_delta"),
+  /** The new payment grid of a correction or restructuring. */
+  nextPaymentDate: date("next_payment_date", { mode: "string" }),
+  paymentDay: smallint("payment_day"),
+  termMonths: integer("term_months"),
+  paymentAmount: money("payment_amount"),
+  scheduleType: loanScheduleType("schedule_type"),
+  interestMethod: loanInterestMethod("interest_method"),
+  endDate: date("end_date", { mode: "string" }),
+  holidayMode: loanHolidayMode("holiday_mode"),
+  holidayInterest: loanHolidayInterest("holiday_interest"),
+  holidayShift: loanHolidayShift("holiday_shift"),
+  note: text("note"),
+  /** The terms just before and after the change, so history survives later recalculations. */
+  terms: jsonb("terms").$type<{ before: LoanTermsSnapshot; after: LoanTermsSnapshot }>(),
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: createdAt(),
-}, (t) => [
-  foreignKey({ name: "loan_events_loan_fk", columns: [t.householdId, t.loanId], foreignColumns: [loans.householdId, loans.id] }).onDelete("cascade"),
-  unique("loan_events_date_uq").on(t.loanId, t.date),
-  check("loan_events_payload_ck", sql`(
-    ${t.type} = 'prepayment' and ${t.amount} is not null and ${t.amount} > 0 and ${t.mode} is not null and ${t.annualRate} is null and ${t.balance} is null and ${t.balanceDelta} is null
-  ) or (
-    ${t.type} = 'rate_change' and ${t.annualRate} is not null and ${t.annualRate} between 0 and 100 and ${t.amount} is null and ${t.mode} is null and ${t.balance} is null and ${t.balanceDelta} is null
-  ) or (
-    ${t.type} = 'reconciliation' and ${t.balance} is not null and ${t.balance} >= 0 and ${t.balanceDelta} is not null and ${t.amount} is null and ${t.mode} is null and ${t.annualRate} is null
-  )`),
-])
+}, (t) => {
+  const noTerms = sql`${t.nextPaymentDate} is null and ${t.paymentDay} is null and ${t.termMonths} is null and ${t.paymentAmount} is null and ${t.scheduleType} is null and ${t.interestMethod} is null`
+  const noHoliday = sql`${t.endDate} is null and ${t.holidayMode} is null and ${t.holidayInterest} is null and ${t.holidayShift} is null`
+  return [
+    foreignKey({ name: "loan_events_loan_fk", columns: [t.householdId, t.loanId], foreignColumns: [loans.householdId, loans.id] }).onDelete("cascade"),
+    unique("loan_events_date_type_uq").on(t.loanId, t.date, t.type),
+    check("loan_events_payload_ck", sql`(
+      ${t.type} = 'prepayment' and ${t.amount} is not null and ${t.amount} > 0 and ${t.mode} is not null and ${t.annualRate} is null and ${t.balance} is null and ${t.balanceDelta} is null and ${noTerms} and ${noHoliday}
+    ) or (
+      ${t.type} = 'rate_change' and ${t.annualRate} is not null and ${t.annualRate} between 0 and 100 and ${t.amount} is null and ${t.mode} is null and ${t.balance} is null and ${t.balanceDelta} is null and ${noTerms} and ${noHoliday}
+    ) or (
+      ${t.type} = 'reconciliation' and ${t.balance} is not null and ${t.balance} >= 0 and ${t.balanceDelta} is not null and ${t.amount} is null and ${t.mode} is null and ${t.annualRate} is null and ${noTerms} and ${noHoliday}
+    ) or (
+      ${t.type} in ('correction', 'restructuring') and ${t.annualRate} is not null and ${t.annualRate} between 0 and 100 and ${t.amount} is null and ${t.mode} is null and (${t.balance} is null) = (${t.balanceDelta} is null) and (${t.balance} is null or ${t.balance} >= 0)
+      and ${t.nextPaymentDate} is not null and ${t.nextPaymentDate} > ${t.date} and ${t.paymentDay} between 1 and 31 and ${t.termMonths} between 1 and 600 and (${t.paymentAmount} is null or ${t.paymentAmount} > 0) and ${t.scheduleType} is not null and ${t.interestMethod} is not null and ${noHoliday}
+    ) or (
+      ${t.type} = 'holiday' and ${t.endDate} is not null and ${t.endDate} >= ${t.date} and ${t.holidayMode} is not null and ${t.holidayShift} is not null and (${t.holidayMode} = 'no_payment') = (${t.holidayInterest} is not null)
+      and (${t.balanceDelta} is null or (${t.holidayInterest} = 'capitalize' and ${t.balanceDelta} <= 0)) and ${t.amount} is null and ${t.mode} is null and ${t.annualRate} is null and ${t.balance} is null and ${noTerms}
+    )`),
+  ]
+})
 
 export const transactions = pgTable(
   "transactions",
