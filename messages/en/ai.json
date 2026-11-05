@@ -10,6 +10,12 @@
   "send": "Send",
   "stop": "Stop",
   "retry": "Retry",
+  "continue": "Continue",
+  "continuePrompt": "Continue your answer from where it was cut off.",
+  "truncated": {
+    "length": "The answer was cut off: the model hit the response length limit.",
+    "timeout": "The answer was cut off: the model took too long to respond."
+  },
   "error": "Could not receive a response. Check your connection and retry.",
   "thinking": "Exploring your budget…",
   "apply": "Apply selected",

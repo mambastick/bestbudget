@@ -4,6 +4,52 @@ import { simulateReadableStream, type LanguageModel } from "ai"
 import { mockInterview } from "./mock-interview"
 import { mockAllowed } from "./config"
 
+const MOCK_MARKDOWN = `## План по шагам
+
+Вступление со **жирным**, *курсивом*, ~~зачёркнутым~~ и \`кодом\`. Примерно ~5000 ₽ и ~6000 ₽ не зачёркиваются. [Подробнее](https://example.com/plan)
+
+| Приоритет | Карта с длинным названием | Текущий долг | Ставка |
+|---|---|---:|---:|
+| 1 | Синтетическая карта А | 100 000,00 ₽ | **30%** |
+| 2 | Синтетическая карта Б | 200 000,00 ₽ | **20%** |
+
+- Первый пункт
+  - Вложенный пункт
+- Второй пункт
+
+> Цитата с пояснением
+
+\`\`\`
+const total = 100 + 200
+\`\`\`
+
+<img src="https://example.com/pixel.png" onerror="window.__mdInjected = true">
+
+<script>window.__mdInjected = true</script>
+
+[Опасная ссылка](javascript:window.__mdInjected=true)
+
+Итог: всё сходится.`
+
+const MOCK_TRUNCATED_ANSWER = `Начало ответа
+
+- Освободившиеся обязательные платежи **`
+
+function markdownStream<Usage>(text: string, finish: "stop" | "length", usage: Usage) {
+  return {
+    stream: simulateReadableStream({
+      chunkDelayInMs: 60,
+      chunks: [
+        { type: "stream-start" as const, warnings: [] },
+        { type: "text-start" as const, id: "text" },
+        ...(text.match(/[\s\S]{1,24}/g) ?? []).map((delta) => ({ type: "text-delta" as const, id: "text", delta })),
+        { type: "text-end" as const, id: "text" },
+        { type: "finish" as const, finishReason: { unified: finish, raw: finish }, usage },
+      ],
+    }),
+  }
+}
+
 /** Deterministic SDK model for isolated tests. Never contacts a provider. */
 export function mockModel(): LanguageModel {
   if (!mockAllowed()) throw new Error("MockDisabled")
@@ -107,6 +153,8 @@ export function mockModel(): LanguageModel {
       }
       const latestUser = JSON.stringify(options.prompt.findLast((m) => m.role === "user"))
       if (/Попробуй ещё раз|Try again/.test(latestUser)) throw new Error("SyntheticProviderUnavailable")
+      if (/Покажи разметку|Show markup/.test(latestUser)) return markdownStream(MOCK_MARKDOWN, "stop", usage)
+      if (/Оборви ответ|Cut the answer/.test(latestUser)) return markdownStream(MOCK_TRUNCATED_ANSWER, "length", usage)
       const slow = /Помоги настроить бюджеты, пожалуйста|Help me set up budgets, please/.test(latestUser)
       const outputs = options.prompt.filter((m) => m.role === "tool").flatMap((m) => m.content)
       const categoryResult = outputs.find((o) => o.type === "tool-result" && o.toolName === "list_categories")

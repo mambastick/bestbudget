@@ -30,7 +30,10 @@ export interface ProposalItem {
   result?: { href: string; entityId?: string }
 }
 export const AI_MAX_STEPS = 8
-export const AI_MAX_OUTPUT_TOKENS = 2048
+export const AI_MAX_OUTPUT_TOKENS = 8192
+/** Generous enough for one full-length answer at a slow provider's streaming speed. */
+export const AI_TURN_TIMEOUT_MS = 180_000
+export const AI_TURN_BUSY_MS = AI_TURN_TIMEOUT_MS + 30_000
 export const AI_MAX_CONTEXT_BYTES = 64_000
 export const AI_RESERVATION_GRACE_MS = 10 * 60_000
 export const AI_TURN_RESERVATION = AI_MAX_STEPS * (AI_MAX_CONTEXT_BYTES + AI_MAX_OUTPUT_TOKENS)

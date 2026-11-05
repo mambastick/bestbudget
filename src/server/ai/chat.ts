@@ -1,7 +1,8 @@
 import "server-only"
 import { convertToModelMessages, streamText, stepCountIs, consumeStream } from "ai"
 import { z } from "zod"
-import { AI_MAX_CONTEXT_BYTES, AI_MAX_OUTPUT_TOKENS, AI_MAX_STEPS } from "@/domain/ai/types"
+import { markTruncated } from "@/domain/ai/truncation"
+import { AI_MAX_CONTEXT_BYTES, AI_MAX_OUTPUT_TOKENS, AI_MAX_STEPS, AI_TURN_TIMEOUT_MS } from "@/domain/ai/types"
 import { assetTranslator } from "@/i18n/assets"
 import { errorMessage } from "@/i18n/errors"
 import { todayIn } from "@/lib/dates"
@@ -53,7 +54,8 @@ export async function chatResponse(
       stopWhen: stepCountIs(AI_MAX_STEPS),
       maxOutputTokens: AI_MAX_OUTPUT_TOKENS,
       maxRetries: 0,
-      timeout: { totalMs: 90_000, stepMs: 25_000, toolMs: 15_000 },
+      // Limit silence, not the whole step: a healthy provider may stream one long answer for minutes.
+      timeout: { totalMs: AI_TURN_TIMEOUT_MS, firstChunkMs: 60_000, chunkMs: 30_000, toolMs: 15_000 },
       ...(turn.config.temperature === null ? {} : { temperature: turn.config.temperature }),
       toolCallConcurrency: 1,
       prepareStep: async ({ messages }) => {
@@ -88,17 +90,21 @@ export async function chatResponse(
         return errorMessage("ai.providerError", {}, ctx.locale)
       },
       consumeSseStream: consumeStream,
-      onFinish: async ({ responseMessage, isAborted }) => {
+      onFinish: async ({ responseMessage, isAborted, finishReason }) => {
+        // Only a disconnect or Stop aborts the request signal; any other abort is one of the timeouts above.
+        const timedOut = isAborted && !abortSignal?.aborted
+        const outcome = timedOut ? "timeout" : isAborted ? "aborted" : errorCode
+        const truncation = timedOut ? "timeout" : finishReason === "length" ? "length" : null
         await finishTurn(
           ctx,
           turn,
-          responseMessage,
+          truncation ? markTruncated(responseMessage, truncation) : responseMessage,
           accounting.input,
           accounting.output,
           Date.now() - started,
-          isAborted ? "aborted" : errorCode,
+          outcome,
         )
-        options.onSettled?.(isAborted ? "aborted" : errorCode)
+        options.onSettled?.(outcome)
       },
       headers: { "Cache-Control": "no-store" },
     })
