@@ -2,7 +2,7 @@
 
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии — [SemVer](https://semver.org/lang/ru/).
 
-## [Unreleased]
+## [1.0.0-beta.8] — 2026-11-05
 
 ### Добавлено
 
@@ -31,6 +31,10 @@
 ### Обновление
 
 - Миграция `0015_loan_terms_and_holidays` добавляет поля условий и каникул в `loan_events`. Существующие кредиты, события и графики не меняются.
+
+### Обновление с beta.7
+
+- Сделайте бэкап и сохраните прежние секреты, затем установите `BESTBUDGET_VERSION=1.0.0-beta.8`, обновите `compose.yaml` или Helm-чарт из тега и перезапустите приложение. Миграция `0015_loan_terms_and_holidays` применится автоматически: она добавляет поля в `loan_events`, пересоздаёт тип `loan_event_type` и меняет уникальность на `(loan_id, date, type)`. Перенос данных не нужен, существующие графики не меняются. Вернуться на beta.7 после миграции можно только восстановлением из бэкапа.
 
 ## [1.0.0-beta.7] — 2026-11-05
 
@@ -225,6 +229,7 @@
 - Восстановление пароля по e-mail работает только при настроенном SMTP; иначе пароль сбрасывает администратор.
 - Встроенный в Helm-чарт PostgreSQL — один экземпляр без репликации и автоматических бэкапов.
 
+[1.0.0-beta.8]: https://github.com/mambastick/bestbudget/releases/tag/v1.0.0-beta.8
 [1.0.0-beta.7]: https://github.com/mambastick/bestbudget/releases/tag/v1.0.0-beta.7
 [1.0.0-beta.6]: https://github.com/mambastick/bestbudget/releases/tag/v1.0.0-beta.6
 [1.0.0-beta.5]: https://github.com/mambastick/bestbudget/releases/tag/v1.0.0-beta.5
