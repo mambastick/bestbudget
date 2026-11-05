@@ -2,12 +2,12 @@ import "server-only"
 import { randomUUID } from "node:crypto"
 import { and, asc, desc, eq, gte, gt, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm"
 import { z } from "zod"
-import { interviewConversationTitle } from "@/domain/ai/conversation-title"
+import { conversationTitleFromMessage, interviewConversationTitle } from "@/domain/ai/conversation-title"
 import { assertCan } from "@/server/context"
 import type { UIMessage } from "ai"
 import { getDb, withDb } from "@/db"
 import { aiConversations, aiHouseholdSettings, aiMessages, aiUsage, households, users } from "@/db/schema"
-import { AI_RESERVATION_GRACE_MS, AI_TURN_RESERVATION } from "@/domain/ai/types"
+import { AI_RESERVATION_GRACE_MS, AI_TURN_BUSY_MS, AI_TURN_RESERVATION } from "@/domain/ai/types"
 import type { HouseholdCtx } from "@/server/context"
 import { AppError, conflict, notFound } from "@/server/errors"
 import { requireAi } from "./access"
@@ -176,7 +176,7 @@ export async function beginTurn(ctx: HouseholdCtx, raw: z.input<typeof turnInput
           createdAt: new Date(timestamp),
         })
       const messageId = randomUUID(),
-        busyUntil = new Date(Date.now() + 120_000)
+        busyUntil = new Date(Date.now() + AI_TURN_BUSY_MS)
       await db.insert(aiMessages).values({
         id: messageId,
         conversationId: input.id,
@@ -188,7 +188,7 @@ export async function beginTurn(ctx: HouseholdCtx, raw: z.input<typeof turnInput
       await db
         .update(aiConversations)
         .set({
-          ...(conversation.kind === "onboarding" ? {} : { title: input.message.parts[0]!.text.slice(0, 80) }),
+          ...(conversation.kind === "onboarding" ? {} : { title: conversationTitleFromMessage(input.message.parts[0]!.text) }),
           busyUntil,
           version: sql`${aiConversations.version} + 1`,
         })

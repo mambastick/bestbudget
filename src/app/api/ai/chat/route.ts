@@ -6,7 +6,7 @@ import { chatResponse } from "@/server/ai/chat"
 import { turnInput } from "@/server/ai/conversations"
 
 export const dynamic = "force-dynamic"
-export const maxDuration = 100
+export const maxDuration = 210
 export async function POST(request: Request) {
   let locale = "ru"
   try {
