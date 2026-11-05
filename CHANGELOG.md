@@ -2,11 +2,15 @@
 
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии — [SemVer](https://semver.org/lang/ru/).
 
-## [Unreleased]
+## [1.0.0-beta.7] — 2026-11-05
 
 ### Исправлено
 
 - Привязка Telegram: ссылка на бота теперь содержит только символы, которые Telegram допускает в параметре `start`. Раньше из-за точки в токене параметр терялся, и бот отвечал просьбой подключиться через настройки вместо привязки.
+
+### Обновление с beta.6
+
+- Сделайте бэкап и сохраните прежние секреты, затем установите `BESTBUDGET_VERSION=1.0.0-beta.7`, обновите `compose.yaml` или Helm-чарт из тега и перезапустите приложение. Новых миграций нет. Ссылки на привязку Telegram, созданные до обновления, перестанут действовать: создайте новую в настройках профиля.
 
 ## [1.0.0-beta.6] — 2026-11-05
 
@@ -191,6 +195,7 @@
 - Восстановление пароля по e-mail работает только при настроенном SMTP; иначе пароль сбрасывает администратор.
 - Встроенный в Helm-чарт PostgreSQL — один экземпляр без репликации и автоматических бэкапов.
 
+[1.0.0-beta.7]: https://github.com/mambastick/bestbudget/releases/tag/v1.0.0-beta.7
 [1.0.0-beta.6]: https://github.com/mambastick/bestbudget/releases/tag/v1.0.0-beta.6
 [1.0.0-beta.5]: https://github.com/mambastick/bestbudget/releases/tag/v1.0.0-beta.5
 [1.0.0-beta.4]: https://github.com/mambastick/bestbudget/releases/tag/v1.0.0-beta.4
