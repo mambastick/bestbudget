@@ -655,11 +655,12 @@ describe("notification pipeline", () => {
   it("signs, expires and atomically consumes link tokens without exposing stored tokens", async () => {
     const user = await createUser()
     const token = signLinkToken("A".repeat(32))
-    expect(token.length).toBeLessThanOrEqual(64)
+    expect(token).toMatch(/^[A-Za-z0-9_-]{1,64}$/)
     expect(verifyLinkToken(token)).toBe(true)
     expect(verifyLinkToken(token.slice(0, -1) + "!")).toBe(false)
     const link = await createTelegramLink(user.id)
     const raw = new URL(link.url).searchParams.get("start")!
+    expect(raw).toMatch(/^[A-Za-z0-9_-]{1,64}$/)
     const [stored] = await getDb().select().from(telegramLinks).where(eq(telegramLinks.userId, user.id))
     expect(stored!.tokenHash).not.toContain(raw)
     expect(await bindTelegram(raw, "456")).toBe(user.id)

@@ -36,14 +36,12 @@ function signature(nonce: string) {
     .subarray(0, 16)
     .toString("base64url")
 }
+/** Telegram drops a deep link's start parameter unless it matches A-Za-z0-9_-, so the token has no separator. */
 export function signLinkToken(nonce: string) {
-  return `${nonce}.${signature(nonce)}`
+  return `${nonce}${signature(nonce)}`
 }
 export function verifyLinkToken(token: string) {
-  const [nonce, sig] = token.split(".")
-  return (
-    /^[A-Za-z0-9_-]{32}\.[A-Za-z0-9_-]{22}$/.test(token) && Boolean(nonce && sig && safeEqual(sig, signature(nonce)))
-  )
+  return /^[A-Za-z0-9_-]{54}$/.test(token) && safeEqual(token.slice(32), signature(token.slice(0, 32)))
 }
 export async function createTelegramLink(userId: string) {
   const c = await telegramConfig()
