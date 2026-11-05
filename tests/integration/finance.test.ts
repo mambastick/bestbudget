@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm"
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { closeDb, getDb } from "@/db"
 import { transactions } from "@/db/schema"
-import { createAccount, listAccounts } from "@/server/services/catalog"
+import { createAccount, createCategory, listAccounts, listCategories, setCategoryArchived, updateCategory } from "@/server/services/catalog"
 import { createRules, ensureMaterialized, listRules, materializeOccurrence, stopRule, updateRule, virtualOccurrences } from "@/server/services/recurring"
 import { actualBalance, getAnalytics, getCalendarMonth, getDashboard } from "@/server/services/reports"
 import {
@@ -13,6 +13,9 @@ import {
   skipTransaction,
   updateTransaction,
 } from "@/server/services/transactions"
+import { createGoal, listGoals } from "@/server/services/goals"
+import { getBudgets } from "@/server/services/budgets"
+import { errorMessage } from "@/i18n/errors"
 import { setupHousehold } from "./helpers"
 
 // Fixed "today" in Europe/Moscow: 2026-11-01.
@@ -55,6 +58,49 @@ describe("one-off income and expense", () => {
     ).rejects.toThrow(/не соответствует/)
   })
 
+  it.each([
+    ["income", "expense"], ["expense", "income"],
+    ["income", "transfer"], ["transfer", "income"],
+    ["expense", "transfer"], ["transfer", "expense"],
+  ] as const)("changes a one-off from %s to %s and recalculates balances, reports, budgets and goals", async (from, to) => {
+    const { ctx, cat, mainAccount } = await setupHousehold()
+    const savings = await createAccount(ctx, { name: "Synthetic savings", kind: "savings", openingBalance: 0 })
+    const goal = await createGoal(ctx, { name: "Synthetic goal", kind: "account", accountId: savings.id, currency: "RUB", targetAmount: rub(1000) })
+    const fields = (type: "income" | "expense" | "transfer") => ({
+      type, amount: rub(100), accountId: mainAccount, date: "2026-11-01", status: "posted" as const,
+      categoryId: type === "transfer" ? null : cat(type === "income" ? "Зарплата" : "Продукты"),
+      toAccountId: type === "transfer" ? savings.id : null,
+    })
+    const before = await createTransaction(ctx, fields(from))
+    const after = await updateTransaction(ctx, before.id, { ...fields(to), version: before.version })
+    expect(after).toMatchObject({ ...fields(to), version: before.version + 1, toAmount: null })
+    const income = to === "income" ? rub(100) : 0
+    const expense = to === "expense" ? rub(100) : 0
+    expect(await actualBalance(ctx)).toBe(income - expense)
+    const accounts = await listAccounts(ctx)
+    expect(accounts.find((a) => a.id === mainAccount)!.balance).toBe(to === "income" ? rub(100) : -rub(100))
+    expect(accounts.find((a) => a.id === savings.id)!.balance).toBe(to === "transfer" ? rub(100) : 0)
+    expect((await getAnalytics(ctx, "2026-11-01", "2026-11-30")).current).toMatchObject({ income, expense })
+    expect(await getDashboard(ctx, "2026-11-01")).toMatchObject({ monthIncome: income, monthExpense: expense })
+    expect((await getBudgets(ctx, "2026-11-01")).find((c) => c.id === cat("Продукты"))!.spent).toBe(expense)
+    expect((await listGoals(ctx)).goals.find((g) => g.id === goal.id)!.progress).toBe(to === "transfer" ? rub(100) : 0)
+  })
+
+  it("rejects a category of the old kind during a type change without changing the row", async () => {
+    const { ctx, cat, mainAccount } = await setupHousehold()
+    const before = await createTransaction(ctx, { type: "expense", amount: 100, categoryId: cat("Продукты"), accountId: mainAccount, date: "2026-11-01", status: "posted" })
+    await expect(updateTransaction(ctx, before.id, { ...before, type: "income", status: "posted" })).rejects.toMatchObject({ messageKey: "transaction.categoryType" })
+    expect((await listTransactions(ctx, {})).rows[0]).toMatchObject({ id: before.id, type: "expense", version: before.version })
+  })
+
+  it("hard-deletes a one-off and removes its balance impact", async () => {
+    const { ctx, cat, mainAccount } = await setupHousehold()
+    const row = await createTransaction(ctx, { type: "expense", amount: 100, categoryId: cat("Продукты"), accountId: mainAccount, date: "2026-11-01", status: "posted" })
+    expect(await deleteTransaction(ctx, row.id)).toEqual({ skipped: false })
+    expect((await listTransactions(ctx, {})).rows).toHaveLength(0)
+    expect(await actualBalance(ctx)).toBe(0)
+  })
+
   it("rejects stale edits (optimistic concurrency)", async () => {
     const { ctx, cat, mainAccount } = await setupHousehold()
     const t = await createTransaction(ctx, { type: "expense", amount: 100, categoryId: cat("Продукты"), accountId: mainAccount, date: "2026-11-01", status: "posted" })
@@ -74,6 +120,15 @@ describe("one-off income and expense", () => {
 })
 
 describe("recurring operations", () => {
+  it("keeps occurrence and rule types locked on the server", async () => {
+    const { ctx, cat, mainAccount } = await setupHousehold()
+    const [rule] = await createRules(ctx, { rule: { type: "expense", title: "Synthetic schedule", amount: 100, categoryId: cat("Продукты"), accountId: mainAccount, frequency: "monthly", dayOfMonth: 5, startDate: "2026-11-01" } })
+    const [row] = await ruleRows(rule!.id)
+    await expect(updateTransaction(ctx, row!.id, { ...row!, type: "income", categoryId: cat("Зарплата"), status: "planned" })).rejects.toMatchObject({ messageKey: "transaction.recurringTypeLocked" })
+    await expect(updateRule(ctx, rule!.id, { rule: { ...rule!, type: "income", categoryId: cat("Зарплата") }, version: rule!.version })).rejects.toMatchObject({ messageKey: "recurring.typeLocked" })
+    expect((await ruleRows(rule!.id))[0]).toMatchObject({ type: "expense", version: row!.version })
+  })
+
   it("creates salary with two accruals per month as planned, not actual", async () => {
     const { ctx, cat, mainAccount } = await setupHousehold()
     await createRules(ctx, {
@@ -178,12 +233,11 @@ describe("recurring operations", () => {
     expect(rows.find((r) => r.occurrenceDate === "2026-12-14")).toMatchObject({ date: "2026-12-16", amount: rub(5_500) })
 
     // Deleting an occurrence marks it skipped so the slot is not recreated.
-    const jan = rows.find((r) => r.occurrenceDate === "2027-01-14")
-    if (jan) {
-      expect(await deleteTransaction(ctx, jan.id)).toEqual({ skipped: true })
-      await ensureMaterialized(ctx.householdId, "2026-11-01")
-      expect((await ruleRows(rule!.id)).filter((r) => r.occurrenceDate === "2027-01-14")).toHaveLength(1)
-    }
+    expect(await deleteTransaction(ctx, dec!.id)).toEqual({ skipped: true })
+    await ensureMaterialized(ctx.householdId, "2026-11-01")
+    expect((await ruleRows(rule!.id)).filter((r) => r.occurrenceDate === "2026-12-14")).toMatchObject([
+      { id: dec!.id, status: "skipped", date: "2026-12-16" },
+    ])
   })
 
   it("changes all future occurrences while keeping confirmed history", async () => {
@@ -326,5 +380,22 @@ describe("data integrity", () => {
     await expect(getDb().insert(transactions).values({ ...base, amount: 1, categoryId: b.cat("Прочее"), accountId: a.mainAccount })).rejects.toThrow()
     const rows = await getDb().select().from(transactions).where(and(eq(transactions.householdId, a.ctx.householdId)))
     expect(rows).toHaveLength(0)
+  })
+})
+
+describe("category names", () => {
+  it("localizes active name collisions on create and update, allowing other kinds and archived names", async () => {
+    const { ctx } = await setupHousehold()
+    const input = { kind: "expense" as const, name: "Synthetic category", icon: "circle", color: "#123456" }
+    const first = await createCategory(ctx, input)
+    await expect(createCategory(ctx, { ...input, name: "  SYNTHETIC CATEGORY  " })).rejects.toMatchObject({ messageKey: "category.duplicateName" })
+    const second = await createCategory(ctx, { ...input, name: "Another synthetic category" })
+    await expect(updateCategory(ctx, second.id, { ...input, name: "synthetic category" })).rejects.toMatchObject({ messageKey: "category.duplicateName" })
+    expect((await listCategories(ctx)).find((c) => c.id === second.id)!.name).toBe("Another synthetic category")
+    await createCategory(ctx, { ...input, kind: "income" })
+    await setCategoryArchived(ctx, first.id, true)
+    await createCategory(ctx, input)
+    expect(errorMessage("category.duplicateName", {}, "ru")).toBe("Активная категория с таким названием уже существует. Выберите другое название.")
+    expect(errorMessage("category.duplicateName", {}, "en")).toBe("An active category with this name already exists. Choose another name.")
   })
 })

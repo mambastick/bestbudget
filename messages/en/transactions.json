@@ -144,5 +144,8 @@
     "planned": "Planned",
     "posted": "Posted",
     "skipped": "Skipped"
-  }
+  },
+  "newCategory": "New category",
+  "operationType": "Transaction type",
+  "recurringTypeHint": "The type of a recurring transaction cannot be changed. Create a new schedule for a different type."
 }

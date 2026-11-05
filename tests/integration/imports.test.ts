@@ -313,7 +313,7 @@ describe("statement import integration", () => {
     const batch = await preview(h, [line(), line("-100.00")])
     await commit(h, batch)
     const [changed] = await actual(h.ctx.householdId)
-    await updateTransaction(h.ctx, changed!.id, { ...changed!, status: "posted", version: changed!.version, amount: 12345 })
+    await updateTransaction(h.ctx, changed!.id, { ...changed!, type: "income", categoryId: h.cat("Зарплата"), status: "posted", version: changed!.version })
     await expect(undoImport(h.ctx, batch.batch.id)).rejects.toThrow(/операция изменена/)
     expect(await actual(h.ctx.householdId)).toHaveLength(2)
     await deleteTransaction(h.ctx, changed!.id)

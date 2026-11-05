@@ -31,8 +31,10 @@ export function Segmented<T extends string>({
       <div
         role="radiogroup"
         aria-label={ariaLabel}
+        aria-disabled={disabled}
         className={cn("inline-flex w-full min-w-max gap-0.5 rounded-lg bg-muted p-0.5", disabled && "pointer-events-none opacity-60")}
         onKeyDown={(e) => {
+          if (disabled) return
           if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return
           const i = options.findIndex((o) => o.value === value)
           const next = options[(i + (e.key === "ArrowRight" ? 1 : options.length - 1)) % options.length]
@@ -49,6 +51,7 @@ export function Segmented<T extends string>({
             <button
               key={o.value}
               type="button"
+              disabled={disabled}
               role="radio"
               aria-checked={active}
               tabIndex={active ? 0 : -1}

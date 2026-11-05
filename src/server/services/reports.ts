@@ -176,7 +176,7 @@ export async function expenseByCategory(ctx: HouseholdCtx, from: IsoDate, to: Is
 }
 
 export type CalendarItem = Pick<TransactionRow,
-  "id" | "type" | "status" | "amount" | "currency" | "toAmount" | "toCurrency" | "title" | "date" | "categoryIcon" | "categoryColor" | "categoryName" | "accountName" | "toAccountName" | "authorName" | "recurringRuleId" | "version" | "loanId" | "loanPart" | "loanPrincipal" | "loanInterest"
+  "description" | "occurrenceDate" | "categoryId" | "accountId" | "toAccountId" | "id" | "type" | "status" | "amount" | "currency" | "toAmount" | "toCurrency" | "title" | "date" | "categoryIcon" | "categoryColor" | "categoryName" | "accountName" | "toAccountName" | "authorName" | "recurringRuleId" | "version" | "loanId" | "loanPart" | "loanPrincipal" | "loanInterest"
 > & { virtual: boolean; key: string }
 
 type ProjectedOccurrence = Awaited<ReturnType<typeof project>>["virtual"][number]
@@ -224,7 +224,8 @@ export async function getCalendarMonth(ctx: HouseholdCtx, month: IsoDate, locale
       loanId: v.loanId, loanPart: v.loanPart, loanPrincipal: v.loanPrincipal, loanInterest: v.loanInterest,
       amount: v.amount, currency: data.accountMap.get(v.accountId)!.currency, toAmount: v.toAmount,
       toCurrency: v.toAccountId ? data.accountMap.get(v.toAccountId)!.currency : null,
-      title: v.title, date: v.date, categoryIcon: catMap.get(v.categoryId ?? "")?.icon ?? null,
+      title: v.title, date: v.date, description: null, occurrenceDate: v.date,
+      categoryId: v.categoryId, accountId: v.accountId, toAccountId: v.toAccountId, categoryIcon: catMap.get(v.categoryId ?? "")?.icon ?? null,
       categoryColor: catMap.get(v.categoryId ?? "")?.color ?? null, categoryName: catMap.get(v.categoryId ?? "")?.name ?? null,
       accountName: data.accountMap.get(v.accountId)!.name, toAccountName: v.toAccountId ? data.accountMap.get(v.toAccountId)!.name : null,
       authorName: null, recurringRuleId: v.ruleId, version: 0,

@@ -29,6 +29,15 @@ export async function listCategories(ctx: HouseholdCtx, opts: { includeArchived?
     .orderBy(asc(categories.kind), asc(categories.sortOrder), asc(categories.name))
 }
 
+function categoryWriteError(error: unknown): never {
+  const e = error as { code?: string; constraint_name?: string; constraint?: string; cause?: { code?: string; constraint_name?: string; constraint?: string } } | null
+  const pg = e?.cause ?? e
+  if (pg?.code === "23505" && (pg.constraint_name ?? pg.constraint) === "categories_active_name_uq") {
+    throw new AppError("category.duplicateName")
+  }
+  throw error
+}
+
 export async function createCategory(ctx: HouseholdCtx, raw: z.input<typeof categoryInput>) {
   assertCan(ctx, "catalog.manage")
   const input = categoryInput.parse(raw)
@@ -36,6 +45,7 @@ export async function createCategory(ctx: HouseholdCtx, raw: z.input<typeof cate
     .insert(categories)
     .values({ ...input, householdId: ctx.householdId, sortOrder: 1000 })
     .returning()
+    .catch(categoryWriteError)
   await audit({ action: "category.create", entityType: "category", entityId: row!.id, householdId: ctx.householdId, actorId: ctx.userId, meta: { name: input.name } })
   return row!
 }
@@ -48,6 +58,7 @@ export async function updateCategory(ctx: HouseholdCtx, id: string, raw: Omit<z.
     .set({ ...input, version: sql`${categories.version} + 1` })
     .where(and(eq(categories.id, uuid.parse(id)), eq(categories.householdId, ctx.householdId)))
     .returning()
+    .catch(categoryWriteError)
   if (res.length === 0) throw notFound("category.notFound")
   await audit({ action: "category.update", entityType: "category", entityId: id, householdId: ctx.householdId, actorId: ctx.userId, meta: input })
 }

@@ -125,7 +125,8 @@
   "category": {
     "notFound": "Category not found",
     "inUse": "This category is used in transactions. Archive it to keep its history.",
-    "unavailable": "Category unavailable"
+    "unavailable": "Category unavailable",
+    "duplicateName": "An active category with this name already exists. Choose another name."
   },
   "account": {
     "createLoan": "Create a loan in the Loans section",
