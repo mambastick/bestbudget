@@ -6,8 +6,11 @@ import { useEffect, useState } from "react"
 import { quoteConversionAction } from "@/app/actions/exchange-rates"
 import { formatExchangeRate, formatQuotedRate, formatRateSource } from "@/lib/fx-display"
 import type { ExchangeRate } from "@/lib/exchange-rates"
-import type { CatalogAccount } from "./catalog-context"
+import type { CatalogAccount, CatalogCategory } from "./catalog-context"
 import { createRulesAction, createTransactionAction, updateRuleAction, updateTransactionAction } from "@/app/actions/finance"
+import { CategoryForm } from "@/components/app/category-form"
+import { can } from "@/domain/permissions"
+import { TransactionDeleteDialog } from "./transaction-delete-dialog"
 import { CategoryIcon } from "@/components/app/category-icon"
 import { DateField } from "@/components/app/date-field"
 import { MoneyInput } from "@/components/app/money-input"
@@ -129,7 +132,11 @@ export function OperationDialog({ mode, open, onOpenChange }: { mode: OperationD
 function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: () => void }) {
   const t = useTranslations("transactions")
   const locale = useLocale()
-  const { categories, accounts, today } = useCatalog()
+  const { categories: catalogCategories, accounts, today, role } = useCatalog()
+  const [createdCategories, setCreatedCategories] = useState<CatalogCategory[]>([])
+  const categories = [...new Map([...createdCategories, ...catalogCategories].map((c) => [c.id, c])).values()]
+  const [creatingCategory, setCreatingCategory] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const activeAccounts = accounts.filter((a) => !a.archived && a.kind !== "loan")
   const [s, setS] = useState<FormState>(() => initialState(mode, today, activeAccounts[0]?.id ?? null, accounts, locale))
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -164,7 +171,7 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
   const isOccurrence = mode.kind === "transaction" && mode.row.recurringRuleId !== null
   const editingFuture = isOccurrence && s.scope === "future"
   const showSchedule = (mode.kind === "create" && s.repeat) || isRule
-  const typeLocked = mode.kind !== "create"
+  const typeLocked = isRule || isOccurrence
 
   const kindCategories = categories.filter((c) => s.type !== "transfer" && c.kind === s.type && (!c.archived || c.id === s.categoryId))
   const selectableAccounts = accounts.filter((a) => a.kind !== "loan" && (!a.archived || a.id === s.accountId || a.id === s.toAccountId))
@@ -174,7 +181,7 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
     mode.kind === "create" ? t("newTitle") : mode.kind === "rule" ? t("recurringTitle") : isOccurrence ? t("occurrenceTitle") : t("transaction")
 
   function changeType(type: OperationType) {
-    setS((prev) => ({ ...prev, type, categoryId: null, toAccountId: null }))
+    setS((prev) => ({ ...prev, type, categoryId: null, toAccountId: null, toAmount: null }))
   }
 
   function changeDate(date: IsoDate | null) {
@@ -259,169 +266,205 @@ function OperationForm({ mode, onDone }: { mode: OperationDialogMode; onDone: ()
   }
 
   return (
-    <form onSubmit={submit} className="grid grid-cols-1 gap-4">
-      <DialogHeader>
-        <DialogTitle>{title}</DialogTitle>
-        {isRule ? (
-          <DialogDescription>{t("ruleEditHint")}</DialogDescription>
-        ) : isOccurrence && mode.kind === "transaction" ? (
-          <DialogDescription>
-            {t("scheduledDate", { date: formatDateFull(mode.row.occurrenceDate ?? mode.row.date, locale) })}
-          </DialogDescription>
+    <>
+      <form onSubmit={submit} className="grid grid-cols-1 gap-4">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          {isRule ? (
+            <DialogDescription>{t("ruleEditHint")}</DialogDescription>
+          ) : isOccurrence && mode.kind === "transaction" ? (
+            <DialogDescription>
+              {t("scheduledDate", { date: formatDateFull(mode.row.occurrenceDate ?? mode.row.date, locale) })}
+            </DialogDescription>
+          ) : null}
+        </DialogHeader>
+
+        {isOccurrence ? (
+          <Segmented
+            value={s.scope}
+            onChange={(v) => set("scope", v)}
+            size="sm"
+            options={[
+              { value: "one", label: t("onlyThis") },
+              { value: "future", label: t("thisAndFuture") },
+            ]}
+          />
         ) : null}
-      </DialogHeader>
 
-      {isOccurrence ? (
-        <Segmented
-          value={s.scope}
-          onChange={(v) => set("scope", v)}
-          size="sm"
-          options={[
-            { value: "one", label: t("onlyThis") },
-            { value: "future", label: t("thisAndFuture") },
-          ]}
-        />
-      ) : null}
+        <div className="grid grid-cols-1 gap-2">
+          <Segmented
+            disabled={typeLocked}
+            aria-label={t("operationType")}
+            value={s.type}
+            onChange={changeType}
+            options={[
+              { value: "expense", label: t("expense") },
+              { value: "income", label: t("income") },
+              { value: "transfer", label: t("transfer") },
+            ]}
+          />
+          {typeLocked ? <p className="text-xs text-muted-foreground">{t("recurringTypeHint")}</p> : null}
+        </div>
 
-      {!typeLocked ? (
-        <Segmented
-          value={s.type}
-          onChange={changeType}
-          options={[
-            { value: "expense", label: t("expense") },
-            { value: "income", label: t("income") },
-            { value: "transfer", label: t("transfer") },
-          ]}
-        />
-      ) : null}
-
-      <Field>
-        <FieldLabel htmlFor="op-amount">{t("amount")}</FieldLabel>
-        <MoneyInput
-          currency={currency}
-          id="op-amount"
-          autoFocus={mode.kind === "create"}
-          value={s.amount}
-          onChange={(v) => setS((prev) => ({ ...prev, amount: v, toAmount: null }))}
-          aria-invalid={Boolean(errors.amount)}
-          className="[&_input]:h-11 [&_input]:text-lg"
-        />
-        {errors.amount ? <p className="text-sm text-destructive">{errors.amount}</p> : null}
-      </Field>
-
-      {s.type !== "transfer" ? (
         <Field>
-          <FieldLabel>{t("category")}</FieldLabel>
-          <Select
-            value={s.categoryId}
-            onValueChange={(v) => set("categoryId", v as string | null)}
-            items={kindCategories.map((c) => ({ value: c.id, label: c.name }))}
-          >
-            <SelectTrigger className="w-full" aria-invalid={Boolean(errors.categoryId)}>
-              <SelectValue placeholder={t("selectCategory")}>
-                {category ? (
-                  <span className="flex items-center gap-2">
-                    <CategoryIcon icon={category.icon} color={category.color} className="size-5 rounded-md [&_svg]:size-3" />
-                    {category.name}
-                  </span>
-                ) : null}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {kindCategories.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  <CategoryIcon icon={c.icon} color={c.color} className="size-5 rounded-md [&_svg]:size-3" />
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {errors.categoryId ? <p className="text-sm text-destructive">{errors.categoryId}</p> : null}
+          <FieldLabel htmlFor="op-amount">{t("amount")}</FieldLabel>
+          <MoneyInput
+            currency={currency}
+            id="op-amount"
+            autoFocus={mode.kind === "create"}
+            value={s.amount}
+            onChange={(v) => setS((prev) => ({ ...prev, amount: v, toAmount: null }))}
+            aria-invalid={Boolean(errors.amount)}
+            className="[&_input]:h-11 [&_input]:text-lg"
+          />
+          {errors.amount ? <p className="text-sm text-destructive">{errors.amount}</p> : null}
         </Field>
-      ) : null}
 
-      <div className={s.type === "transfer" ? "grid grid-cols-1 gap-4 sm:grid-cols-2" : "grid grid-cols-1 gap-4"}>
-        <Field>
-          <FieldLabel>{s.type === "transfer" ? t("sourceAccount") : t("account")}</FieldLabel>
-          <AccountSelect value={s.accountId} onChange={(v) => setS((prev) => ({ ...prev, accountId: v, toAmount: null }))} accounts={selectableAccounts} invalid={Boolean(errors.accountId)} />
-        </Field>
-        {s.type === "transfer" ? (
+        {s.type !== "transfer" ? (
           <Field>
-            <FieldLabel>{t("destinationAccount")}</FieldLabel>
-            <AccountSelect
-              value={s.toAccountId}
-              onChange={(v) => setS((prev) => ({ ...prev, toAccountId: v, toAmount: null }))}
-              accounts={selectableAccounts.filter((a) => a.id !== s.accountId)}
-              invalid={Boolean(errors.toAccountId)}
-            />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <FieldLabel htmlFor="op-category">{t("category")}</FieldLabel>
+              {can(role, "catalog.manage") ? (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setCreatingCategory(true)}>
+                  <Plus data-icon="inline-start" /> {t("newCategory")}
+                </Button>
+              ) : null}
+            </div>
+            <Select
+              value={s.categoryId}
+              onValueChange={(v) => set("categoryId", v as string | null)}
+              items={kindCategories.map((c) => ({ value: c.id, label: c.name }))}
+            >
+              <SelectTrigger id="op-category" className="w-full" aria-invalid={Boolean(errors.categoryId)}>
+                <SelectValue placeholder={t("selectCategory")}>
+                  {category ? (
+                    <span className="flex items-center gap-2">
+                      <CategoryIcon icon={category.icon} color={category.color} className="size-5 rounded-md [&_svg]:size-3" />
+                      {category.name}
+                    </span>
+                  ) : null}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {kindCategories.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    <CategoryIcon icon={c.icon} color={c.color} className="size-5 rounded-md [&_svg]:size-3" />
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {errors.categoryId ? <p className="text-sm text-destructive">{errors.categoryId}</p> : null}
           </Field>
         ) : null}
-      </div>
 
-      {crossCurrency ? <Field>
-        <FieldLabel htmlFor="op-to-amount">{t("credited")}</FieldLabel>
-        <MoneyInput id="op-to-amount" currency={toCurrency} value={creditedInput} onChange={(v) => set("toAmount", v)} aria-invalid={Boolean(errors.toAmount)} />
-        {referenceRate ? <p className="text-xs text-muted-foreground">{referenceRate}{rateSource ? ` · ${rateSource}` : ""}</p> : null}
-        {effectiveRate && (!referenceRate || effectiveRate !== referenceRate) ? <p className="text-xs text-muted-foreground">{t("effectiveRate", { rate: effectiveRate })}</p> : null}
-        {currentQuote?.warnings.map((warning) => <p key={warning} className="text-xs text-muted-foreground">{warning}</p>)}
-        {errors.toAmount ? <p className="text-sm text-destructive">{errors.toAmount}</p> : null}
-      </Field> : null}
+        <div className={s.type === "transfer" ? "grid grid-cols-1 gap-4 sm:grid-cols-2" : "grid grid-cols-1 gap-4"}>
+          <Field>
+            <FieldLabel>{s.type === "transfer" ? t("sourceAccount") : t("account")}</FieldLabel>
+            <AccountSelect value={s.accountId} onChange={(v) => setS((prev) => ({ ...prev, accountId: v, toAmount: null }))} accounts={selectableAccounts} invalid={Boolean(errors.accountId)} />
+          </Field>
+          {s.type === "transfer" ? (
+            <Field>
+              <FieldLabel>{t("destinationAccount")}</FieldLabel>
+              <AccountSelect
+                value={s.toAccountId}
+                onChange={(v) => setS((prev) => ({ ...prev, toAccountId: v, toAmount: null }))}
+                accounts={selectableAccounts.filter((a) => a.id !== s.accountId)}
+                invalid={Boolean(errors.toAccountId)}
+              />
+            </Field>
+          ) : null}
+        </div>
 
-      {!editingFuture ? (
+        {crossCurrency ? <Field>
+          <FieldLabel htmlFor="op-to-amount">{t("credited")}</FieldLabel>
+          <MoneyInput id="op-to-amount" currency={toCurrency} value={creditedInput} onChange={(v) => set("toAmount", v)} aria-invalid={Boolean(errors.toAmount)} />
+          {referenceRate ? <p className="text-xs text-muted-foreground">{referenceRate}{rateSource ? ` · ${rateSource}` : ""}</p> : null}
+          {effectiveRate && (!referenceRate || effectiveRate !== referenceRate) ? <p className="text-xs text-muted-foreground">{t("effectiveRate", { rate: effectiveRate })}</p> : null}
+          {currentQuote?.warnings.map((warning) => <p key={warning} className="text-xs text-muted-foreground">{warning}</p>)}
+          {errors.toAmount ? <p className="text-sm text-destructive">{errors.toAmount}</p> : null}
+        </Field> : null}
+
+        {!editingFuture ? (
+          <Field>
+            <FieldLabel>{showSchedule ? t("startDate") : t("date")}</FieldLabel>
+            <DateField value={s.date} onChange={changeDate} today={today} />
+          </Field>
+        ) : null}
+
         <Field>
-          <FieldLabel>{showSchedule ? t("startDate") : t("date")}</FieldLabel>
-          <DateField value={s.date} onChange={changeDate} today={today} />
+          <FieldLabel htmlFor="op-title">{t("name")}</FieldLabel>
+          <Input
+            id="op-title"
+            value={s.title}
+            maxLength={120}
+            onChange={(e) => set("title", e.target.value)}
+            placeholder={category?.name ?? (s.type === "transfer" ? t("transfer") : t("nameExample"))}
+          />
         </Field>
-      ) : null}
 
-      <Field>
-        <FieldLabel htmlFor="op-title">{t("name")}</FieldLabel>
-        <Input
-          id="op-title"
-          value={s.title}
-          maxLength={120}
-          onChange={(e) => set("title", e.target.value)}
-          placeholder={category?.name ?? (s.type === "transfer" ? t("transfer") : t("nameExample"))}
-        />
-      </Field>
+        <Field>
+          <FieldLabel htmlFor="op-desc">{t("notes")}</FieldLabel>
+          <Textarea id="op-desc" value={s.description} maxLength={1000} rows={2} onChange={(e) => set("description", e.target.value)} placeholder={t("optional")} />
+        </Field>
 
-      <Field>
-        <FieldLabel htmlFor="op-desc">{t("notes")}</FieldLabel>
-        <Textarea id="op-desc" value={s.description} maxLength={1000} rows={2} onChange={(e) => set("description", e.target.value)} placeholder={t("optional")} />
-      </Field>
-
-      {mode.kind === "create" ? (
-        <label className="flex items-center justify-between gap-3 rounded-lg border p-3">
-          <span className="flex items-center gap-2 text-sm font-medium">
-            <Repeat className="size-4 text-muted-foreground" /> {t("repeat")}
-          </span>
-          <Switch checked={s.repeat} onCheckedChange={(v) => set("repeat", v)} />
-        </label>
-      ) : null}
-
-      {showSchedule ? <ScheduleFields s={s} set={set} errors={errors} today={today} allowExtra={mode.kind === "create" && !crossCurrency} currency={currency} /> : null}
-
-      {!showSchedule && !editingFuture ? (
-        <label className="flex items-center justify-between gap-3 rounded-lg border p-3">
-          <span className="text-sm">
-            <span className="font-medium">{t("alreadyPosted")}</span>
-            <span className="block text-muted-foreground">
-              {s.posted ? t("postedHint") : t("plannedHint")}
+        {mode.kind === "create" ? (
+          <label className="flex items-center justify-between gap-3 rounded-lg border p-3">
+            <span className="flex items-center gap-2 text-sm font-medium">
+              <Repeat className="size-4 text-muted-foreground" /> {t("repeat")}
             </span>
-          </span>
-          <Switch checked={s.posted} onCheckedChange={(v) => set("posted", v)} />
-        </label>
-      ) : null}
+            <Switch checked={s.repeat} onCheckedChange={(v) => set("repeat", v)} />
+          </label>
+        ) : null}
 
-      <DialogFooter>
-        <Button type="button" variant="outline" onClick={onDone}>
-          {t("cancel")}
-        </Button>
-        <Button type="submit" disabled={pending}>
-          {pending ? t("saving") : mode.kind === "create" ? t("add") : t("save")}
-        </Button>
-      </DialogFooter>
-    </form>
+        {showSchedule ? <ScheduleFields s={s} set={set} errors={errors} today={today} allowExtra={mode.kind === "create" && !crossCurrency} currency={currency} /> : null}
+
+        {!showSchedule && !editingFuture ? (
+          <label className="flex items-center justify-between gap-3 rounded-lg border p-3">
+            <span className="text-sm">
+              <span className="font-medium">{t("alreadyPosted")}</span>
+              <span className="block text-muted-foreground">
+                {s.posted ? t("postedHint") : t("plannedHint")}
+              </span>
+            </span>
+            <Switch checked={s.posted} onCheckedChange={(v) => set("posted", v)} />
+          </label>
+        ) : null}
+
+        <DialogFooter>
+          {mode.kind === "transaction" ? (
+            <Button type="button" variant="destructive" className="mt-2 sm:mt-0 sm:mr-auto" disabled={pending} onClick={() => setConfirmDelete(true)}>
+              <Trash2 data-icon="inline-start" /> {t("delete")}
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" onClick={onDone}>
+            {t("cancel")}
+          </Button>
+          <Button type="submit" disabled={pending}>
+            {pending ? t("saving") : mode.kind === "create" ? t("add") : t("save")}
+          </Button>
+        </DialogFooter>
+      </form>
+      {/* Portals bubble React events: sibling dialogs must stay outside the operation form. */}
+      {mode.kind === "transaction" ? (
+        <TransactionDeleteDialog row={mode.row} open={confirmDelete} onOpenChange={setConfirmDelete} onDeleted={onDone} />
+      ) : null}
+      <Dialog open={creatingCategory} onOpenChange={setCreatingCategory}>
+        <DialogContent className="max-h-[92svh] overflow-y-auto sm:max-w-md">
+          {creatingCategory && s.type !== "transfer" ? (
+            <CategoryForm
+              editing={{ mode: "new", kind: s.type }}
+              kindLocked
+              onClose={() => setCreatingCategory(false)}
+              onCreated={(category) => {
+                setCreatedCategories((prev) => [...prev, category])
+                set("categoryId", category.id)
+              }}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

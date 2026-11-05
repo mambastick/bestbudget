@@ -4,34 +4,21 @@ import { useTranslations } from "next-intl"
 
 import { Archive, ArchiveRestore, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
-import { createCategoryAction, deleteCategoryAction, setCategoryArchivedAction, updateCategoryAction } from "@/app/actions/catalog"
-import { CATEGORY_ICONS, CategoryIcon } from "@/components/app/category-icon"
+import { deleteCategoryAction, setCategoryArchivedAction } from "@/app/actions/catalog"
+import { CategoryIcon } from "@/components/app/category-icon"
 import { ConfirmDialog } from "@/components/app/confirm-dialog"
-import { Segmented } from "@/components/app/segmented"
+import { CategoryForm, type CategoryEditing } from "@/components/app/category-form"
+import type { CatalogCategory } from "@/components/app/operations/catalog-context"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Field, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import { CATEGORY_COLORS } from "@/domain/defaults"
 import { useAction } from "@/hooks/use-action"
 import { cn } from "@/lib/utils"
 import { Section } from "./section"
 
-interface Category {
-  id: string
-  kind: "income" | "expense"
-  name: string
-  icon: string
-  color: string
-  archived: boolean
-}
-
-type Editing = { mode: "new"; kind: "income" | "expense" } | { mode: "edit"; category: Category }
-
-export function CategoriesSettings({ categories, canManage }: { categories: Category[]; canManage: boolean }) {
+export function CategoriesSettings({ categories, canManage }: { categories: CatalogCategory[]; canManage: boolean }) {
   const t = useTranslations("settings")
-  const [editing, setEditing] = useState<Editing | null>(null)
+  const [editing, setEditing] = useState<CategoryEditing | null>(null)
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       {(["expense", "income"] as const).map((kind) => (
@@ -65,7 +52,7 @@ export function CategoriesSettings({ categories, canManage }: { categories: Cate
   )
 }
 
-function CategoryRow({ category: c, canManage, onEdit }: { category: Category; canManage: boolean; onEdit: () => void }) {
+function CategoryRow({ category: c, canManage, onEdit }: { category: CatalogCategory; canManage: boolean; onEdit: () => void }) {
   const t = useTranslations("settings")
   const { run } = useAction()
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -100,89 +87,5 @@ function CategoryRow({ category: c, canManage, onEdit }: { category: Category; c
         onConfirm={() => run(() => deleteCategoryAction(c.id), { success: t("categories.categoryDeleted") })}
       />
     </li>
-  )
-}
-
-function CategoryForm({ editing, onClose }: { editing: Editing; onClose: () => void }) {
-  const t = useTranslations("settings")
-  const initial = editing.mode === "edit" ? editing.category : null
-  const [kind, setKind] = useState<"income" | "expense">(initial?.kind ?? (editing.mode === "new" ? editing.kind : "expense"))
-  const [name, setName] = useState(initial?.name ?? "")
-  const [icon, setIcon] = useState(initial?.icon ?? "circle")
-  const [color, setColor] = useState(initial?.color ?? CATEGORY_COLORS[0]!)
-  const { pending, run } = useAction()
-
-  return (
-    <form
-      className="grid grid-cols-1 gap-4"
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (initial) run(() => updateCategoryAction(initial.id, { name, icon, color }), { success: t("categories.categorySaved"), onSuccess: onClose })
-        else run(() => createCategoryAction({ kind, name, icon, color }), { success: t("categories.categoryCreated"), onSuccess: onClose })
-      }}
-    >
-      <DialogHeader>
-        <DialogTitle>{initial ? t("categories.category") : t("categories.newCategory")}</DialogTitle>
-      </DialogHeader>
-      {!initial ? (
-        <Segmented
-          value={kind}
-          onChange={setKind}
-          options={[
-            { value: "expense", label: t("categories.expense") },
-            { value: "income", label: t("categories.income") },
-          ]}
-        />
-      ) : null}
-      <div className="flex items-center gap-3">
-        <CategoryIcon icon={icon} color={color} className="size-10 [&_svg]:size-5" />
-        <Field className="flex-1">
-          <FieldLabel htmlFor="cat-name">{t("categories.name")}</FieldLabel>
-          <Input id="cat-name" required maxLength={60} value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-      </div>
-      <Field>
-        <FieldLabel>{t("categories.color")}</FieldLabel>
-        <div className="flex flex-wrap gap-2">
-          {CATEGORY_COLORS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              aria-label={t("categories.colorValue", { c })}
-              aria-pressed={color === c}
-              onClick={() => setColor(c)}
-              className={cn("size-7 rounded-full ring-offset-2 ring-offset-background transition", color === c && "ring-2 ring-foreground")}
-              style={{ backgroundColor: c }}
-            />
-          ))}
-        </div>
-      </Field>
-      <Field>
-        <FieldLabel>{t("categories.icon")}</FieldLabel>
-        <div className="grid grid-cols-8 gap-1.5">
-          {Object.entries(CATEGORY_ICONS).map(([key, Icon]) => (
-            <button
-              key={key}
-              type="button"
-              aria-label={key}
-              aria-pressed={icon === key}
-              onClick={() => setIcon(key)}
-              className={cn(
-                "flex aspect-square items-center justify-center rounded-lg border text-muted-foreground transition hover:bg-accent",
-                icon === key && "border-primary bg-primary/10 text-primary",
-              )}
-            >
-              <Icon className="size-4" />
-            </button>
-          ))}
-        </div>
-      </Field>
-      <DialogFooter>
-        <Button type="button" variant="outline" onClick={onClose}>
-          {t("categories.cancel")}{" "}</Button>
-        <Button type="submit" disabled={pending || !name.trim()}>
-          {t("categories.save")}{" "}</Button>
-      </DialogFooter>
-    </form>
   )
 }

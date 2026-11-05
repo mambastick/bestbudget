@@ -9,6 +9,8 @@ import { getTransactionAction } from "@/app/actions/finance"
 import { CategoryIcon } from "@/components/app/category-icon"
 import { Money } from "@/components/app/money"
 import { useCatalog } from "@/components/app/operations/catalog-context"
+import { OperationMenu } from "@/components/app/operations/operation-menu"
+import type { OperationRow } from "@/components/app/operations/types"
 import { useOperations } from "@/components/app/operations/operations-provider"
 import { Segmented } from "@/components/app/segmented"
 import { Badge } from "@/components/ui/badge"
@@ -24,28 +26,17 @@ export interface CalendarDay {
   balance: number
 }
 
-export interface CalendarEntry {
+export interface CalendarEntry extends OperationRow {
   key: string
-  id: string
   virtual: boolean
-  type: "income" | "expense" | "transfer"
-  status: "planned" | "posted" | "skipped"
-  amount: number
   currency: string
-  toAmount: number | null
   toCurrency: string | null
-  title: string
-  date: IsoDate
   categoryIcon: string | null
   categoryColor: string | null
   categoryName: string | null
   accountName: string
   toAccountName: string | null
   authorName: string | null
-  loanId?: string | null
-  loanPrincipal?: number
-  loanInterest?: number
-  recurringRuleId: string | null
 }
 
 const MAX_CHIPS = 3
@@ -359,15 +350,15 @@ function Section({ title, entries }: { title: string; entries: CalendarEntry[] }
   )
 }
 
-function EntryRow({ entry: e, today }: { entry: CalendarEntry; today?: IsoDate }) {
+function EntryRow({ entry: e, today, showActual = false }: { entry: CalendarEntry; today?: IsoDate; showActual?: boolean }) {
   const t = useTranslations("calendar")
   const locale = useLocale()
   const open = useOpenEntry()
   const color = entryColor(e)
   const overdue = today !== undefined && e.status === "planned" && e.date < today
   return (
-    <li className="flex items-center gap-2 rounded-lg py-1 pr-1 pl-2 hover:bg-accent/50" style={{ boxShadow: `inset 3px 0 0 ${color}` }}>
-      <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => open(e, "edit")}>
+    <li className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg py-1 pr-1 pl-2 hover:bg-accent/50" style={{ boxShadow: `inset 3px 0 0 ${color}` }}>
+      <button type="button" className="flex min-w-0 flex-1 basis-24 items-center gap-2 text-left" onClick={() => open(e, "edit")}>
         <CategoryIcon icon={e.categoryIcon} color={e.categoryColor} transfer={e.type === "transfer"} className="size-7" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm">{e.title}</span>
@@ -390,11 +381,12 @@ function EntryRow({ entry: e, today }: { entry: CalendarEntry; today?: IsoDate }
         <Button variant="ghost" size="icon-sm" aria-label={t("confirm")} title={t("confirmPosted")} onClick={() => open(e, "confirm")}>
           <Check />
         </Button>
-      ) : (
+      ) : showActual ? (
         <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
           {t("actual")}
         </Badge>
-      )}
+      ) : null}
+      {!e.virtual && !e.loanId ? <OperationMenu row={e} /> : null}
     </li>
   )
 }
@@ -425,7 +417,7 @@ function AgendaList({ days, byDate, today }: { days: CalendarDay[]; byDate: Map<
             </div>
             <ul className="grid grid-cols-1 gap-1 p-2">
               {byDate.get(d.date)!.map((e) => (
-                <EntryRow key={e.key} entry={e} today={today} />
+                <EntryRow key={e.key} entry={e} today={today} showActual />
               ))}
             </ul>
           </section>

@@ -3,8 +3,8 @@
 import { useTranslations } from "next-intl"
 import { Check, MoreHorizontal, Pencil, RotateCcw, SkipForward, Trash2 } from "lucide-react"
 import { useState } from "react"
-import { deleteTransactionAction, skipTransactionAction, unconfirmTransactionAction } from "@/app/actions/finance"
-import { ConfirmDialog } from "@/components/app/confirm-dialog"
+import { skipTransactionAction, unconfirmTransactionAction } from "@/app/actions/finance"
+import { TransactionDeleteDialog } from "./transaction-delete-dialog"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -57,17 +57,7 @@ export function OperationMenu({ row }: { row: OperationRow }) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <ConfirmDialog
-        open={confirmDelete}
-        onOpenChange={setConfirmDelete}
-        title={t("deleteTitle")}
-        description={
-          recurring
-            ? t("deleteRecurringHint")
-            : t("deleteHint")
-        }
-        onConfirm={() => run(() => deleteTransactionAction(row.id), { success: recurring ? t("skippedToast") : t("deleted") })}
-      />
+      <TransactionDeleteDialog row={row} open={confirmDelete} onOpenChange={setConfirmDelete} />
     </>
   )
 }
