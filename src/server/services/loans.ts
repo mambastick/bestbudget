@@ -79,6 +79,51 @@ function ledgerDebt(loan: Loan, data: Pick<Awaited<ReturnType<typeof ledger>>, "
   )
 }
 
+type RemainingInterest = { date: string; amount: number; from: string; to: string }
+
+/** The single source of truth for close eligibility and the close dialog. */
+function loanRemaining(loan: Loan, data: Awaited<ReturnType<typeof ledger>>, today: string) {
+  const principal = ledgerDebt(loan, data, today)
+  const planned = schedule(loan, data.events, data.posted)
+  const resolved = new Set(data.rows.filter((r) => r.status !== "planned").map((r) => r.loanDueDate))
+  const plannedInterest = new Map(
+    data.rows.filter((r) => r.status === "planned" && r.loanPart === "interest").map((r) => [r.loanDueDate!, r.amount]),
+  )
+  const scheduleInterest = new Map(
+    planned
+      .filter((r) => r.kind === "scheduled" && r.interest > 0 && !resolved.has(r.date))
+      .map((r) => [r.date, r.interest]),
+  )
+  const dueDates = new Set([...scheduleInterest.keys(), ...plannedInterest.keys()])
+  const changes = [
+    ...data.rows
+      .filter((r) => r.status === "posted" && r.type === "transfer")
+      .map((r) => ({ date: r.date, delta: -r.amount })),
+    ...data.events
+      .filter((e) => e.balanceDelta !== null && adjustmentDate(e) <= today)
+      .map((e) => ({ date: adjustmentDate(e), delta: -e.balanceDelta! })),
+  ].sort((a, b) => a.date.localeCompare(b.date))
+  const accruedThrough = (from: string, dueDate: string) => {
+    let balance = loan.trackingBalance
+    let lastZero: string | null = null
+    for (const change of changes) {
+      if (change.date > dueDate) break
+      balance += change.delta
+      if (balance === 0 && change.date >= from) lastZero = change.date
+    }
+    return lastZero ?? dueDate
+  }
+  const interest = [...dueDates]
+    .sort()
+    .map((date): RemainingInterest => {
+      const previous = [...planned].reverse().find((r) => r.kind === "scheduled" && r.date < date)
+      const from = previous?.date ?? loan.trackingDate
+      return { date, amount: plannedInterest.get(date) ?? scheduleInterest.get(date) ?? 0, from, to: accruedThrough(from, date) }
+    })
+    .filter((r) => r.amount > 0)
+  return { principal, interest, interestTotal: interest.reduce((sum, r) => sum + r.amount, 0) }
+}
+
 async function owned(db: DbOrTx, ctx: Pick<HouseholdCtx, "householdId">, id: string, lock = false) {
   if (!z.uuid().safeParse(id).success) throw notFound("loan.notFound")
   const query = db
@@ -303,6 +348,7 @@ export async function getLoan(ctx: HouseholdCtx, id: string) {
     .where(and(eq(financialAccounts.householdId, ctx.householdId), eq(financialAccounts.id, loan.accountId)))
   const today = todayIn(ctx.timezone)
   const debt = ledgerDebt(loan, data, today)
+  const remaining = loanRemaining(loan, data, today)
   const planned = schedule(loan, data.events, data.posted)
   const eventInputs = data.events.map(toLoanEventInput)
   const rows = planned.map((r) => {
@@ -310,8 +356,10 @@ export async function getLoan(ctx: HouseholdCtx, id: string) {
     return { ...r, id: payment?.id ?? null, status: r.kind === "scheduled" ? (payment?.status ?? "planned") : "posted" }
   })
   const futureInterest =
-    rows.filter((r) => r.kind === "scheduled" && r.status === "planned").reduce((s, r) => s + r.interest, 0) +
-    rows.filter((r) => r.kind === "capitalization").reduce((s, r) => s + r.accrued!, 0)
+    loan.status === "active"
+      ? rows.filter((r) => r.kind === "scheduled" && r.status === "planned").reduce((s, r) => s + r.interest, 0) +
+        rows.filter((r) => r.kind === "capitalization").reduce((s, r) => s + r.accrued!, 0)
+      : 0
   const paidInterest = data.posted.reduce((s, p) => s + p.interest, 0)
   const next = loan.status === "active" ? (rows.find((r) => r.kind === "scheduled" && r.status === "planned") ?? null) : null
   return {
@@ -322,6 +370,7 @@ export async function getLoan(ctx: HouseholdCtx, id: string) {
     posted: data.posted,
     rows,
     debt,
+    remaining,
     paidInterest,
     futureInterest,
     next,
@@ -403,7 +452,13 @@ const termsInput = z.object({
 const money = z.number().int().min(0).max(100_000_000_000_000)
 
 export const loanEventInput = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("prepayment"), date: isoDate, amount, mode: z.enum(["reduce_term", "reduce_payment"]) }),
+  z.object({
+    type: z.literal("prepayment"),
+    date: isoDate,
+    amount,
+    mode: z.enum(["reduce_term", "reduce_payment"]),
+    payAccruedInterest: z.boolean().optional(),
+  }),
   z.object({ type: z.literal("rate_change"), date: isoDate, annualRate: rate }),
   z.object({ type: z.literal("reconciliation"), date: isoDate, balance: money }),
   termsInput.extend({ type: z.literal("restructuring"), date: isoDate, balance: money.nullable().optional(), note: noteInput }),
@@ -421,6 +476,9 @@ export type LoanEventRequest = z.input<typeof loanEventInput>
 
 /** The stored form of a holiday or new terms; shared by adding and restating an event. */
 function eventValues(input: z.output<typeof loanEventInput>) {
+  if (input.type === "prepayment") {
+    return { type: input.type, date: input.date, amount: input.amount, mode: input.mode }
+  }
   if (input.type !== "holiday") return input
   const { mode, interest, shift, ...rest } = input
   return { ...rest, holidayMode: mode, holidayInterest: interest, holidayShift: shift }
@@ -429,6 +487,7 @@ function eventValues(input: z.output<typeof loanEventInput>) {
 export async function addLoanEvent(ctx: HouseholdCtx, id: string, version: number, raw: LoanEventRequest) {
   assertCan(ctx, "loans.manage")
   const input = loanEventInput.parse(raw)
+  if (input.type === "prepayment" && input.payAccruedInterest) assertCan(ctx, "finance.write")
   z.number().int().positive().parse(version)
   const today = todayIn(ctx.timezone)
   return getDb().transaction(async (tx) => {
@@ -460,6 +519,8 @@ export async function addLoanEvent(ctx: HouseholdCtx, id: string, version: numbe
       throw new AppError("loan.previousPayments")
     const actualDebt = ledgerDebt(loan, data, today)
     if (input.type === "prepayment" && actualDebt <= 0) throw new AppError("loan.principalRepaid")
+    if (input.type === "prepayment" && input.payAccruedInterest && input.amount < actualDebt)
+      throw new AppError("loan.prepaymentInterestRequiresFull")
     // A change in force settles the balance from the ledger; one still ahead replays from the planned balance.
     const settledBalance = isTerms && !scheduledAhead ? (input.balance ?? actualDebt) : null
     const values =
@@ -522,6 +583,12 @@ export async function addLoanEvent(ctx: HouseholdCtx, id: string, version: numbe
       { action: `loan.${input.type}`, entityType: "loan", entityId: id, householdId: ctx.householdId, actorId: ctx.userId, meta: values },
       tx,
     )
+    if (input.type === "prepayment" && input.payAccruedInterest) {
+      const current = await owned(tx, ctx, id, true)
+      const currentData = await ledger(tx, current)
+      const remaining = loanRemaining(current, currentData, today)
+      await postInterestRows(ctx, tx, current, remaining.interest, input.date, current.paymentAccountId, today)
+    }
     return event!
   })
 }
@@ -767,6 +834,127 @@ export const loanConfirmInput = z.object({
   principal: z.number().int().min(0).max(100_000_000_000_000).optional(),
 })
 
+async function confirmLoanPaymentInTransaction(
+  ctx: HouseholdCtx,
+  tx: DbOrTx,
+  loan: Loan,
+  data: Awaited<ReturnType<typeof ledger>>,
+  transactionId: string,
+  input: z.output<typeof loanConfirmInput>,
+  options: { forceInterest?: boolean; accountId?: string; today: string },
+) {
+  if (loan.status !== "active") throw new AppError("loan.closed")
+  const ref = data.rows.find((r) => r.id === transactionId)
+  if (!ref || ref.loanPart === "prepayment" || ref.version !== input.version) throw conflict()
+  const parts = data.rows.filter((r) => r.loanPaymentKey === ref.loanPaymentKey)
+  if (parts.some((r) => r.status !== "planned")) throw new AppError("loan.paymentResolved")
+  if (data.rows.some((r) => r.status === "planned" && r.loanPart !== "prepayment" && r.loanDueDate! < ref.loanDueDate!))
+    throw new AppError("loan.previousPayment")
+  if (
+    input.date < loan.trackingDate ||
+    data.events.some((e) => e.date > input.date && e.date <= options.today && e.date <= ref.loanDueDate!) ||
+    data.rows.some((r) => r.status === "posted" && r.date > input.date)
+  )
+    throw new AppError("loan.actualDateOrder")
+  const plannedPrincipal = parts.find((r) => r.loanPart === "principal")?.amount ?? 0
+  const plannedInterest = parts.find((r) => r.loanPart === "interest")?.amount ?? 0
+  const principal = options.forceInterest
+    ? 0
+    : input.allocation === "manual"
+      ? input.principal
+      : input.allocation === "principal"
+        ? input.amount - plannedInterest
+        : plannedPrincipal
+  if (principal === undefined || principal < 0 || principal > input.amount) throw new AppError("loan.paymentSplit")
+  const interest = input.amount - principal
+  if (principal > ledgerDebt(loan, data, options.today)) throw new AppError("loan.paymentExceedsBalance")
+  const allocation = { principal, interest }
+  for (const part of ["principal", "interest"] as const) {
+    const before = parts.find((r) => r.loanPart === part)
+    const value = allocation[part]
+    if (before && value === 0)
+      await tx.delete(transactions).where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.id, before.id)))
+    else if (before)
+      await tx
+        .update(transactions)
+        .set({
+          amount: value,
+          date: input.date,
+          accountId: options.accountId ?? before.accountId,
+          status: "posted",
+          postedAt: new Date(),
+          version: before.version + 1,
+          updatedBy: ctx.userId,
+        })
+        .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.id, before.id)))
+    else if (value > 0) {
+      const planned = plannedParts(
+        loan,
+        { n: 0, date: ref.loanDueDate!, principal, interest, payment: input.amount, balance: 0, kind: "scheduled" },
+        ctx.locale ?? "ru",
+      ).find((r) => r.loanPart === part)!
+      await tx.insert(transactions).values({
+        ...planned,
+        amount: value,
+        accountId: options.accountId ?? planned.accountId,
+        date: input.date,
+        status: "posted",
+        postedAt: new Date(),
+        version: 2,
+        updatedBy: ctx.userId,
+      })
+    }
+  }
+  const [updated] = await tx
+    .update(loans)
+    .set({ version: loan.version + 1 })
+    .where(and(eq(loans.householdId, ctx.householdId), eq(loans.id, loan.id)))
+    .returning()
+  await regenerate(tx, updated!, addDays(ref.loanDueDate!, 1), options.today, ctx.locale)
+  await audit(
+    {
+      action: "loan.payment_confirm",
+      entityType: "loan",
+      entityId: loan.id,
+      householdId: ctx.householdId,
+      actorId: ctx.userId,
+      meta: { dueDate: ref.loanDueDate, date: input.date, ...allocation },
+    },
+    tx,
+  )
+  return updated!
+}
+
+async function postInterestRows(
+  ctx: HouseholdCtx,
+  tx: DbOrTx,
+  initialLoan: Loan,
+  interestRows: RemainingInterest[],
+  date: string,
+  accountId: string,
+  today: string,
+  amountOverride?: number,
+) {
+  let loan = initialLoan
+  for (const row of interestRows) {
+    await materialize(tx, loan, today, row.date, ctx.locale)
+    const data = await ledger(tx, loan)
+    const planned = data.rows.find((r) => r.loanDueDate === row.date && r.loanPart === "interest")
+    if (!planned || planned.status !== "planned") continue
+    const amount = amountOverride ?? row.amount
+    loan = await confirmLoanPaymentInTransaction(
+      ctx,
+      tx,
+      loan,
+      data,
+      planned.id,
+      { version: planned.version, date, amount, allocation: "interest" },
+      { forceInterest: true, accountId, today },
+    )
+  }
+  return loan
+}
+
 export async function confirmLoanPayment(ctx: HouseholdCtx, transactionId: string, raw: z.input<typeof loanConfirmInput>) {
   assertCan(ctx, "finance.write")
   const input = loanConfirmInput.parse(raw)
@@ -780,105 +968,76 @@ export async function confirmLoanPayment(ctx: HouseholdCtx, transactionId: strin
   if (!reference?.loanId || reference.loanPart === "prepayment") throw notFound("loan.paymentNotFound")
   return db.transaction(async (tx) => {
     const loan = await owned(tx, ctx, reference.loanId!, true)
-    if (loan.status !== "active") throw new AppError("loan.closed")
     const data = await ledger(tx, loan)
-    const parts = data.rows.filter((r) => r.loanPaymentKey === reference.loanPaymentKey)
-    const ref = parts.find((r) => r.id === transactionId)
-    if (!ref || ref.version !== input.version) throw conflict()
-    if (parts.some((r) => r.status !== "planned")) throw new AppError("loan.paymentResolved")
-    if (data.rows.some((r) => r.status === "planned" && r.loanPart !== "prepayment" && r.loanDueDate! < ref.loanDueDate!))
-      throw new AppError("loan.previousPayment")
-    if (
-      input.date < loan.trackingDate ||
-      data.events.some((e) => e.date > input.date && e.date <= today && e.date <= ref.loanDueDate!) ||
-      data.rows.some((r) => r.status === "posted" && r.date > input.date)
-    )
-      throw new AppError("loan.actualDateOrder")
-    const plannedPrincipal = parts.find((r) => r.loanPart === "principal")?.amount ?? 0
-    const plannedInterest = parts.find((r) => r.loanPart === "interest")?.amount ?? 0
-    const principal =
-      input.allocation === "manual" ? input.principal : input.allocation === "principal" ? input.amount - plannedInterest : plannedPrincipal
-    if (principal === undefined || principal < 0 || principal > input.amount)
-      throw new AppError("loan.paymentSplit")
-    const interest = input.amount - principal
-    if (principal > ledgerDebt(loan, data, today)) throw new AppError("loan.paymentExceedsBalance")
-    const allocation = { principal, interest }
-    for (const part of ["principal", "interest"] as const) {
-      const before = parts.find((r) => r.loanPart === part)
-      const value = allocation[part]
-      if (before && value === 0)
-        await tx.delete(transactions).where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.id, before.id)))
-      else if (before)
-        await tx
-          .update(transactions)
-          .set({
-            amount: value,
-            date: input.date,
-            status: "posted",
-            postedAt: new Date(),
-            version: before.version + 1,
-            updatedBy: ctx.userId,
-          })
-          .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.id, before.id)))
-      else if (value > 0) {
-        const planned = plannedParts(
-          loan,
-          {
-            n: 0,
-            date: ref.loanDueDate!,
-            principal,
-            interest,
-            payment: input.amount,
-            balance: 0,
-            kind: "scheduled",
-          },
-          ctx.locale ?? "ru",
-        ).find((r) => r.loanPart === part)!
-        await tx.insert(transactions).values({
-          ...planned,
-          amount: value,
-          date: input.date,
-          status: "posted",
-          postedAt: new Date(),
-          version: 2,
-          updatedBy: ctx.userId,
-        })
-      }
-    }
-    const [updated] = await tx
-      .update(loans)
-      .set({ version: loan.version + 1 })
-      .where(and(eq(loans.householdId, ctx.householdId), eq(loans.id, loan.id)))
-      .returning()
-    await regenerate(tx, updated!, addDays(ref.loanDueDate!, 1), today, ctx.locale)
-    await audit(
-      {
-        action: "loan.payment_confirm",
-        entityType: "loan",
-        entityId: loan.id,
-        householdId: ctx.householdId,
-        actorId: ctx.userId,
-        meta: { dueDate: ref.loanDueDate, date: input.date, ...allocation },
-      },
-      tx,
-    )
+    await confirmLoanPaymentInTransaction(ctx, tx, loan, data, transactionId, input, { today })
   })
 }
 
-export async function closeLoan(ctx: HouseholdCtx, id: string, version: number) {
-  assertCan(ctx, "loans.manage")
-  z.number().int().positive().parse(version)
-  await getDb().transaction(async (tx) => {
-    const loan = await owned(tx, ctx, id, true)
-    if (loan.version !== version) throw conflict()
-    const data = await ledger(tx, loan)
-    if (ledgerDebt(loan, data, todayIn(ctx.timezone)) !== 0) throw new AppError("loan.debtRemaining")
-    const resolved = new Set(data.rows.filter((r) => r.status !== "planned").map((r) => r.loanDueDate))
-    if (
-      data.rows.some((r) => r.status === "planned" && r.loanPart === "interest") ||
-      schedule(loan, data.events, data.posted).some((r) => r.kind === "scheduled" && r.interest > 0 && !resolved.has(r.date))
+export const loanCloseInput = z.object({
+  version: z.number().int().positive(),
+  interest: z
+    .discriminatedUnion("mode", [
+      z.object({ mode: z.literal("pay"), date: isoDate, accountId: z.uuid(), amount: amount.optional() }),
+      z.object({ mode: z.literal("waive") }),
+    ])
+    .optional(),
+})
+
+async function activePaymentAccount(tx: DbOrTx, ctx: HouseholdCtx, loan: Loan, accountId: string) {
+  const [account] = await tx
+    .select()
+    .from(financialAccounts)
+    .where(
+      and(
+        eq(financialAccounts.householdId, ctx.householdId),
+        eq(financialAccounts.id, accountId),
+        isNull(financialAccounts.archivedAt),
+      ),
     )
-      throw new AppError("loan.interestRemaining")
+    .for("update")
+  if (!account || account.kind === "loan") throw new AppError("loan.activePaymentAccount")
+  const [liability] = await tx
+    .select({ currency: financialAccounts.currency })
+    .from(financialAccounts)
+    .where(and(eq(financialAccounts.householdId, ctx.householdId), eq(financialAccounts.id, loan.accountId)))
+  if (!liability || account.currency !== liability.currency) throw new AppError("loan.paymentAccountCurrency")
+  return account
+}
+
+export async function closeLoan(ctx: HouseholdCtx, id: string, raw: z.input<typeof loanCloseInput>) {
+  assertCan(ctx, "loans.manage")
+  const input = loanCloseInput.parse(raw)
+  if (input.interest?.mode === "pay") assertCan(ctx, "finance.write")
+  const today = todayIn(ctx.timezone)
+  await getDb().transaction(async (tx) => {
+    let loan = await owned(tx, ctx, id, true)
+    if (loan.version !== input.version) throw conflict()
+    if (loan.status !== "active") throw new AppError("loan.closed")
+    let data = await ledger(tx, loan)
+    const remaining = loanRemaining(loan, data, today)
+    if (remaining.principal !== 0) throw new AppError("loan.debtRemaining")
+    if (remaining.interest.length && !input.interest) throw new AppError("loan.interestRemaining")
+    if (input.interest?.mode === "pay" && remaining.interest.length) {
+      if (input.interest.date > today) throw new AppError("loan.futureActualDate")
+      const latestPosted = data.rows.filter((r) => r.status === "posted").map((r) => r.date).sort().at(-1)
+      if (latestPosted && input.interest.date < latestPosted) throw new AppError("loan.actualDateOrder")
+      if (input.interest.amount !== undefined && remaining.interest.length !== 1) throw new AppError("loan.closeInterestAmount")
+      await activePaymentAccount(tx, ctx, loan, input.interest.accountId)
+      await postInterestRows(
+        ctx,
+        tx,
+        loan,
+        remaining.interest,
+        input.interest.date,
+        input.interest.accountId,
+        today,
+        input.interest.amount,
+      )
+      loan = await owned(tx, ctx, id, true)
+      data = await ledger(tx, loan)
+      const afterPayment = loanRemaining(loan, data, today)
+      if (afterPayment.interest.length) throw new AppError("loan.interestRemaining")
+    }
     await tx
       .delete(transactions)
       .where(and(eq(transactions.householdId, ctx.householdId), eq(transactions.loanId, id), eq(transactions.status, "planned")))
@@ -886,7 +1045,22 @@ export async function closeLoan(ctx: HouseholdCtx, id: string, version: number) 
       .update(loans)
       .set({ status: "closed", version: loan.version + 1 })
       .where(and(eq(loans.householdId, ctx.householdId), eq(loans.id, id)))
-    await audit({ action: "loan.close", entityType: "loan", entityId: id, householdId: ctx.householdId, actorId: ctx.userId }, tx)
+    const dueDates = remaining.interest.map((r) => r.date)
+    const meta =
+      !input.interest || !dueDates.length
+        ? undefined
+        : input.interest.mode === "waive"
+          ? { interest: { mode: "waive", amount: remaining.interestTotal, dueDates } }
+          : {
+              interest: {
+                mode: "pay",
+                amount: input.interest.amount ?? remaining.interestTotal,
+                dueDates,
+                date: input.interest.date,
+                accountId: input.interest.accountId,
+              },
+            }
+    await audit({ action: "loan.close", entityType: "loan", entityId: id, householdId: ctx.householdId, actorId: ctx.userId, meta }, tx)
   })
 }
 

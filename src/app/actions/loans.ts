@@ -60,9 +60,9 @@ export async function materializeLoanPaymentAction(id: string, date: string) {
   })
 }
 
-export async function closeLoanAction(id: string, version: number) {
+export async function closeLoanAction(id: string, input: Parameters<typeof loans.closeLoan>[2]) {
   return runAction(async () => {
-    await loans.closeLoan(await actionHousehold(), id, version)
+    await loans.closeLoan(await actionHousehold(), id, input)
     refresh()
   })
 }

@@ -1,8 +1,8 @@
 import { and, eq } from "drizzle-orm"
 import { describe, expect, it } from "vitest"
 import { getDb } from "@/db"
-import { financialAccounts, loanEvents, loans, transactions, exchangeRates } from "@/db/schema"
-import { addDays, addMonths, startOfMonth, todayIn } from "@/lib/dates"
+import { auditLogs, financialAccounts, loanEvents, loans, transactions, exchangeRates } from "@/db/schema"
+import { addDays, addMonths, startOfMonth, todayIn, ymd } from "@/lib/dates"
 import { confirmTelegramPayment } from "@/server/notifications/telegram"
 import { notificationSnapshot } from "@/server/notifications/snapshot"
 import { automateGoal, contributeToGoal, createGoal, transferToGoal } from "@/server/services/goals"
@@ -55,6 +55,31 @@ async function fixture(overrides: Partial<LoanInput> = {}) {
   }
   const loan = await createLoan(f.ctx, input)
   return { ...f, today, loan, input }
+}
+
+async function dailyActualFullDebtFixture() {
+  const f = await setupHousehold("Daily actual close")
+  const today = todayIn(f.ctx.timezone)
+  const trackingDate = addDays(today, -11)
+  const firstPaymentDate = addMonths(trackingDate, 1)
+  const input: LoanInput = {
+    name: "Потребительский кредит",
+    lender: "Банк Пример",
+    kind: "consumer",
+    principal: 310_000_00,
+    trackingBalance: 310_000_00,
+    annualRate: "55",
+    trackingDate,
+    startDate: trackingDate,
+    firstPaymentDate,
+    termMonths: 12,
+    paymentDay: ymd(trackingDate).d,
+    scheduleType: "annuity",
+    interestMethod: "daily_actual",
+    paymentAccountId: f.mainAccount,
+  }
+  const loan = await createLoan(f.ctx, input)
+  return { ...f, today, trackingDate, firstPaymentDate, loan, input }
 }
 
 /** FX rates are global, so these fixtures must restore the shared key even if an assertion fails. */
@@ -237,9 +262,175 @@ describe("loans", () => {
     expect(paid.debt).toBe(0)
     expect(paid.events[0]!.amount).toBe(current.debt)
     expect((await parts(f.loan.id)).some((r) => r.status === "planned")).toBe(false)
-    await closeLoan(f.ctx, f.loan.id, paid.loan.version)
+    await closeLoan(f.ctx, f.loan.id, { version: paid.loan.version })
     await ensureLoansMaterialized(f.ctx, addMonths(f.today, 5))
     expect((await parts(f.loan.id)).filter((r) => r.status === "posted")).toHaveLength(3)
+  })
+
+  it("reproduces a full prepayment with daily actual interest left on the next due date", async () => {
+    const f = await dailyActualFullDebtFixture()
+    await addLoanEvent(f.ctx, f.loan.id, f.loan.version, {
+      type: "prepayment",
+      date: f.today,
+      amount: 310_000_00,
+      mode: "reduce_term",
+    })
+    const detail = await getLoan(f.ctx, f.loan.id)
+    expect(detail.debt).toBe(0)
+    expect(detail.remaining).toMatchObject({
+      principal: 0,
+      interestTotal: 5_138_36,
+      interest: [{ date: f.firstPaymentDate, amount: 5_138_36, from: f.trackingDate, to: f.today }],
+    })
+    await expect(closeLoan(f.ctx, f.loan.id, { version: detail.loan.version })).rejects.toThrow("Оплатите оставшиеся проценты")
+  })
+
+  it.each([
+    ["computed", undefined, 5_138_36],
+    ["edited", 5_200_00, 5_200_00],
+  ] as const)("pays the %s remaining interest and closes the loan", async (_label, editedAmount, expectedPaid) => {
+    const f = await dailyActualFullDebtFixture()
+    await addLoanEvent(f.ctx, f.loan.id, f.loan.version, {
+      type: "prepayment",
+      date: f.today,
+      amount: 310_000_00,
+      mode: "reduce_term",
+    })
+    const detail = await getLoan(f.ctx, f.loan.id)
+    const paymentAccount = await createAccount(f.ctx, { name: "Резервный счёт", kind: "debit_card", openingBalance: 0 })
+    await closeLoan(f.ctx, f.loan.id, {
+      version: detail.loan.version,
+      interest: { mode: "pay", date: f.today, accountId: paymentAccount.id, ...(editedAmount === undefined ? {} : { amount: editedAmount }) },
+    })
+    const closed = await getLoan(f.ctx, f.loan.id)
+    const postedInterest = (await parts(f.loan.id)).filter((r) => r.loanPart === "interest" && r.status === "posted")
+    expect(closed.loan.status).toBe("closed")
+    expect(closed.paidInterest).toBe(expectedPaid)
+    expect(closed.paidInterest + closed.futureInterest).toBe(expectedPaid)
+    expect(closed.remaining.interest).toEqual([])
+    expect(postedInterest).toEqual([
+      expect.objectContaining({ loanDueDate: f.firstPaymentDate, date: f.today, amount: expectedPaid, accountId: paymentAccount.id }),
+    ])
+    expect((await listAccounts(f.ctx)).find((a) => a.id === paymentAccount.id)!.balance).toBe(-expectedPaid)
+    expect((await parts(f.loan.id)).every((r) => r.status !== "planned")).toBe(true)
+  })
+
+  it("waives the remaining interest without charging it and records due dates in the close audit", async () => {
+    const f = await dailyActualFullDebtFixture()
+    await addLoanEvent(f.ctx, f.loan.id, f.loan.version, {
+      type: "prepayment",
+      date: f.today,
+      amount: 310_000_00,
+      mode: "reduce_term",
+    })
+    const detail = await getLoan(f.ctx, f.loan.id)
+    await closeLoan(f.ctx, f.loan.id, { version: detail.loan.version, interest: { mode: "waive" } })
+    const closed = await getLoan(f.ctx, f.loan.id)
+    const [entry] = await getDb()
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, f.loan.id), eq(auditLogs.action, "loan.close")))
+    expect(closed.loan.status).toBe("closed")
+    expect(closed.paidInterest).toBe(0)
+    expect(closed.paidInterest + closed.futureInterest).toBe(0)
+    expect((await listAccounts(f.ctx)).find((a) => a.id === f.mainAccount)!.balance).toBe(-310_000_00)
+    expect((await parts(f.loan.id)).every((r) => r.status !== "planned")).toBe(true)
+    expect(entry?.meta).toMatchObject({
+      interest: { mode: "waive", amount: 5_138_36, dueDates: [f.firstPaymentDate] },
+    })
+  })
+
+  it("posts each computed amount when interest remains on several due dates", async () => {
+    const f = await dailyActualFullDebtFixture()
+    await addLoanEvent(f.ctx, f.loan.id, f.loan.version, {
+      type: "prepayment",
+      date: f.today,
+      amount: 310_000_00,
+      mode: "reduce_term",
+    })
+    const secondDueDate = addMonths(f.firstPaymentDate, 1)
+    await getDb().insert(transactions).values({
+      householdId: f.ctx.householdId,
+      loanId: f.loan.id,
+      loanDueDate: secondDueDate,
+      loanPart: "interest",
+      loanPaymentKey: `${f.loan.id}:${secondDueDate}`,
+      type: "expense",
+      status: "planned",
+      amount: 1_234,
+      date: secondDueDate,
+      accountId: f.mainAccount,
+      categoryId: f.loan.interestCategoryId,
+      title: "Synthetic planned interest",
+      version: 2,
+      createdBy: f.owner.id,
+      updatedBy: f.owner.id,
+    })
+    const detail = await getLoan(f.ctx, f.loan.id)
+    expect(detail.remaining.interest.map((r) => r.date)).toEqual([f.firstPaymentDate, secondDueDate])
+    await closeLoan(f.ctx, f.loan.id, {
+      version: detail.loan.version,
+      interest: { mode: "pay", date: f.today, accountId: f.mainAccount },
+    })
+    const closed = await getLoan(f.ctx, f.loan.id)
+    const postedInterest = (await parts(f.loan.id)).filter((r) => r.loanPart === "interest" && r.status === "posted")
+    expect(postedInterest.map((r) => [r.loanDueDate, r.amount])).toEqual([
+      [f.firstPaymentDate, 5_138_36],
+      [secondDueDate, 1_234],
+    ])
+    expect(closed.paidInterest).toBe(5_138_36 + 1_234)
+    expect(closed.paidInterest + closed.futureInterest).toBe(5_138_36 + 1_234)
+    expect(closed.loan.status).toBe("closed")
+  })
+
+  it("refuses a future or backdated close payment, invalid accounts, stale versions and unpaid principal", async () => {
+    const f = await dailyActualFullDebtFixture()
+    await addLoanEvent(f.ctx, f.loan.id, f.loan.version, {
+      type: "prepayment",
+      date: f.today,
+      amount: 310_000_00,
+      mode: "reduce_term",
+    })
+    const detail = await getLoan(f.ctx, f.loan.id)
+    const base = { mode: "pay" as const, date: f.today, accountId: f.mainAccount }
+    await expect(closeLoan(f.ctx, f.loan.id, { version: detail.loan.version, interest: { ...base, date: addDays(f.today, 1) } })).rejects.toThrow("не может быть в будущем")
+    await expect(closeLoan(f.ctx, f.loan.id, { version: detail.loan.version, interest: { ...base, date: addDays(f.today, -1) } })).rejects.toThrow("раньше предыдущего")
+    const other = await setupHousehold("Other synthetic household")
+    await expect(closeLoan(f.ctx, f.loan.id, { version: detail.loan.version, interest: { ...base, accountId: other.mainAccount } })).rejects.toThrow("активный счёт")
+    await expect(closeLoan(f.ctx, f.loan.id, { version: detail.loan.version, interest: { ...base, accountId: f.loan.accountId } })).rejects.toThrow("активный счёт")
+    await expect(closeLoan(f.ctx, f.loan.id, { version: detail.loan.version - 1, interest: { mode: "waive" } })).rejects.toThrow("изменены")
+    const unpaid = await fixture()
+    await expect(closeLoan(unpaid.ctx, unpaid.loan.id, { version: unpaid.loan.version, interest: { mode: "waive" } })).rejects.toThrow("долг")
+  })
+
+  it("includes accrued interest in a full prepayment when selected and leaves it planned when unchecked", async () => {
+    const withInterest = await dailyActualFullDebtFixture()
+    await addLoanEvent(withInterest.ctx, withInterest.loan.id, withInterest.loan.version, {
+      type: "prepayment",
+      date: withInterest.today,
+      amount: 310_000_00,
+      mode: "reduce_term",
+      payAccruedInterest: true,
+    })
+    const paid = await getLoan(withInterest.ctx, withInterest.loan.id)
+    expect(paid.debt).toBe(0)
+    expect(paid.remaining.interest).toEqual([])
+    expect(paid.paidInterest).toBe(5_138_36)
+    await closeLoan(withInterest.ctx, withInterest.loan.id, { version: paid.loan.version })
+    expect((await getLoan(withInterest.ctx, withInterest.loan.id)).loan.status).toBe("closed")
+
+    const withoutInterest = await dailyActualFullDebtFixture()
+    await addLoanEvent(withoutInterest.ctx, withoutInterest.loan.id, withoutInterest.loan.version, {
+      type: "prepayment",
+      date: withoutInterest.today,
+      amount: 310_000_00,
+      mode: "reduce_term",
+      payAccruedInterest: false,
+    })
+    const unpaid = await getLoan(withoutInterest.ctx, withoutInterest.loan.id)
+    expect(unpaid.remaining.interest).toHaveLength(1)
+    expect(unpaid.paidInterest).toBe(0)
+    await expect(closeLoan(withoutInterest.ctx, withoutInterest.loan.id, { version: unpaid.loan.version })).rejects.toThrow("Оплатите оставшиеся проценты")
   })
 
   it("serializes concurrent confirmations and rolls back an invalid allocation", async () => {
@@ -439,13 +630,13 @@ describe("loans", () => {
     await confirmFirst(f)
     const d = await getLoan(f.ctx, f.loan.id)
     expect(d.debt).toBe(0)
-    await closeLoan(f.ctx, f.loan.id, d.loan.version)
+    await closeLoan(f.ctx, f.loan.id, { version: d.loan.version })
     expect((await getLoan(f.ctx, f.loan.id)).loan.status).toBe("closed")
   })
 
   it("deletes an unused loan, preserves posted history and refuses closing unpaid debt", async () => {
     const f = await fixture()
-    await expect(closeLoan(f.ctx, f.loan.id, 1)).rejects.toThrow("долг")
+    await expect(closeLoan(f.ctx, f.loan.id, { version: 1 })).rejects.toThrow("долг")
     await deleteLoan(f.ctx, f.loan.id, 1)
     expect(await parts(f.loan.id)).toHaveLength(0)
     expect((await listAccounts(f.ctx)).some((a) => a.id === f.loan.accountId)).toBe(false)

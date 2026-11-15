@@ -415,7 +415,7 @@ describe("holidays", () => {
     const d = await getLoan(f.ctx, f.loan.id)
     expect(d.debt).toBe(0)
     expect(d.next?.interest).toBeGreaterThan(0)
-    await expect(closeLoan(f.ctx, f.loan.id, d.loan.version)).rejects.toThrow("проценты")
+    await expect(closeLoan(f.ctx, f.loan.id, { version: d.loan.version })).rejects.toThrow("проценты")
   })
 })
 
