@@ -2,7 +2,7 @@
 
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии — [SemVer](https://semver.org/lang/ru/).
 
-## [Unreleased]
+## [1.0.0-beta.9] — 2026-11-15
 
 ### Исправлено
 
@@ -11,6 +11,10 @@
 ### Изменено
 
 - При полном досрочном погашении форма показывает проценты, начисленные к этой дате, и по умолчанию вносит их тем же платежом, после чего кредит можно сразу закрыть.
+
+### Обновление с beta.8
+
+- Сделайте бэкап, затем установите `BESTBUDGET_VERSION=1.0.0-beta.9`, обновите `compose.yaml` или Helm-чарт из тега и перезапустите приложение. Миграций нет, вернуться на beta.8 можно сменой образа.
 
 ## [1.0.0-beta.8] — 2026-11-05
 
@@ -235,6 +239,7 @@
 - Восстановление пароля по e-mail работает только при настроенном SMTP; иначе пароль сбрасывает администратор.
 - Встроенный в Helm-чарт PostgreSQL — один экземпляр без репликации и автоматических бэкапов.
 
+[1.0.0-beta.9]: https://github.com/mambastick/bestbudget/releases/tag/v1.0.0-beta.9
 [1.0.0-beta.8]: https://github.com/mambastick/bestbudget/releases/tag/v1.0.0-beta.8
 [1.0.0-beta.7]: https://github.com/mambastick/bestbudget/releases/tag/v1.0.0-beta.7
 [1.0.0-beta.6]: https://github.com/mambastick/bestbudget/releases/tag/v1.0.0-beta.6
